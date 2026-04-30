@@ -10,6 +10,8 @@ import {
   isOnboardingCompleted,
   isSessionUnlocked,
 } from '../src/Storage/authStorage';
+import { hasUserProfile } from '../src/Storage/profileStorage';
+import { getDID } from '../src/Storage/didStorage';
 
 export default function RootLayout() {
   return (
@@ -34,29 +36,60 @@ function AuthGate() {
     const pinExists = await hasPin();
     const onboardingDone = await isOnboardingCompleted();
     const sessionUnlocked = await isSessionUnlocked();
+    const profileExists = await hasUserProfile();
+    const didExists = await getDID();
 
     const currentGroup = segments[0];
-    const isAuthRoute = currentGroup === 'auth';
+    const currentRoute = segments[1];
 
-    if (!onboardingDone && !isAuthRoute) {
+    const isAuthRoute = currentGroup === 'auth';
+    const isOnboardingRoute = isAuthRoute && currentRoute === 'onboarding';
+    const isCreateAccountRoute = isAuthRoute && currentRoute === 'create-account';
+
+    if (!onboardingDone && !isOnboardingRoute && !isCreateAccountRoute) {
       router.replace('/auth/onboarding');
       setChecking(false);
       return;
     }
 
-    if (onboardingDone && !pinExists && !isAuthRoute) {
+    if (!onboardingDone && isAuthRoute) {
+      setChecking(false);
+      return;
+    }
+
+    if (onboardingDone && (!profileExists || !didExists) && !isCreateAccountRoute) {
+      router.replace('/auth/create-account');
+      setChecking(false);
+      return;
+    }
+
+    if (onboardingDone && profileExists && didExists && !pinExists && !isAuthRoute) {
       router.replace('/auth/create-pin');
       setChecking(false);
       return;
     }
 
-    if (onboardingDone && pinExists && !sessionUnlocked && !isAuthRoute) {
+    if (
+      onboardingDone &&
+      profileExists &&
+      didExists &&
+      pinExists &&
+      !sessionUnlocked &&
+      !isAuthRoute
+    ) {
       router.replace('/auth/unlock');
       setChecking(false);
       return;
     }
 
-    if (onboardingDone && pinExists && sessionUnlocked && isAuthRoute) {
+    if (
+      onboardingDone &&
+      profileExists &&
+      didExists &&
+      pinExists &&
+      sessionUnlocked &&
+      isAuthRoute
+    ) {
       router.replace('/(tabs)');
       setChecking(false);
       return;

@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
-
+import { getUserProfile, UserProfile } from '../../src/Storage/profileStorage';
 import { DIDData } from '../../src/types/did';
 import { CredentialDocument } from '../../src/types/vc';
 import { getDID } from '../../src/Storage/didStorage';
@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [showDIDQR, setShowDIDQR] = useState(false);
-
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [toast, setToast] = useState({
     visible: false,
     message: '',
@@ -40,7 +40,8 @@ export default function HomeScreen() {
   async function loadDashboard() {
     try {
       setLoadingDashboard(true);
-
+      const userProfile = await getUserProfile();
+        setProfile(userProfile);
       const did = await getDID();
       const docs = await getCredentialDocuments();
 
@@ -111,7 +112,9 @@ export default function HomeScreen() {
 
             <View>
               <Text style={styles.greetingText}>Halo,</Text>
-              <Text style={styles.userName}>Muhammad Yaasir</Text>
+              <Text style={styles.userName}>
+                {profile?.fullName ?? 'Pengguna Wallet'}
+              </Text>
             </View>
           </View>
 

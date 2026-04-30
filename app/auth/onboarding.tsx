@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   View,
   Text,
@@ -9,55 +8,12 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { setOnboardingCompleted } from '../../src/Storage/authStorage';
-
-const slides = [
-  {
-    icon: 'shield-checkmark-outline',
-    title: 'SSI Wallet',
-    subtitle:
-      'Kelola identitas digital berbasis DID dan Verifiable Credential secara aman di perangkatmu.',
-  },
-  {
-    icon: 'finger-print-outline',
-    title: 'Decentralized Identity',
-    subtitle:
-      'Buat DID did:ethr untuk mengontrol identitas digital tanpa bergantung pada akun terpusat.',
-  },
-  {
-    icon: 'id-card-outline',
-    title: 'Modular Credential',
-    subtitle:
-      'Simpan credential secara modular, satu atribut untuk satu credential agar mudah dipresentasikan.',
-  },
-  {
-    icon: 'qr-code-outline',
-    title: 'Present as QR',
-    subtitle:
-      'Presentasikan credential dalam bentuk JWT yang diubah menjadi QR Code untuk diverifikasi pihak ketiga.',
-  },
-];
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const [index, setIndex] = useState(0);
 
-  const slide = slides[index];
-  const isLast = index === slides.length - 1;
-
-  async function handleNext() {
-    if (!isLast) {
-      setIndex(index + 1);
-      return;
-    }
-
-    await setOnboardingCompleted(true);
-    router.replace('/auth/create-pin');
-  }
-
-  async function handleSkip() {
-    await setOnboardingCompleted(true);
-    router.replace('/auth/create-pin');
+  function handleStart() {
+    router.replace('/auth/create-account');
   }
 
   return (
@@ -67,49 +23,32 @@ export default function OnboardingScreen() {
         style={styles.hero}
       >
         <View style={styles.topRow}>
-          <Text style={styles.brand}>VC Wallet</Text>
-
-          {!isLast && (
-            <Pressable onPress={handleSkip}>
-              <Text style={styles.skipText}>Lewati</Text>
-            </Pressable>
-          )}
+          <Text style={styles.brand}>SSI Wallet</Text>
         </View>
 
         <View style={styles.iconCircle}>
-          <Ionicons name={slide.icon as any} size={54} color="#2563EB" />
+          <Ionicons name="shield-checkmark-outline" size={58} color="#2563EB" />
         </View>
 
-        <Text style={styles.title}>{slide.title}</Text>
-        <Text style={styles.subtitle}>{slide.subtitle}</Text>
+        <Text style={styles.title}>Kelola Identitas Digitalmu</Text>
 
-        <View style={styles.dots}>
-          {slides.map((_, itemIndex) => (
-            <View
-              key={itemIndex}
-              style={[
-                styles.dot,
-                itemIndex === index && styles.activeDot,
-              ]}
-            />
-          ))}
-        </View>
+        <Text style={styles.subtitle}>
+          SSI Wallet membantu kamu membuat DID, menyimpan Verifiable Credential,
+          dan mempresentasikan identitas digital secara aman melalui perangkatmu.
+        </Text>
       </LinearGradient>
 
       <View style={styles.bottomCard}>
-        <Text style={styles.infoTitle}>
-          {isLast ? 'Siap Mengamankan Wallet?' : 'Identitas Digital Aman'}
-        </Text>
+        <Text style={styles.infoTitle}>Mulai dengan Identitas Digital</Text>
 
         <Text style={styles.infoText}>
-          Setelah onboarding, kamu akan membuat PIN lokal untuk mengunci wallet.
-          PIN disimpan pada secure storage perangkat.
+          Setelah onboarding, kamu akan membuat akun wallet. Sistem akan otomatis
+          membuat DID yang bersifat permanen dan digunakan sebagai identitas
+          digital utama.
         </Text>
 
-        <Pressable style={styles.primaryButton} onPress={handleNext}>
-          <Text style={styles.primaryButtonText}>
-            {isLast ? 'Mulai Sekarang' : 'Lanjut'}
-          </Text>
+        <Pressable style={styles.primaryButton} onPress={handleStart}>
+          <Text style={styles.primaryButtonText}>Mulai Sekarang</Text>
           <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
         </Pressable>
       </View>
@@ -143,11 +82,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
   },
-  skipText: {
-    color: '#FFEDD5',
-    fontSize: 14,
-    fontWeight: '800',
-  },
   iconCircle: {
     width: 122,
     height: 122,
@@ -155,7 +89,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 82,
+    marginTop: 92,
     marginBottom: 28,
   },
   title: {
@@ -163,6 +97,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '900',
     textAlign: 'center',
+    lineHeight: 38,
   },
   subtitle: {
     color: '#DBEAFE',
@@ -170,22 +105,7 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     textAlign: 'center',
     marginTop: 12,
-    maxWidth: 310,
-  },
-  dots: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 34,
-  },
-  dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 99,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  activeDot: {
-    width: 28,
-    backgroundColor: '#FFFFFF',
+    maxWidth: 320,
   },
   bottomCard: {
     backgroundColor: '#FFFFFF',
