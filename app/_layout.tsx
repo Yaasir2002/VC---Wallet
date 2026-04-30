@@ -8,6 +8,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import {
   hasPin,
   isOnboardingCompleted,
+  isSessionUnlocked,
 } from '../src/Storage/authStorage';
 
 export default function RootLayout() {
@@ -32,10 +33,9 @@ function AuthGate() {
   async function checkAuth() {
     const pinExists = await hasPin();
     const onboardingDone = await isOnboardingCompleted();
+    const sessionUnlocked = await isSessionUnlocked();
 
     const currentGroup = segments[0];
-    const currentScreen = segments[1];
-
     const isAuthRoute = currentGroup === 'auth';
 
     if (!onboardingDone && !isAuthRoute) {
@@ -50,14 +50,14 @@ function AuthGate() {
       return;
     }
 
-    if (onboardingDone && pinExists && !isAuthRoute) {
+    if (onboardingDone && pinExists && !sessionUnlocked && !isAuthRoute) {
       router.replace('/auth/unlock');
       setChecking(false);
       return;
     }
 
-    if (onboardingDone && pinExists && isAuthRoute && currentScreen === 'create-pin') {
-      router.replace('/auth/unlock');
+    if (onboardingDone && pinExists && sessionUnlocked && isAuthRoute) {
+      router.replace('/(tabs)');
       setChecking(false);
       return;
     }

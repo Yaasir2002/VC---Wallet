@@ -13,7 +13,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-import { getPin, isBiometricEnabled } from '../../src/Storage/authStorage';
+import {
+  getPin,
+  isBiometricEnabled,
+  setSessionUnlocked,
+} from '../../src/Storage/authStorage';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import AppToast from '../../components/ui/AppToast';
 
@@ -67,32 +71,34 @@ export default function UnlockScreen() {
     cancelLabel: 'Batal',
   });
 
-  if (result.success) {
+    if (result.success) {
+    await setSessionUnlocked(true);
     router.replace('/(tabs)');
   }
 }
 
-  function handleUnlock() {
-    if (!inputPin) {
-      setToast({
-        visible: true,
-        message: 'Masukkan PIN terlebih dahulu',
-        type: 'error',
-      });
-      return;
-    }
-
-    if (inputPin === savedPin) {
-      router.replace('/(tabs)');
-    } else {
-      setToast({
-        visible: true,
-        message: 'PIN salah',
-        type: 'error',
-      });
-      setInputPin('');
-    }
+  async function handleUnlock() {
+  if (!inputPin) {
+    setToast({
+      visible: true,
+      message: 'Masukkan PIN terlebih dahulu',
+      type: 'error',
+    });
+    return;
   }
+
+  if (inputPin === savedPin) {
+    await setSessionUnlocked(true);
+    router.replace('/(tabs)');
+  } else {
+    setToast({
+      visible: true,
+      message: 'PIN salah',
+      type: 'error',
+    });
+    setInputPin('');
+  }
+}
 
   return (
     <View style={{ flex: 1 }}>

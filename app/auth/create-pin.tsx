@@ -16,6 +16,8 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import {
   savePin,
   setBiometricEnabled,
+  setOnboardingCompleted,
+  setSessionUnlocked,
 } from '../../src/Storage/authStorage';
 
 export default function CreatePinScreen() {
@@ -52,8 +54,10 @@ export default function CreatePinScreen() {
 
     await savePin(pin);
     await setBiometricEnabled(biometricEnabled);
+    await setOnboardingCompleted(true);
+    await setSessionUnlocked(true);
 
-    router.replace('/(tabs)');
+router.replace('/(tabs)');
   }
 
   return (
