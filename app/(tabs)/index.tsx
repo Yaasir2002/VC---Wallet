@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
+
 import { getUserProfile, UserProfile } from '../../src/Storage/profileStorage';
 import { DIDData } from '../../src/types/did';
 import { CredentialDocument } from '../../src/types/vc';
@@ -26,11 +27,12 @@ import AnimatedScreen from '../../components/ui/AnimatedScreen';
 export default function HomeScreen() {
   const router = useRouter();
 
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [didData, setDidData] = useState<DIDData | null>(null);
   const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [showDIDQR, setShowDIDQR] = useState(false);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+
   const [toast, setToast] = useState({
     visible: false,
     message: '',
@@ -40,11 +42,12 @@ export default function HomeScreen() {
   async function loadDashboard() {
     try {
       setLoadingDashboard(true);
+
       const userProfile = await getUserProfile();
-        setProfile(userProfile);
       const did = await getDID();
       const docs = await getCredentialDocuments();
 
+      setProfile(userProfile);
       setDidData(did);
       setDocuments(docs);
     } catch (error) {
@@ -64,7 +67,7 @@ export default function HomeScreen() {
     if (!didData?.did) {
       setToast({
         visible: true,
-        message: 'DID belum tersedia',
+        message: 'DID Address belum tersedia',
         type: 'error',
       });
       return;
@@ -74,7 +77,26 @@ export default function HomeScreen() {
 
     setToast({
       visible: true,
-      message: 'DID berhasil disalin',
+      message: 'DID Address berhasil disalin',
+      type: 'success',
+    });
+  }
+
+  async function handleCopyPublicKey() {
+    if (!didData?.controllerKeyId) {
+      setToast({
+        visible: true,
+        message: 'Public key belum tersedia',
+        type: 'error',
+      });
+      return;
+    }
+
+    await Clipboard.setStringAsync(didData.controllerKeyId);
+
+    setToast({
+      visible: true,
+      message: 'Public key berhasil disalin',
       type: 'success',
     });
   }
@@ -83,7 +105,7 @@ export default function HomeScreen() {
     if (!didData?.did) {
       setToast({
         visible: true,
-        message: 'DID belum tersedia',
+        message: 'DID Address belum tersedia',
         type: 'error',
       });
       return;
@@ -103,12 +125,18 @@ export default function HomeScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <View style={styles.topHeader}>
           <View style={styles.profileRow}>
-            <Image
-              source={{
-                uri: 'https://i.pravatar.cc/150?img=12',
-              }}
-              style={styles.profileImage}
-            />
+            {profile?.profileImageUri ? (
+              <Image
+                source={{ uri: profile.profileImageUri }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <View style={styles.profileImageFallback}>
+                <Text style={styles.profileImageFallbackText}>
+                  {getInitial(profile?.fullName)}
+                </Text>
+              </View>
+            )}
 
             <View>
               <Text style={styles.greetingText}>Halo,</Text>
@@ -120,7 +148,6 @@ export default function HomeScreen() {
 
           <Pressable style={styles.notificationButton}>
             <Ionicons name="notifications-outline" size={24} color="#111827" />
-
             <View style={styles.notificationDot} />
           </Pressable>
         </View>
@@ -161,20 +188,20 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              <Text style={styles.didAddressLabel}>DID Address</Text>
+              <Text style={styles.didAddressLabel}>Public Key</Text>
               <Text style={styles.didAddress}>
-                {didData?.did ??
-                  'Buat DID terlebih dahulu agar wallet identitas digital aktif.'}
+                {didData?.controllerKeyId ??
+                  'Public key belum tersedia. Buat akun terlebih dahulu.'}
               </Text>
 
               {didData ? (
                 <View style={styles.didActionRow}>
                   <AnimatedButton
                     style={styles.copyDidButton}
-                    onPress={handleCopyDID}
+                    onPress={handleCopyPublicKey}
                   >
-                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
-                    <Text style={styles.copyDidText}>Copy DID</Text>
+                    <Ionicons name="key-outline" size={16} color="#2563EB" />
+                    <Text style={styles.copyDidText}>Copy Public Key</Text>
                   </AnimatedButton>
 
                   <AnimatedButton
@@ -186,13 +213,17 @@ export default function HomeScreen() {
                   </AnimatedButton>
                 </View>
               ) : (
-                <AnimatedButton
-                  style={styles.createButton}
-                  onPress={() => router.push('/(tabs)/did')}
-                >
-                  <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-                  <Text style={styles.createButtonText}>Create DID</Text>
-                </AnimatedButton>
+                <View style={styles.lockedDidNotice}>
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color="#F97316"
+                  />
+                  <Text style={styles.lockedDidText}>
+                    DID dibuat otomatis saat pembuatan akun dan tidak dapat
+                    dibuat manual dari dashboard.
+                  </Text>
+                </View>
               )}
             </View>
           )}
@@ -380,7 +411,7 @@ export default function HomeScreen() {
             <View style={styles.qrModalActionRow}>
               <Pressable style={styles.qrCopyButton} onPress={handleCopyDID}>
                 <Ionicons name="copy-outline" size={16} color="#2563EB" />
-                <Text style={styles.qrCopyButtonText}>Copy DID</Text>
+                <Text style={styles.qrCopyButtonText}>Copy DID Address</Text>
               </Pressable>
 
               <Pressable
@@ -402,6 +433,18 @@ export default function HomeScreen() {
       />
     </View>
   );
+}
+
+function getInitial(name?: string) {
+  if (!name) return 'U';
+
+  const names = name.trim().split(' ').filter(Boolean);
+
+  if (names.length === 1) {
+    return names[0].charAt(0).toUpperCase();
+  }
+
+  return `${names[0].charAt(0)}${names[1].charAt(0)}`.toUpperCase();
 }
 
 function getDocumentDisplayName(document: CredentialDocument) {
@@ -497,6 +540,19 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     backgroundColor: '#DBEAFE',
+  },
+  profileImageFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileImageFallbackText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
   },
   greetingText: {
     fontSize: 13,
@@ -632,19 +688,23 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
   },
-  createButton: {
-    backgroundColor: '#2563EB',
-    marginTop: 14,
+  lockedDidNotice: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
     borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 14,
+    marginTop: 14,
     flexDirection: 'row',
-    gap: 8,
+    gap: 9,
+    alignItems: 'flex-start',
   },
-  createButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
+  lockedDidText: {
+    flex: 1,
+    color: '#9A3412',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
   },
   documentSection: {
     backgroundColor: '#FFFFFF',

@@ -8,6 +8,7 @@ export type UserProfile = {
   email: string;
   phoneNumber: string;
   address: string;
+  profileImageUri?: string;
   createdAt: string;
 };
 
