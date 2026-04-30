@@ -17,6 +17,7 @@ import {
   getCredentialDocuments,
   createDummyKTP,
 } from '../../src/Services/documentCredentialService';
+import { getDocumentIcon } from '../../src/utils/credentialUtils';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -85,46 +86,46 @@ export default function WalletScreen() {
     }
   }
 
-  async function handleDeleteAllDocuments() {
-  Alert.alert(
-    'Hapus Semua Dokumen',
-    'Apakah kamu yakin ingin menghapus semua credential? Tindakan ini tidak dapat dibatalkan.',
-    [
-      {
-        text: 'Batal',
-        style: 'cancel',
-      },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setLoading(true);
-
-            await deleteAllVCs();
-            setDocuments([]);
-
-            setToast({
-              visible: true,
-              message: 'Semua dokumen credential berhasil dihapus',
-              type: 'success',
-            });
-          } catch (error) {
-            console.log('DELETE DOCUMENTS ERROR:', error);
-
-            setToast({
-              visible: true,
-              message: 'Gagal menghapus dokumen credential',
-              type: 'error',
-            });
-          } finally {
-            setLoading(false);
-          }
+  function handleDeleteAllDocuments() {
+    Alert.alert(
+      'Hapus Semua Dokumen',
+      'Apakah kamu yakin ingin menghapus semua credential? Tindakan ini tidak dapat dibatalkan.',
+      [
+        {
+          text: 'Batal',
+          style: 'cancel',
         },
-      },
-    ]
-  );
-}
+        {
+          text: 'Hapus',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+
+              await deleteAllVCs();
+              setDocuments([]);
+
+              setToast({
+                visible: true,
+                message: 'Semua dokumen credential berhasil dihapus',
+                type: 'success',
+              });
+            } catch (error) {
+              console.log('DELETE DOCUMENTS ERROR:', error);
+
+              setToast({
+                visible: true,
+                message: 'Gagal menghapus dokumen credential',
+                type: 'error',
+              });
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   const totalAttributes = documents.reduce(
     (total, doc) => total + doc.credentials.length,
@@ -171,11 +172,7 @@ export default function WalletScreen() {
 
           <View style={styles.statCard}>
             <View style={styles.statIconOrange}>
-              <Ionicons
-                name="list-outline"
-                size={24}
-                color="#F97316"
-              />
+              <Ionicons name="list-outline" size={24} color="#F97316" />
             </View>
             <Text style={styles.statNumber}>
               {loadingDocs ? '-' : totalAttributes}
@@ -286,9 +283,7 @@ export default function WalletScreen() {
                   </View>
 
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.documentTitle}>
-                      {doc.documentName}
-                    </Text>
+                    <Text style={styles.documentTitle}>{doc.documentName}</Text>
 
                     <Text style={styles.documentSubtitle}>
                       {doc.documentType} • {doc.credentials.length} atribut
@@ -366,14 +361,6 @@ export default function WalletScreen() {
       />
     </View>
   );
-}
-
-function getDocumentIcon(documentType: string) {
-  if (documentType === 'KTP') return 'id-card-outline';
-  if (documentType === 'SIM') return 'car-outline';
-  if (documentType === 'IJAZAH') return 'school-outline';
-
-  return 'document-text-outline';
 }
 
 const styles = StyleSheet.create({

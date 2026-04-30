@@ -47,8 +47,21 @@ export default function CreateAccountScreen() {
       return;
     }
 
+    if (!isValidEmail(email.trim())) {
+      Alert.alert('Validasi', 'Format email tidak valid.');
+      return;
+    }
+
     if (!phoneNumber.trim()) {
       Alert.alert('Validasi', 'Nomor HP wajib diisi.');
+      return;
+    }
+
+    if (!isValidPhoneNumber(phoneNumber.trim())) {
+      Alert.alert(
+        'Validasi',
+        'Nomor HP harus diawali 08 dan berisi 10 sampai 15 digit.'
+      );
       return;
     }
 
@@ -61,18 +74,11 @@ export default function CreateAccountScreen() {
       setLoading(true);
 
       const existingDID = await getDID();
+      const finalDID = existingDID ?? (await generateEthrDID());
 
-      if (existingDID) {
-        Alert.alert(
-          'DID Sudah Ada',
-          'DID sudah pernah dibuat dan tidak dapat diganti.'
-        );
-        return;
+      if (!existingDID) {
+        await saveDID(finalDID);
       }
-
-      const newDID = await generateEthrDID();
-
-      await saveDID(newDID);
 
       await saveUserProfile({
         fullName: fullName.trim(),
@@ -80,6 +86,7 @@ export default function CreateAccountScreen() {
         email: email.trim(),
         phoneNumber: phoneNumber.trim(),
         address: address.trim(),
+        profileImageUri: undefined,
         createdAt: new Date().toISOString(),
       });
 
@@ -88,6 +95,7 @@ export default function CreateAccountScreen() {
       router.replace('/auth/create-pin');
     } catch (error) {
       console.log('CREATE ACCOUNT ERROR:', error);
+
       Alert.alert(
         'Gagal Membuat Akun',
         'Akun gagal dibuat karena DID tidak berhasil dibuat. Silakan coba lagi.'
@@ -251,6 +259,14 @@ function formatDate(date: Date) {
     month: 'long',
     year: 'numeric',
   });
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidPhoneNumber(phone: string) {
+  return /^08[0-9]{8,13}$/.test(phone);
 }
 
 const styles = StyleSheet.create({

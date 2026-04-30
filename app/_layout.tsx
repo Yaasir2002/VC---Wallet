@@ -2,7 +2,7 @@ import 'react-native-get-random-values';
 import '@ethersproject/shims';
 import 'react-native-url-polyfill/auto';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import {
   View,
@@ -34,11 +34,15 @@ function AuthGate() {
   const segments = useSegments();
 
   const [checking, setChecking] = useState(true);
+
   const appState = useRef<AppStateStatus>(AppState.currentState);
+  const segmentsRef = useRef(segments);
+  const isCheckingRef = useRef(false);
 
   useEffect(() => {
+    segmentsRef.current = segments;
     checkAuth();
-  }, [segments]);
+  }, [segments, checkAuth]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener(
@@ -49,110 +53,115 @@ function AuthGate() {
     return () => {
       subscription.remove();
     };
-  }, [segments]);
+  }, [handleAppStateChange]);
 
-  async function handleAppStateChange(nextAppState: AppStateStatus) {
-    const previousState = appState.current;
-    appState.current = nextAppState;
+  const handleAppStateChange = useCallback(
+    async (nextAppState: AppStateStatus) => {
+      const previousState = appState.current;
+      appState.current = nextAppState;
 
-    const currentGroup = segments[0];
-    const isAuthRoute = currentGroup === 'auth';
+      const currentGroup = segmentsRef.current[0];
+      const isAuthRoute = currentGroup === 'auth';
 
-    if (
-      previousState === 'active' &&
-      (nextAppState === 'background' || nextAppState === 'inactive') &&
-      !isAuthRoute
-    ) {
-      await lockSession();
-      return;
-    }
+      if (
+        previousState === 'active' &&
+        (nextAppState === 'background' || nextAppState === 'inactive') &&
+        !isAuthRoute
+      ) {
+        await lockSession();
+        return;
+      }
 
-    if (
-      previousState.match(/inactive|background/) &&
-      nextAppState === 'active'
-    ) {
-      await checkAuth();
-    }
-  }
+      if (
+        previousState.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        await checkAuth();
+      }
+    },
+    [checkAuth]
+  );
 
-  async function checkAuth() {
-    const pinExists = await hasPin();
-    const onboardingDone = await isOnboardingCompleted();
-    const sessionUnlocked = await isSessionUnlocked();
-    const profileExists = await hasUserProfile();
-    const didExists = await getDID();
+  const checkAuth = useCallback(async () => {
+    if (isCheckingRef.current) return;
 
-    const currentGroup = segments[0];
-    const currentRoute = segments[1];
+    try {
+      isCheckingRef.current = true;
 
-    const isAuthRoute = currentGroup === 'auth';
-    const isOnboardingRoute = isAuthRoute && currentRoute === 'onboarding';
-    const isCreateAccountRoute =
-      isAuthRoute && currentRoute === 'create-account';
-    const isCreatePinRoute = isAuthRoute && currentRoute === 'create-pin';
-    const isUnlockRoute = isAuthRoute && currentRoute === 'unlock';
+      const pinExists = await hasPin();
+      const onboardingDone = await isOnboardingCompleted();
+      const sessionUnlocked = await isSessionUnlocked();
+      const profileExists = await hasUserProfile();
+      const didExists = await getDID();
 
-    if (!onboardingDone && !isOnboardingRoute && !isCreateAccountRoute) {
-      router.replace('/auth/onboarding');
+      const currentGroup = segmentsRef.current[0];
+      const currentRoute = segmentsRef.current[1];
+
+      const isAuthRoute = currentGroup === 'auth';
+      const isOnboardingRoute = isAuthRoute && currentRoute === 'onboarding';
+      const isCreateAccountRoute =
+        isAuthRoute && currentRoute === 'create-account';
+      const isCreatePinRoute = isAuthRoute && currentRoute === 'create-pin';
+      const isUnlockRoute = isAuthRoute && currentRoute === 'unlock';
+
+      if (!onboardingDone && !isOnboardingRoute && !isCreateAccountRoute) {
+        router.replace('/auth/onboarding');
+        return;
+      }
+
+      if (!onboardingDone && isAuthRoute) {
+        return;
+      }
+
+      if (
+        onboardingDone &&
+        (!profileExists || !didExists) &&
+        !isCreateAccountRoute
+      ) {
+        router.replace('/auth/create-account');
+        return;
+      }
+
+      if (
+        onboardingDone &&
+        profileExists &&
+        didExists &&
+        !pinExists &&
+        !isCreatePinRoute
+      ) {
+        router.replace('/auth/create-pin');
+        return;
+      }
+
+      if (
+        onboardingDone &&
+        profileExists &&
+        didExists &&
+        pinExists &&
+        !sessionUnlocked &&
+        !isUnlockRoute
+      ) {
+        router.replace('/auth/unlock');
+        return;
+      }
+
+      if (
+        onboardingDone &&
+        profileExists &&
+        didExists &&
+        pinExists &&
+        sessionUnlocked &&
+        isAuthRoute
+      ) {
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.log('AUTH GATE ERROR:', error);
+    } finally {
+      isCheckingRef.current = false;
       setChecking(false);
-      return;
     }
-
-    if (!onboardingDone && isAuthRoute) {
-      setChecking(false);
-      return;
-    }
-
-    if (
-      onboardingDone &&
-      (!profileExists || !didExists) &&
-      !isCreateAccountRoute
-    ) {
-      router.replace('/auth/create-account');
-      setChecking(false);
-      return;
-    }
-
-    if (
-      onboardingDone &&
-      profileExists &&
-      didExists &&
-      !pinExists &&
-      !isCreatePinRoute
-    ) {
-      router.replace('/auth/create-pin');
-      setChecking(false);
-      return;
-    }
-
-    if (
-      onboardingDone &&
-      profileExists &&
-      didExists &&
-      pinExists &&
-      !sessionUnlocked &&
-      !isUnlockRoute
-    ) {
-      router.replace('/auth/unlock');
-      setChecking(false);
-      return;
-    }
-
-    if (
-      onboardingDone &&
-      profileExists &&
-      didExists &&
-      pinExists &&
-      sessionUnlocked &&
-      isAuthRoute
-    ) {
-      router.replace('/(tabs)');
-      setChecking(false);
-      return;
-    }
-
-    setChecking(false);
-  }
+  }, [router]);
 
   if (checking) {
     return (

@@ -129,8 +129,21 @@ export default function SettingsScreen() {
       return;
     }
 
+    if (!isValidEmail(email.trim())) {
+      Alert.alert('Validasi', 'Format email tidak valid.');
+      return;
+    }
+
     if (!phoneNumber.trim()) {
       Alert.alert('Validasi', 'Nomor HP wajib diisi.');
+      return;
+    }
+
+    if (!isValidPhoneNumber(phoneNumber.trim())) {
+      Alert.alert(
+        'Validasi',
+        'Nomor HP harus diawali 08 dan berisi 10 sampai 15 digit.'
+      );
       return;
     }
 
@@ -344,78 +357,82 @@ export default function SettingsScreen() {
       <Modal visible={editVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ubah Profil</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Ubah Profil</Text>
 
-              <Pressable onPress={() => setEditVisible(false)}>
-                <Ionicons name="close-outline" size={26} color="#111827" />
-              </Pressable>
-            </View>
-
-            <View style={styles.editPhotoSection}>
-              <View style={styles.editAvatar}>
-                {profileImageUri ? (
-                  <Image
-                    source={{ uri: profileImageUri }}
-                    style={styles.editAvatarImage}
-                  />
-                ) : (
-                  <Text style={styles.editAvatarText}>{getInitial(fullName)}</Text>
-                )}
+                <Pressable onPress={() => setEditVisible(false)}>
+                  <Ionicons name="close-outline" size={26} color="#111827" />
+                </Pressable>
               </View>
 
-              <Pressable
-                style={styles.changePhotoButton}
-                onPress={handlePickProfileImage}
-              >
-                <Ionicons name="camera-outline" size={18} color="#2563EB" />
-                <Text style={styles.changePhotoText}>Ubah Foto Profil</Text>
-              </Pressable>
-            </View>
+              <View style={styles.editPhotoSection}>
+                <View style={styles.editAvatar}>
+                  {profileImageUri ? (
+                    <Image
+                      source={{ uri: profileImageUri }}
+                      style={styles.editAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.editAvatarText}>
+                      {getInitial(fullName)}
+                    </Text>
+                  )}
+                </View>
 
-            <ProfileInput
-              label="Nama Lengkap"
-              icon="person-outline"
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Masukkan nama lengkap"
-            />
+                <Pressable
+                  style={styles.changePhotoButton}
+                  onPress={handlePickProfileImage}
+                >
+                  <Ionicons name="camera-outline" size={18} color="#2563EB" />
+                  <Text style={styles.changePhotoText}>Ubah Foto Profil</Text>
+                </Pressable>
+              </View>
 
-            <ProfileInput
-              label="Email"
-              icon="mail-outline"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Masukkan email"
-              keyboardType="email-address"
-            />
-
-            <ProfileInput
-              label="Nomor HP"
-              icon="call-outline"
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              placeholder="Masukkan nomor HP"
-              keyboardType="phone-pad"
-            />
-
-            <Text style={styles.inputLabel}>Alamat</Text>
-            <View style={[styles.inputWrap, styles.textAreaWrap]}>
-              <Ionicons name="location-outline" size={20} color="#64748B" />
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Masukkan alamat"
-                placeholderTextColor="#94A3B8"
-                value={address}
-                onChangeText={setAddress}
-                multiline
-                textAlignVertical="top"
+              <ProfileInput
+                label="Nama Lengkap"
+                icon="person-outline"
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Masukkan nama lengkap"
               />
-            </View>
 
-            <Pressable style={styles.saveButton} onPress={handleSaveProfile}>
-              <Text style={styles.saveButtonText}>Simpan Perubahan</Text>
-            </Pressable>
+              <ProfileInput
+                label="Email"
+                icon="mail-outline"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Masukkan email"
+                keyboardType="email-address"
+              />
+
+              <ProfileInput
+                label="Nomor HP"
+                icon="call-outline"
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                placeholder="Masukkan nomor HP"
+                keyboardType="phone-pad"
+              />
+
+              <Text style={styles.inputLabel}>Alamat</Text>
+              <View style={[styles.inputWrap, styles.textAreaWrap]}>
+                <Ionicons name="location-outline" size={20} color="#64748B" />
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Masukkan alamat"
+                  placeholderTextColor="#94A3B8"
+                  value={address}
+                  onChangeText={setAddress}
+                  multiline
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <Pressable style={styles.saveButton} onPress={handleSaveProfile}>
+                <Text style={styles.saveButtonText}>Simpan Perubahan</Text>
+              </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -561,6 +578,14 @@ function formatBirthDate(date?: string) {
   } catch {
     return date;
   }
+}
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidPhoneNumber(phone: string) {
+  return /^08[0-9]{8,13}$/.test(phone);
 }
 
 const styles = StyleSheet.create({
@@ -873,6 +898,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalBox: {
+    maxHeight: '90%',
     backgroundColor: '#FFFFFF',
     borderRadius: 26,
     padding: 20,

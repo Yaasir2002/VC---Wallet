@@ -1,7 +1,9 @@
 import { CredentialDocument } from '../types/vc';
 
 export function getDocumentDisplayName(document: CredentialDocument) {
-  if (document.documentName) return document.documentName;
+  if (document.documentName) {
+    return document.documentName;
+  }
 
   if (document.documentType === 'KTP') return 'KTP Digital';
   if (document.documentType === 'SIM') return 'SIM Digital';

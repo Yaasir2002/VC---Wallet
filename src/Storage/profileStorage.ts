@@ -21,7 +21,12 @@ export async function getUserProfile(): Promise<UserProfile | null> {
 
   if (!data) return null;
 
-  return JSON.parse(data);
+  try {
+    return JSON.parse(data);
+  } catch (error) {
+    console.log('PARSE USER PROFILE ERROR:', error);
+    return null;
+  }
 }
 
 export async function hasUserProfile(): Promise<boolean> {
