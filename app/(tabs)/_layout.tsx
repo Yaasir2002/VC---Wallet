@@ -32,17 +32,6 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
-        name="did"
-        options={{
-          title: 'DID',
-          headerTitleAlign: 'center',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="finger-print-outline" size={size} color={color} />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
         name="wallet"
         options={{
           title: 'Wallet',

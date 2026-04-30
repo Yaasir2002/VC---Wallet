@@ -2,13 +2,20 @@ import 'react-native-get-random-values';
 import '@ethersproject/shims';
 import 'react-native-url-polyfill/auto';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import {
+  View,
+  ActivityIndicator,
+  StyleSheet,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
 import {
   hasPin,
   isOnboardingCompleted,
   isSessionUnlocked,
+  lockSession,
 } from '../src/Storage/authStorage';
 import { hasUserProfile } from '../src/Storage/profileStorage';
 import { getDID } from '../src/Storage/didStorage';
@@ -27,10 +34,46 @@ function AuthGate() {
   const segments = useSegments();
 
   const [checking, setChecking] = useState(true);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     checkAuth();
   }, [segments]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [segments]);
+
+  async function handleAppStateChange(nextAppState: AppStateStatus) {
+    const previousState = appState.current;
+    appState.current = nextAppState;
+
+    const currentGroup = segments[0];
+    const isAuthRoute = currentGroup === 'auth';
+
+    if (
+      previousState === 'active' &&
+      (nextAppState === 'background' || nextAppState === 'inactive') &&
+      !isAuthRoute
+    ) {
+      await lockSession();
+      return;
+    }
+
+    if (
+      previousState.match(/inactive|background/) &&
+      nextAppState === 'active'
+    ) {
+      await checkAuth();
+    }
+  }
 
   async function checkAuth() {
     const pinExists = await hasPin();
@@ -44,7 +87,10 @@ function AuthGate() {
 
     const isAuthRoute = currentGroup === 'auth';
     const isOnboardingRoute = isAuthRoute && currentRoute === 'onboarding';
-    const isCreateAccountRoute = isAuthRoute && currentRoute === 'create-account';
+    const isCreateAccountRoute =
+      isAuthRoute && currentRoute === 'create-account';
+    const isCreatePinRoute = isAuthRoute && currentRoute === 'create-pin';
+    const isUnlockRoute = isAuthRoute && currentRoute === 'unlock';
 
     if (!onboardingDone && !isOnboardingRoute && !isCreateAccountRoute) {
       router.replace('/auth/onboarding');
@@ -57,13 +103,23 @@ function AuthGate() {
       return;
     }
 
-    if (onboardingDone && (!profileExists || !didExists) && !isCreateAccountRoute) {
+    if (
+      onboardingDone &&
+      (!profileExists || !didExists) &&
+      !isCreateAccountRoute
+    ) {
       router.replace('/auth/create-account');
       setChecking(false);
       return;
     }
 
-    if (onboardingDone && profileExists && didExists && !pinExists && !isAuthRoute) {
+    if (
+      onboardingDone &&
+      profileExists &&
+      didExists &&
+      !pinExists &&
+      !isCreatePinRoute
+    ) {
       router.replace('/auth/create-pin');
       setChecking(false);
       return;
@@ -75,7 +131,7 @@ function AuthGate() {
       didExists &&
       pinExists &&
       !sessionUnlocked &&
-      !isAuthRoute
+      !isUnlockRoute
     ) {
       router.replace('/auth/unlock');
       setChecking(false);
