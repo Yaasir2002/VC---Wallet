@@ -15,8 +15,6 @@ import { CredentialDocument } from '../../src/types/vc';
 import {
   getCredentialDocuments,
   createDummyKTP,
-  createDummySIM,
-  createDummyIjazah,
 } from '../../src/Services/documentCredentialService';
 
 import AppToast from '../../components/ui/AppToast';
@@ -39,6 +37,7 @@ export default function WalletScreen() {
   async function loadDocuments() {
     try {
       setLoadingDocs(true);
+
       const docs = await getCredentialDocuments();
       setDocuments(docs);
     } catch (error) {
@@ -60,35 +59,24 @@ export default function WalletScreen() {
     }, [])
   );
 
-  async function handleCreateDocument(type: 'KTP' | 'SIM' | 'IJAZAH') {
+  async function handleCreateDummyCredential() {
     try {
       setLoading(true);
 
-      if (type === 'KTP') {
-        await createDummyKTP();
-      }
-
-      if (type === 'SIM') {
-        await createDummySIM();
-      }
-
-      if (type === 'IJAZAH') {
-        await createDummyIjazah();
-      }
-
+      await createDummyKTP();
       await loadDocuments();
 
       setToast({
         visible: true,
-        message: `${type} credential berhasil dibuat`,
+        message: 'Dummy credential berhasil dibuat',
         type: 'success',
       });
     } catch (error) {
-      console.log('CREATE DOCUMENT VC ERROR:', error);
+      console.log('CREATE DUMMY CREDENTIAL ERROR:', error);
 
       setToast({
         visible: true,
-        message: 'Gagal membuat dokumen credential. Pastikan DID sudah dibuat.',
+        message: 'Gagal membuat dummy credential. Pastikan DID sudah dibuat.',
         type: 'error',
       });
     } finally {
@@ -135,8 +123,8 @@ export default function WalletScreen() {
             <Text style={styles.heroLabel}>Credential Wallet</Text>
             <Text style={styles.heroTitle}>My Documents</Text>
             <Text style={styles.heroSubtitle}>
-              Kelola dokumen credential seperti KTP, SIM, dan Ijazah secara
-              modular.
+              Kelola dokumen credential digital secara modular dan tersimpan
+              lokal di wallet.
             </Text>
           </View>
 
@@ -176,36 +164,24 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Create Demo Document</Text>
+          <Text style={styles.sectionTitle}>Create Dummy Credential</Text>
 
-          <View style={styles.documentActionGrid}>
-            <AnimatedButton
-              style={styles.ktpButton}
-              onPress={() => handleCreateDocument('KTP')}
-              disabled={loading}
-            >
-              <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>KTP</Text>
-            </AnimatedButton>
+          <Text style={styles.actionDescription}>
+            Buat satu dummy credential parent KTP Digital untuk simulasi.
+            Credential ini berisi atribut seperti nama lengkap, NIK, tempat
+            lahir, tanggal lahir, alamat, dan kewarganegaraan.
+          </Text>
 
-            <AnimatedButton
-              style={styles.simButton}
-              onPress={() => handleCreateDocument('SIM')}
-              disabled={loading}
-            >
-              <Ionicons name="car-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>SIM</Text>
-            </AnimatedButton>
-
-            <AnimatedButton
-              style={styles.ijazahButton}
-              onPress={() => handleCreateDocument('IJAZAH')}
-              disabled={loading}
-            >
-              <Ionicons name="school-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>Ijazah</Text>
-            </AnimatedButton>
-          </View>
+          <AnimatedButton
+            style={styles.dummyCredentialButton}
+            onPress={handleCreateDummyCredential}
+            disabled={loading}
+          >
+            <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>
+              {loading ? 'Membuat...' : 'Create Dummy Credential'}
+            </Text>
+          </AnimatedButton>
 
           {documents.length > 0 && (
             <AnimatedButton
@@ -223,7 +199,7 @@ export default function WalletScreen() {
 
         {loadingDocs ? (
           <View style={styles.listSection}>
-            {[1, 2, 3].map((item) => (
+            {[1, 2].map((item) => (
               <View key={item} style={styles.documentCard}>
                 <View style={styles.cardHeader}>
                   <SkeletonBox width={56} height={56} borderRadius={28} />
@@ -254,8 +230,8 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Buat demo KTP, SIM, atau Ijazah terlebih dahulu. Setiap dokumen
-              akan berisi beberapa Verifiable Credential modular.
+              Buat dummy credential terlebih dahulu. Satu credential parent akan
+              berisi beberapa atribut identitas modular.
             </Text>
           </View>
         ) : (
@@ -268,7 +244,10 @@ export default function WalletScreen() {
             {documents.map((doc) => (
               <Pressable
                 key={doc.documentId}
-                style={styles.documentCard}
+                style={({ pressed }) => [
+                  styles.documentCard,
+                  pressed && styles.documentCardPressed,
+                ]}
                 onPress={() =>
                   router.push({
                     pathname: '/credential/document/[documentId]',
@@ -351,9 +330,9 @@ export default function WalletScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
           <Text style={styles.noteText}>
-            Setiap dokumen terdiri dari beberapa credential modular. Saat
-            presentasi, pengguna dapat memilih atribut mana saja yang ingin
-            ditampilkan ke verifier.
+            Credential parent membungkus beberapa atribut seperti nama, NIK,
+            tanggal lahir, alamat, dan data identitas lainnya. Saat detail
+            dibuka, atribut akan tampil sebagai tabel sederhana.
           </Text>
         </View>
       </ScrollView>
@@ -472,37 +451,22 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#111827',
   },
-  documentActionGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+  actionDescription: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 19,
+    marginTop: 8,
   },
-  ktpButton: {
-    flex: 1,
+  dummyCredentialButton: {
     backgroundColor: '#2563EB',
-    paddingVertical: 14,
+    marginTop: 16,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  simButton: {
-    flex: 1,
-    backgroundColor: '#F97316',
     paddingVertical: 14,
-    borderRadius: 16,
-    alignItems: 'center',
+    flexDirection: 'row',
     justifyContent: 'center',
-    gap: 6,
-  },
-  ijazahButton: {
-    flex: 1,
-    backgroundColor: '#16A34A',
-    paddingVertical: 14,
-    borderRadius: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
   actionButtonText: {
     color: '#FFFFFF',
@@ -545,6 +509,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
     marginBottom: 14,
+  },
+  documentCardPressed: {
+    borderColor: '#2563EB',
+    backgroundColor: '#F8FAFC',
+    transform: [{ scale: 0.99 }],
   },
   cardHeader: {
     flexDirection: 'row',
