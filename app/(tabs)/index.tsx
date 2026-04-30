@@ -12,9 +12,9 @@ import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { DIDData } from '../../src/types/did';
-import { VerifiableCredential } from '../../src/types/vc';
+import { CredentialDocument } from '../../src/types/vc';
 import { getDID } from '../../src/Storage/didStorage';
-import { getAllVCs } from '../../src/Storage/vcStorage';
+import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -25,7 +25,7 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const [didData, setDidData] = useState<DIDData | null>(null);
-  const [credentials, setCredentials] = useState<VerifiableCredential[]>([]);
+  const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
 
   const [toast, setToast] = useState({
@@ -39,10 +39,18 @@ export default function HomeScreen() {
       setLoadingDashboard(true);
 
       const did = await getDID();
-      const vcs = await getAllVCs();
+      const docs = await getCredentialDocuments();
 
       setDidData(did);
-      setCredentials(vcs);
+      setDocuments(docs);
+    } catch (error) {
+      console.log('LOAD DASHBOARD ERROR:', error);
+
+      setToast({
+        visible: true,
+        message: 'Gagal memuat dashboard',
+        type: 'error',
+      });
     } finally {
       setLoadingDashboard(false);
     }
@@ -66,272 +74,319 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const latestCredential = credentials[0];
+  const totalAttributes = documents.reduce(
+    (total, doc) => total + doc.credentials.length,
+    0
+  );
+
+  const validDocuments = documents.filter((doc) => getDocumentStatus(doc).status === 'VALID').length;
+  const expiredDocuments = documents.filter((doc) => getDocumentStatus(doc).status === 'EXPIRED').length;
 
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <AnimatedScreen>
-        <LinearGradient
-          colors={['#2563EB', '#1D4ED8', '#F97316']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.heroGradient}
-        >
-          <View>
-            <Text style={styles.welcomeTextGradient}>Welcome to</Text>
-            <Text style={styles.appTitleGradient}>VC Wallet</Text>
-            <Text style={styles.subtitleGradient}>
-              Secure digital identity wallet for DID and Verifiable Credential.
-            </Text>
-          </View>
+          <LinearGradient
+            colors={['#2563EB', '#1D4ED8', '#F97316']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroGradient}
+          >
+            <View>
+              <Text style={styles.welcomeTextGradient}>SSI Wallet</Text>
+              <Text style={styles.appTitleGradient}>Dashboard</Text>
+              <Text style={styles.subtitleGradient}>
+                Kelola DID, Verifiable Credential, dan permintaan verifikasi
+                dari satu tempat.
+              </Text>
+            </View>
 
-          <View style={styles.logoCircleGradient}>
-            <Ionicons name="shield-checkmark" size={34} color="#2563EB" />
-          </View>
-        </LinearGradient>
+            <View style={styles.logoCircleGradient}>
+              <Ionicons name="shield-checkmark" size={34} color="#2563EB" />
+            </View>
+          </LinearGradient>
         </AnimatedScreen>
 
         <AnimatedScreen delay={120}>
-        {loadingDashboard ? (
-          <View style={styles.didCard}>
-            <SkeletonBox width="60%" height={20} />
+          {loadingDashboard ? (
+            <View style={styles.didCard}>
+              <SkeletonBox width="60%" height={20} />
+              <SkeletonBox width="100%" height={16} style={{ marginTop: 16 }} />
+              <SkeletonBox width="80%" height={16} style={{ marginTop: 10 }} />
 
-            <SkeletonBox width="100%" height={16} style={{ marginTop: 16 }} />
-            <SkeletonBox width="80%" height={16} style={{ marginTop: 10 }} />
-
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 18 }}>
-              <SkeletonBox width="48%" height={70} borderRadius={16} />
-              <SkeletonBox width="48%" height={70} borderRadius={16} />
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 18 }}>
+                <SkeletonBox width="48%" height={70} borderRadius={16} />
+                <SkeletonBox width="48%" height={70} borderRadius={16} />
+              </View>
             </View>
-          </View>
-        ) : (
-          <View style={styles.didCard}>
-            <View style={styles.didHeader}>
-              <View style={styles.didIcon}>
-                <Ionicons
-                  name="finger-print-outline"
-                  size={28}
-                  color="#2563EB"
-                />
+          ) : (
+            <View style={styles.didCard}>
+              <View style={styles.didHeader}>
+                <View style={styles.didIcon}>
+                  <Ionicons
+                    name="finger-print-outline"
+                    size={28}
+                    color="#2563EB"
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardLabel}>Decentralized Identifier</Text>
+                  <Text style={styles.cardTitle}>
+                    {didData ? 'Active DID' : 'DID Belum Dibuat'}
+                  </Text>
+                </View>
+
+                <View style={didData ? styles.activeBadge : styles.inactiveBadge}>
+                  <Text
+                    style={
+                      didData ? styles.activeBadgeText : styles.inactiveBadgeText
+                    }
+                  >
+                    {didData ? 'ACTIVE' : 'SETUP'}
+                  </Text>
+                </View>
               </View>
 
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardLabel}>Digital Identity</Text>
-                <Text style={styles.cardTitle}>
-                  {didData ? 'Active DID' : 'No DID Created'}
-                </Text>
-              </View>
+              <Text style={styles.didAddressLabel}>DID Address</Text>
+              <Text style={styles.didAddress}>
+                {didData?.did ??
+                  'Buat DID terlebih dahulu agar wallet identitas digital aktif.'}
+              </Text>
 
-              <View style={didData ? styles.activeBadge : styles.inactiveBadge}>
-                <Text
-                  style={
-                    didData ? styles.activeBadgeText : styles.inactiveBadgeText
-                  }
+              {didData ? (
+                <AnimatedButton
+                  style={styles.copyDidButton}
+                  onPress={handleCopyDID}
                 >
-                  {didData ? 'ACTIVE' : 'SETUP'}
-                </Text>
+                  <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                  <Text style={styles.copyDidText}>Copy DID Address</Text>
+                </AnimatedButton>
+              ) : (
+                <AnimatedButton
+                  style={styles.createButton}
+                  onPress={() => router.push('/(tabs)/did')}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.createButtonText}>Create DID</Text>
+                </AnimatedButton>
+              )}
+
+              <View style={styles.didMetaRow}>
+                <View style={styles.metaBox}>
+                  <Text style={styles.metaLabel}>Method</Text>
+                  <Text style={styles.metaValue}>{didData?.method ?? '-'}</Text>
+                </View>
+
+                <View style={styles.metaBox}>
+                  <Text style={styles.metaLabel}>Network</Text>
+                  <Text style={styles.metaValue}>{didData?.network ?? '-'}</Text>
+                </View>
               </View>
             </View>
-
-            <Text style={styles.didAddressLabel}>DID Address</Text>
-            <Text style={styles.didAddress}>
-              {didData?.did ??
-                'Create DID first to activate your identity wallet.'}
-            </Text>
-
-            {didData && (
-              <AnimatedButton
-                style={styles.copyDidButton}
-                onPress={handleCopyDID}
-              >
-                <Ionicons name="copy-outline" size={16} color="#2563EB" />
-                <Text style={styles.copyDidText}>Copy DID Address</Text>
-              </AnimatedButton>
-            )}
-
-            <View style={styles.didMetaRow}>
-              <View style={styles.metaBox}>
-                <Text style={styles.metaLabel}>Method</Text>
-                <Text style={styles.metaValue}>{didData?.method ?? '-'}</Text>
-              </View>
-
-              <View style={styles.metaBox}>
-                <Text style={styles.metaLabel}>Network</Text>
-                <Text style={styles.metaValue}>{didData?.network ?? '-'}</Text>
-              </View>
-            </View>
-
-            {!didData && (
-              <AnimatedButton
-                style={styles.createButton}
-                onPress={() => router.push('/(tabs)/did')}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-                <Text style={styles.createButtonText}>Create DID</Text>
-              </AnimatedButton>
-            )}
-          </View>
-        )}
+          )}
         </AnimatedScreen>
 
         <AnimatedScreen delay={220}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={styles.statIconBlue}>
-              <Ionicons name="id-card-outline" size={24} color="#2563EB" />
-            </View>
-            <Text style={styles.statNumber}>
-              {loadingDashboard ? '-' : credentials.length}
-            </Text>
-            <Text style={styles.statLabel}>Credentials</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={styles.statIconOrange}>
-              <Ionicons name="qr-code-outline" size={24} color="#F97316" />
-            </View>
-            <Text style={styles.statNumber}>
-              {loadingDashboard ? '-' : didData ? 'Ready' : 'Locked'}
-            </Text>
-            <Text style={styles.statLabel}>Presentation</Text>
-          </View>
-        </View>
-          </AnimatedScreen>
-
-        <AnimatedScreen delay={320}>
-        <View style={styles.smartCard}>
-          <Ionicons
-            name={
-              !didData
-                ? 'alert-circle-outline'
-                : credentials.length === 0
-                ? 'cloud-upload-outline'
-                : 'checkmark-done-circle-outline'
-            }
-            size={24}
-            color={
-              !didData
-                ? '#F97316'
-                : credentials.length === 0
-                ? '#2563EB'
-                : '#16A34A'
-            }
-          />
-
-          <View style={{ flex: 1 }}>
-            <Text style={styles.smartTitle}>
-              {!didData
-                ? 'Setup Identity Required'
-                : credentials.length === 0
-                ? 'Add Your First Credential'
-                : 'Wallet Ready to Use'}
-            </Text>
-
-            <Text style={styles.smartText}>
-              {!didData
-                ? 'Create Ethereum DID before using credential wallet.'
-                : credentials.length === 0
-                ? 'Import your first Verifiable Credential to start presenting identity.'
-                : 'Your DID and credential are ready for presentation and verification.'}
-            </Text>
-          </View>
-        </View> 
-        </AnimatedScreen>
-
-          <AnimatedScreen delay={420}>
-        <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Quick Action</Text>
-
-          <AnimatedButton
-              style={[
-                styles.presentButton,
-                credentials.length === 0 && styles.disabledButton,
-              ]}
-              disabled={credentials.length === 0}
-              onPress={() => {
-                if (credentials.length === 0) return;
-                router.push('/credential/present');
-              }}
-            >
-              <View style={styles.presentIcon}>
-                <Ionicons name="checkbox-outline" size={24} color="#FFFFFF" />
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <View style={styles.statIconBlue}>
+                <Ionicons name="folder-open-outline" size={24} color="#2563EB" />
               </View>
+              <Text style={styles.statNumber}>
+                {loadingDashboard ? '-' : documents.length}
+              </Text>
+              <Text style={styles.statLabel}>VC Documents</Text>
+            </View>
 
-              <View style={{ flex: 1 }}>
-                <Text style={styles.presentTitle}>Present Selected Data</Text>
-                <Text style={styles.presentSubtitle}>
-                  {credentials.length > 0
-                    ? 'Choose which attributes will be shared as a QR presentation.'
-                    : 'Create or import credential first to use presentation.'}
-                </Text>
+            <View style={styles.statCard}>
+              <View style={styles.statIconOrange}>
+                <Ionicons name="list-outline" size={24} color="#F97316" />
               </View>
-
-              <Ionicons name="chevron-forward-outline" size={22} color="#6B7280" />
-            </AnimatedButton>
-        </View>
-          </AnimatedScreen>
-
-            <AnimatedScreen delay={520}>
-        <View style={styles.recentCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Credential</Text>
-
-            <Pressable onPress={() => router.push('/(tabs)/wallet')}>
-              <Text style={styles.viewAllText}>View Wallet</Text>
-            </Pressable>
+              <Text style={styles.statNumber}>
+                {loadingDashboard ? '-' : totalAttributes}
+              </Text>
+              <Text style={styles.statLabel}>Attributes</Text>
+            </View>
           </View>
 
-          {loadingDashboard ? (
-            <View style={styles.emptyCredential}>
-              <SkeletonBox width={48} height={48} borderRadius={24} />
-              <SkeletonBox width="70%" height={16} style={{ marginTop: 14 }} />
-              <SkeletonBox width="50%" height={13} style={{ marginTop: 8 }} />
-            </View>
-          ) : latestCredential ? (
-            <Pressable
-              style={styles.credentialItem}
-              onPress={() =>
-                router.push({
-                  pathname: '/credential/[id]',
-                  params: { id: latestCredential.id },
-                })
-              }
-            >
-              <View style={styles.credentialIcon}>
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <View style={styles.statIconGreen}>
                 <Ionicons
-                  name="shield-checkmark-outline"
+                  name="checkmark-circle-outline"
                   size={24}
-                  color="#2563EB"
+                  color="#16A34A"
                 />
               </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.credentialTitle}>
-                      {latestCredential.credentialSubject?.attributeName ??
-                        'Verifiable Credential'}
-                    </Text>
-                    <Text style={styles.credentialSubtitle}>
-                      {latestCredential.credentialSubject?.attributeValue ?? '-'}
-                  </Text>
-              </View>
-            </Pressable>
-          ) : (
-            <View style={styles.emptyCredential}>
-              <Ionicons name="file-tray-outline" size={32} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No credential stored yet.</Text>
+              <Text style={styles.statNumber}>
+                {loadingDashboard ? '-' : validDocuments}
+              </Text>
+              <Text style={styles.statLabel}>Valid</Text>
             </View>
-          )}
-        </View>
-          </AnimatedScreen>
 
-          <AnimatedScreen delay={620}> 
-        <View style={styles.securityCard}>
-          <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
-          <Text style={styles.securityText}>
-            Wallet protected with local secure storage, PIN, and biometric lock.
-          </Text>
-        </View>
+            <View style={styles.statCard}>
+              <View style={styles.statIconRed}>
+                <Ionicons name="time-outline" size={24} color="#DC2626" />
+              </View>
+              <Text style={styles.statNumber}>
+                {loadingDashboard ? '-' : expiredDocuments}
+              </Text>
+              <Text style={styles.statLabel}>Expired</Text>
+            </View>
+          </View>
+        </AnimatedScreen>
+
+        <AnimatedScreen delay={320}>
+          <View style={styles.documentSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>My Verifiable Credentials</Text>
+
+              <Pressable onPress={() => router.push('/(tabs)/wallet')}>
+                <Text style={styles.viewAllText}>View Wallet</Text>
+              </Pressable>
+            </View>
+
+            {loadingDashboard ? (
+              <View>
+                {[1, 2].map((item) => (
+                  <View key={item} style={styles.documentCard}>
+                    <View style={styles.documentHeader}>
+                      <SkeletonBox width={52} height={52} borderRadius={26} />
+                      <View style={{ flex: 1 }}>
+                        <SkeletonBox width="70%" height={16} />
+                        <SkeletonBox
+                          width="50%"
+                          height={13}
+                          style={{ marginTop: 8 }}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : documents.length === 0 ? (
+              <View style={styles.emptyCredential}>
+                <Ionicons name="file-tray-outline" size={34} color="#9CA3AF" />
+                <Text style={styles.emptyTitleSmall}>Belum Ada VC</Text>
+                <Text style={styles.emptyText}>
+                  Tambahkan KTP Digital, SIM, Ijazah, atau kredensial lain dari
+                  halaman Wallet.
+                </Text>
+
+                <AnimatedButton
+                  style={styles.goWalletButton}
+                  onPress={() => router.push('/(tabs)/wallet')}
+                >
+                  <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.goWalletButtonText}>Open Wallet</Text>
+                </AnimatedButton>
+              </View>
+            ) : (
+              documents.map((doc) => {
+                const status = getDocumentStatus(doc);
+
+                return (
+                  <Pressable
+                    key={doc.documentId}
+                    style={styles.documentCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/credential/document/[documentId]',
+                        params: { documentId: doc.documentId },
+                      })
+                    }
+                  >
+                    <View style={styles.documentHeader}>
+                      <View style={styles.documentIcon}>
+                        <Ionicons
+                          name={getDocumentIcon(doc.documentType)}
+                          size={26}
+                          color="#2563EB"
+                        />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.documentTitle}>
+                          {doc.documentName}
+                        </Text>
+                        <Text style={styles.documentSubtitle}>
+                          {doc.documentType} • {doc.credentials.length} atribut
+                        </Text>
+                      </View>
+
+                      <View
+                        style={
+                          status.status === 'VALID'
+                            ? styles.validBadge
+                            : styles.expiredBadge
+                        }
+                      >
+                        <Text
+                          style={
+                            status.status === 'VALID'
+                              ? styles.validBadgeText
+                              : styles.expiredBadgeText
+                          }
+                        >
+                          {status.label}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.attributePreviewWrap}>
+                      {doc.credentials.slice(0, 3).map((vc) => (
+                        <View key={vc.id} style={styles.attributeChip}>
+                          <Text style={styles.attributeChipText}>
+                            {vc.credentialSubject.attributeName}
+                          </Text>
+                        </View>
+                      ))}
+
+                      {doc.credentials.length > 3 && (
+                        <View style={styles.attributeChipMore}>
+                          <Text style={styles.attributeChipMoreText}>
+                            +{doc.credentials.length - 3}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+          </View>
+        </AnimatedScreen>
+
+        <AnimatedScreen delay={420}>
+          <AnimatedButton
+            style={styles.scanRequestButton}
+            onPress={() => router.push('/verifier/scan')}
+          >
+            <View style={styles.scanIcon}>
+              <Ionicons name="scan-outline" size={26} color="#FFFFFF" />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.scanTitle}>Scan Verification Request</Text>
+              <Text style={styles.scanSubtitle}>
+                Pindai QR dari verifikator untuk merespons permintaan verifikasi.
+              </Text>
+            </View>
+
+            <Ionicons name="chevron-forward-outline" size={22} color="#FFFFFF" />
+          </AnimatedButton>
+        </AnimatedScreen>
+
+        <AnimatedScreen delay={520}>
+          <View style={styles.securityCard}>
+            <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
+            <Text style={styles.securityText}>
+              Wallet dilindungi dengan secure storage, PIN lokal, dan biometrik.
+              Credential ditampilkan dalam bentuk dokumen digital yang dapat
+              dipresentasikan secara selektif.
+            </Text>
+          </View>
         </AnimatedScreen>
       </ScrollView>
 
@@ -343,6 +398,37 @@ export default function HomeScreen() {
       />
     </View>
   );
+}
+
+function getDocumentIcon(documentType: string) {
+  if (documentType === 'KTP') return 'id-card-outline';
+  if (documentType === 'SIM') return 'car-outline';
+  if (documentType === 'IJAZAH') return 'school-outline';
+
+  return 'document-text-outline';
+}
+
+function getDocumentStatus(document: CredentialDocument) {
+  const now = new Date();
+
+  const expirationDates = document.credentials
+    .map((vc) => vc.expirationDate)
+    .filter(Boolean)
+    .map((date) => new Date(date as string));
+
+  if (expirationDates.length === 0) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const hasExpired = expirationDates.some((date) => date < now);
+
+  return {
+    status: hasExpired ? 'EXPIRED' : 'VALID',
+    label: hasExpired ? 'EXPIRED' : 'VALID',
+  };
 }
 
 const styles = StyleSheet.create({
@@ -470,6 +556,20 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
   },
+  createButton: {
+    backgroundColor: '#2563EB',
+    marginTop: 14,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  createButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
   didMetaRow: {
     flexDirection: 'row',
     gap: 12,
@@ -491,20 +591,6 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '900',
     marginTop: 4,
-  },
-  createButton: {
-    backgroundColor: '#2563EB',
-    marginTop: 16,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  createButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
   },
   statsRow: {
     flexDirection: 'row',
@@ -535,6 +621,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  statIconGreen: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statIconRed: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   statNumber: {
     fontSize: 23,
     fontWeight: '900',
@@ -547,75 +649,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  smartCard: {
-    backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  smartTitle: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '900',
-  },
-  smartText: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 4,
-    lineHeight: 19,
-  },
-  actionCard: {
-    backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#111827',
-  },
-  presentButton: {
-    marginTop: 14,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  disabledButton: {
-    opacity: 0.55,
-  },
-  presentIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#F97316',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  presentTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#111827',
-  },
-  presentSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 3,
-    lineHeight: 18,
-  },
-  recentCard: {
+  documentSection: {
     backgroundColor: '#FFFFFF',
     marginTop: 18,
     borderRadius: 24,
@@ -628,37 +662,99 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#111827',
+  },
   viewAllText: {
     color: '#2563EB',
     fontWeight: '900',
     fontSize: 13,
   },
-  credentialItem: {
+  documentCard: {
     marginTop: 14,
     backgroundColor: '#F8FAFC',
-    borderRadius: 18,
+    borderRadius: 20,
     padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  documentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  credentialIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  documentIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  credentialTitle: {
+  documentTitle: {
     fontSize: 15,
     fontWeight: '900',
     color: '#111827',
   },
-  credentialSubtitle: {
+  documentSubtitle: {
     fontSize: 12,
     color: '#6B7280',
-    marginTop: 3,
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  validBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  expiredBadge: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  validBadgeText: {
+    color: '#166534',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  expiredBadgeText: {
+    color: '#991B1B',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  attributePreviewWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  attributeChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  attributeChipText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '800',
+  },
+  attributeChipMore: {
+    backgroundColor: '#FFEDD5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  attributeChipMoreText: {
+    fontSize: 12,
+    color: '#C2410C',
+    fontWeight: '900',
   },
   emptyCredential: {
     marginTop: 14,
@@ -667,10 +763,62 @@ const styles = StyleSheet.create({
     padding: 22,
     alignItems: 'center',
   },
+  emptyTitleSmall: {
+    fontSize: 18,
+    color: '#111827',
+    fontWeight: '900',
+    marginTop: 10,
+  },
   emptyText: {
     color: '#6B7280',
     fontWeight: '700',
     marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  goWalletButton: {
+    backgroundColor: '#2563EB',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  goWalletButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  scanRequestButton: {
+    backgroundColor: '#2563EB',
+    marginTop: 18,
+    borderRadius: 24,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  scanIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#F97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  scanSubtitle: {
+    color: '#DBEAFE',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 3,
+    fontWeight: '700',
   },
   securityCard: {
     backgroundColor: '#FFF7ED',

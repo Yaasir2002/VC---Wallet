@@ -24,8 +24,9 @@ import LoadingOverlay from '../../components/ui/LoadingOverlay';
 export default function PresentCredentialScreen() {
   const router = useRouter();
 
-  const { documentId } = useLocalSearchParams<{
+  const { documentId, requester } = useLocalSearchParams<{
     documentId?: string;
+    requester?: string;
   }>();
 
   const [credentials, setCredentials] = useState<ModularCredential[]>([]);
@@ -41,6 +42,8 @@ export default function PresentCredentialScreen() {
     message: '',
     type: 'info' as 'success' | 'error' | 'info',
   });
+
+  const requesterName = requester || 'Cascadia Regional Security';
 
   useEffect(() => {
     loadCredentials();
@@ -102,12 +105,12 @@ export default function PresentCredentialScreen() {
     setSelectedIds([]);
   }
 
-  async function handleCreatePresentation() {
+  async function handleConfirmAndSign() {
     try {
       if (selectedIds.length === 0) {
         setToast({
           visible: true,
-          message: 'Pilih minimal 1 atribut untuk dipresentasikan',
+          message: 'Pilih minimal 1 atribut untuk dibagikan',
           type: 'error',
         });
         return;
@@ -139,7 +142,7 @@ export default function PresentCredentialScreen() {
 
       setToast({
         visible: true,
-        message: `${selectedCredentials.length} atribut berhasil dibuat menjadi QR`,
+        message: `${selectedCredentials.length} atribut berhasil ditandatangani`,
         type: 'success',
       });
     } catch (error) {
@@ -171,10 +174,11 @@ export default function PresentCredentialScreen() {
     selectedIds.includes(vc.id)
   );
 
-  const title = documentName || 'Pilih Data';
+  const title = documentName || 'Prepare Presentation';
+
   const subtitle = documentId
-    ? `Pilih atribut dari ${documentName || 'dokumen ini'} yang ingin ditampilkan ke verifier.`
-    : 'Pilih credential mana saja yang ingin ditampilkan ke verifier.';
+    ? `Pilih atribut dari ${documentName || 'dokumen ini'} yang ingin dibagikan.`
+    : 'Pilih credential mana saja yang ingin dibagikan kepada verifier.';
 
   return (
     <View style={{ flex: 1 }}>
@@ -192,25 +196,40 @@ export default function PresentCredentialScreen() {
         >
           <View>
             <Text style={styles.heroLabel}>
-              {documentType ? `${documentType} Selective Disclosure` : 'Selective Disclosure'}
+              {documentType
+                ? `${documentType} Selective Disclosure`
+                : 'Selective Disclosure'}
             </Text>
 
             <Text style={styles.heroTitle}>{title}</Text>
 
-            <Text style={styles.heroSubtitle}>
-              {subtitle}
-            </Text>
+            <Text style={styles.heroSubtitle}>{subtitle}</Text>
           </View>
 
           <View style={styles.heroIcon}>
-            <Ionicons name="checkbox-outline" size={36} color="#2563EB" />
+            <Ionicons name="shield-checkmark-outline" size={36} color="#2563EB" />
           </View>
         </LinearGradient>
+
+        <View style={styles.requesterCard}>
+          <View style={styles.requesterIcon}>
+            <Ionicons name="business-outline" size={24} color="#2563EB" />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.requesterLabel}>Data diminta oleh</Text>
+            <Text style={styles.requesterName}>{requesterName}</Text>
+            <Text style={styles.requesterDesc}>
+              Pastikan kamu hanya membagikan atribut yang relevan. Atribut yang
+              tidak dipilih tidak akan masuk ke dalam QR presentation.
+            </Text>
+          </View>
+        </View>
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeaderBetween}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sectionTitle}>Atribut yang Ditampilkan</Text>
+              <Text style={styles.sectionTitle}>Atribut yang Dibagikan</Text>
               <Text style={styles.smallText}>
                 Dipilih: {selectedIds.length} dari {credentials.length}
               </Text>
@@ -305,18 +324,18 @@ export default function PresentCredentialScreen() {
               selectedIds.length === 0 && styles.disabledButton,
             ]}
             disabled={selectedIds.length === 0}
-            onPress={handleCreatePresentation}
+            onPress={handleConfirmAndSign}
           >
-            <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
+            <Ionicons name="create-outline" size={20} color="#FFFFFF" />
             <Text style={styles.createVPButtonText}>
-              Buat QR dari Data Terpilih
+              Confirm & Sign Presentation
             </Text>
           </AnimatedButton>
         </View>
 
         {selectedCredentials.length > 0 && (
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Preview Data Terpilih</Text>
+            <Text style={styles.sectionTitle}>Preview Data yang Dibagikan</Text>
 
             {selectedCredentials.map((vc) => (
               <View key={vc.id} style={styles.previewRow}>
@@ -334,14 +353,15 @@ export default function PresentCredentialScreen() {
         {presentationJwt ? (
           <>
             <View style={styles.qrCard}>
-              <Text style={styles.sectionTitle}>QR Presentation</Text>
+              <Text style={styles.sectionTitle}>Signed QR Presentation</Text>
 
               <View style={styles.qrBox}>
                 <QRCode value={presentationJwt} size={220} />
               </View>
 
               <Text style={styles.qrNote}>
-                QR ini hanya berisi atribut yang kamu pilih.
+                QR ini hanya berisi atribut yang kamu setujui untuk dibagikan
+                kepada {requesterName}.
               </Text>
             </View>
 
@@ -365,8 +385,8 @@ export default function PresentCredentialScreen() {
                 color="#F97316"
               />
               <Text style={styles.noteText}>
-                Verifier hanya dapat melihat atribut yang dipilih user.
-                Atribut lain tetap tersimpan di wallet dan tidak masuk ke QR.
+                Verifier hanya dapat melihat atribut yang dipilih user. Atribut
+                lain tetap tersimpan di wallet dan tidak masuk ke QR.
               </Text>
             </View>
           </>
@@ -374,8 +394,8 @@ export default function PresentCredentialScreen() {
           <View style={styles.noteCard}>
             <Ionicons name="shield-checkmark-outline" size={22} color="#F97316" />
             <Text style={styles.noteText}>
-              Prinsip selective disclosure membantu user mengontrol data pribadi
-              yang ingin dibagikan kepada pihak ketiga.
+              Setelah memilih atribut, tekan Confirm & Sign untuk membuat paket
+              bukti presentasi dalam bentuk VP JWT.
             </Text>
           </View>
         )}
@@ -454,6 +474,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  requesterCard: {
+    backgroundColor: '#FFFFFF',
+    marginTop: 18,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  requesterIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requesterLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '900',
+  },
+  requesterName: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  requesterDesc: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 19,
+    marginTop: 5,
+    fontWeight: '700',
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
