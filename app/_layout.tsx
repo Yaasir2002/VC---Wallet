@@ -39,49 +39,6 @@ function AuthGate() {
   const segmentsRef = useRef(segments);
   const isCheckingRef = useRef(false);
 
-  useEffect(() => {
-    segmentsRef.current = segments;
-    checkAuth();
-  }, [segments, checkAuth]);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener(
-      'change',
-      handleAppStateChange
-    );
-
-    return () => {
-      subscription.remove();
-    };
-  }, [handleAppStateChange]);
-
-  const handleAppStateChange = useCallback(
-    async (nextAppState: AppStateStatus) => {
-      const previousState = appState.current;
-      appState.current = nextAppState;
-
-      const currentGroup = segmentsRef.current[0];
-      const isAuthRoute = currentGroup === 'auth';
-
-      if (
-        previousState === 'active' &&
-        (nextAppState === 'background' || nextAppState === 'inactive') &&
-        !isAuthRoute
-      ) {
-        await lockSession();
-        return;
-      }
-
-      if (
-        previousState.match(/inactive|background/) &&
-        nextAppState === 'active'
-      ) {
-        await checkAuth();
-      }
-    },
-    [checkAuth]
-  );
-
   const checkAuth = useCallback(async () => {
     if (isCheckingRef.current) return;
 
@@ -162,6 +119,49 @@ function AuthGate() {
       setChecking(false);
     }
   }, [router]);
+
+  const handleAppStateChange = useCallback(
+    async (nextAppState: AppStateStatus) => {
+      const previousState = appState.current;
+      appState.current = nextAppState;
+
+      const currentGroup = segmentsRef.current[0];
+      const isAuthRoute = currentGroup === 'auth';
+
+      if (
+        previousState === 'active' &&
+        nextAppState === 'background' &&
+        !isAuthRoute
+      ) {
+        await lockSession();
+        return;
+      }
+
+      if (
+        previousState.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        await checkAuth();
+      }
+    },
+    [checkAuth]
+  );
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+    checkAuth();
+  }, [segments, checkAuth]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleAppStateChange]);
 
   if (checking) {
     return (
