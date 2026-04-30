@@ -8,13 +8,13 @@ import { CredentialPlugin } from '@veramo/credential-w3c';
 import { Resolver } from 'did-resolver';
 import { getResolver as getEthrResolver } from 'ethr-did-resolver';
 
-const INFURA_PROJECT_ID = 'ISI_INFURA_PROJECT_ID_KAMU';
+const INFURA_PROJECT_ID = 'project_id_kamu';
 
 const networks = [
   {
     name: 'sepolia',
     chainId: 11155111,
-    rpcUrl: `https://sepolia.infura.io/v3/${INFURA_PROJECT_ID}`,
+    rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
   },
 ];
 

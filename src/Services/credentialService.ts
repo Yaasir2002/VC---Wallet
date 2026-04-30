@@ -16,6 +16,12 @@ async function getOrCreateIssuerDID(): Promise<string> {
   return identifier.did;
 }
 
+function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([_, value]) => value !== undefined)
+  ) as T;
+}
+
 export async function createAttributeCredential(params: {
   subjectDid: string;
   attributeType: AttributeType;
@@ -23,14 +29,36 @@ export async function createAttributeCredential(params: {
   attributeValue: string;
   expirationDate?: string;
 }): Promise<ModularCredential> {
+  if (!params.subjectDid) {
+    throw new Error('Subject DID belum tersedia');
+  }
+
+  if (!params.attributeType) {
+    throw new Error('Attribute type belum tersedia');
+  }
+
+  if (!params.attributeName) {
+    throw new Error('Attribute name belum tersedia');
+  }
+
+  if (!params.attributeValue) {
+    throw new Error('Attribute value belum tersedia');
+  }
+
   const issuerDid = await getOrCreateIssuerDID();
+
+  if (!issuerDid) {
+    throw new Error('Issuer DID belum tersedia');
+  }
+
+  const issuanceDate = new Date().toISOString();
 
   console.log('VERAMO ISSUER DID:', issuerDid);
   console.log('SUBJECT DID:', params.subjectDid);
 
-  const credentialPayload = {
-    issuer: { id: issuerDid },
-    issuanceDate: new Date().toISOString(),
+  const credentialPayload = removeUndefinedFields({
+    issuer: issuerDid,
+    issuanceDate,
     expirationDate: params.expirationDate,
     type: ['VerifiableCredential', 'AttributeCredential'],
     credentialSubject: {
@@ -39,24 +67,41 @@ export async function createAttributeCredential(params: {
       attributeName: params.attributeName,
       attributeValue: params.attributeValue,
     },
-  };
+  });
 
-  const jwt = await agent.createVerifiableCredential({
+  console.log('VC PAYLOAD:', JSON.stringify(credentialPayload, null, 2));
+
+  const result = await agent.createVerifiableCredential({
     credential: credentialPayload,
     proofFormat: 'jwt',
   });
+
+  const jwt =
+    typeof result === 'string'
+      ? result
+      : result?.proof?.jwt || result?.jwt || '';
+
+  if (!jwt) {
+    console.log('VERAMO VC RESULT:', result);
+    throw new Error('JWT credential tidak ditemukan dari hasil Veramo');
+  }
 
   return {
     id: `vc-${params.attributeType}-${Date.now()}`,
     type: ['VerifiableCredential', 'AttributeCredential'],
     issuer: issuerDid,
-    issuanceDate: credentialPayload.issuanceDate,
+    issuanceDate,
     expirationDate: params.expirationDate,
-    credentialSubject: credentialPayload.credentialSubject,
+    credentialSubject: {
+      id: params.subjectDid,
+      attributeType: params.attributeType,
+      attributeName: params.attributeName,
+      attributeValue: params.attributeValue,
+    },
     proof: {
       type: 'JwtProof2020',
       jwt,
-      created: credentialPayload.issuanceDate,
+      created: issuanceDate,
       proofPurpose: 'assertionMethod',
       verificationMethod: issuerDid,
     },
