@@ -97,19 +97,6 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const totalAttributes = documents.reduce(
-    (total, doc) => total + doc.credentials.length,
-    0
-  );
-
-  const validDocuments = documents.filter(
-    (doc) => getDocumentStatus(doc).status === 'VALID'
-  ).length;
-
-  const expiredDocuments = documents.filter(
-    (doc) => getDocumentStatus(doc).status === 'EXPIRED'
-  ).length;
-
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -141,11 +128,6 @@ export default function HomeScreen() {
               <SkeletonBox width="60%" height={20} />
               <SkeletonBox width="100%" height={16} style={{ marginTop: 16 }} />
               <SkeletonBox width="80%" height={16} style={{ marginTop: 10 }} />
-
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 18 }}>
-                <SkeletonBox width="48%" height={70} borderRadius={16} />
-                <SkeletonBox width="48%" height={70} borderRadius={16} />
-              </View>
             </View>
           ) : (
             <View style={styles.didCard}>
@@ -214,56 +196,6 @@ export default function HomeScreen() {
         </AnimatedScreen>
 
         <AnimatedScreen delay={220}>
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <View style={styles.statIconBlue}>
-                <Ionicons name="folder-open-outline" size={24} color="#2563EB" />
-              </View>
-              <Text style={styles.statNumber}>
-                {loadingDashboard ? '-' : documents.length}
-              </Text>
-              <Text style={styles.statLabel}>VC Documents</Text>
-            </View>
-
-            <View style={styles.statCard}>
-              <View style={styles.statIconOrange}>
-                <Ionicons name="list-outline" size={24} color="#F97316" />
-              </View>
-              <Text style={styles.statNumber}>
-                {loadingDashboard ? '-' : totalAttributes}
-              </Text>
-              <Text style={styles.statLabel}>Attributes</Text>
-            </View>
-          </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <View style={styles.statIconGreen}>
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={24}
-                  color="#16A34A"
-                />
-              </View>
-              <Text style={styles.statNumber}>
-                {loadingDashboard ? '-' : validDocuments}
-              </Text>
-              <Text style={styles.statLabel}>Valid</Text>
-            </View>
-
-            <View style={styles.statCard}>
-              <View style={styles.statIconRed}>
-                <Ionicons name="time-outline" size={24} color="#DC2626" />
-              </View>
-              <Text style={styles.statNumber}>
-                {loadingDashboard ? '-' : expiredDocuments}
-              </Text>
-              <Text style={styles.statLabel}>Expired</Text>
-            </View>
-          </View>
-        </AnimatedScreen>
-
-        <AnimatedScreen delay={320}>
           <View style={styles.documentSection}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>My VC Documents</Text>
@@ -379,7 +311,7 @@ export default function HomeScreen() {
           </View>
         </AnimatedScreen>
 
-        <AnimatedScreen delay={420}>
+        <AnimatedScreen delay={320}>
           <AnimatedButton
             style={styles.scanRequestButton}
             onPress={() => router.push('/verifier/scan')}
@@ -399,7 +331,7 @@ export default function HomeScreen() {
           </AnimatedButton>
         </AnimatedScreen>
 
-        <AnimatedScreen delay={520}>
+        <AnimatedScreen delay={420}>
           <View style={styles.securityCard}>
             <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
             <Text style={styles.securityText}>
@@ -656,63 +588,6 @@ const styles = StyleSheet.create({
   createButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  statIconBlue: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statIconOrange: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#FFEDD5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statIconGreen: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#DCFCE7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statIconRed: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#FEE2E2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statNumber: {
-    fontSize: 23,
-    fontWeight: '900',
-    color: '#111827',
-    marginTop: 12,
-  },
-  statLabel: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '700',
-    marginTop: 2,
   },
   documentSection: {
     backgroundColor: '#FFFFFF',
