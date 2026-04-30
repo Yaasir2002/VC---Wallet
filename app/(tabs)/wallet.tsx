@@ -9,10 +9,15 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { getDID } from '../../src/Storage/didStorage';
-import { VerifiableCredential } from '../../src/types/vc';
-import { saveVC, getAllVCs, deleteAllVCs } from '../../src/Storage/vcStorage';
-import { createAttributeCredential } from '../../src/Services/credentialService';
+
+import { deleteAllVCs } from '../../src/Storage/vcStorage';
+import { CredentialDocument } from '../../src/types/vc';
+import {
+  getCredentialDocuments,
+  createDummyKTP,
+  createDummySIM,
+  createDummyIjazah,
+} from '../../src/Services/documentCredentialService';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -21,9 +26,9 @@ import SkeletonBox from '../../components/ui/SkeletonBox';
 export default function WalletScreen() {
   const router = useRouter();
 
-  const [credentials, setCredentials] = useState<VerifiableCredential[]>([]);
+  const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loading, setLoading] = useState(false);
-  const [loadingVC, setLoadingVC] = useState(true);
+  const [loadingDocs, setLoadingDocs] = useState(true);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -31,91 +36,91 @@ export default function WalletScreen() {
     type: 'info' as 'success' | 'error' | 'info',
   });
 
-  async function loadVCs() {
+  async function loadDocuments() {
     try {
-      setLoadingVC(true);
+      setLoadingDocs(true);
+      const docs = await getCredentialDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.log('LOAD DOCUMENTS ERROR:', error);
 
-      const data = await getAllVCs();
-      setCredentials(data);
-    } catch {
       setToast({
         visible: true,
-        message: 'Gagal mengambil credential',
+        message: 'Gagal mengambil dokumen credential',
         type: 'error',
       });
     } finally {
-      setLoadingVC(false);
+      setLoadingDocs(false);
     }
   }
 
   useFocusEffect(
     useCallback(() => {
-      loadVCs();
+      loadDocuments();
     }, [])
   );
 
-  async function handleAddDummyVC() {
+  async function handleCreateDocument(type: 'KTP' | 'SIM' | 'IJAZAH') {
     try {
-      const didData = await getDID();
+      setLoading(true);
 
-      if (!didData?.did) {
-        setToast({
-          visible: true,
-          message: 'DID belum dibuat',
-          type: 'error',
-        });
-        return;
+      if (type === 'KTP') {
+        await createDummyKTP();
       }
 
-      const vc = await createAttributeCredential({
-          subjectDid: didData.did,
-          attributeType: 'legalName',
-          attributeName: 'Nama Lengkap',
-          attributeValue: 'John Doe',
-        });
+      if (type === 'SIM') {
+        await createDummySIM();
+      }
 
-      await saveVC(vc);
+      if (type === 'IJAZAH') {
+        await createDummyIjazah();
+      }
 
-      const updated = await getAllVCs();
-      setCredentials(updated);
+      await loadDocuments();
 
       setToast({
         visible: true,
-        message: 'Credential JWT berhasil dibuat',
+        message: `${type} credential berhasil dibuat`,
         type: 'success',
       });
-
     } catch (error) {
-      console.log(error);
+      console.log('CREATE DOCUMENT VC ERROR:', error);
 
       setToast({
         visible: true,
-        message: 'Gagal membuat credential',
+        message: 'Gagal membuat dokumen credential. Pastikan DID sudah dibuat.',
         type: 'error',
       });
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function handleDeleteAllVCs() {
+  async function handleDeleteAllDocuments() {
     try {
       await deleteAllVCs();
-      setCredentials([]);
+      setDocuments([]);
 
       setToast({
         visible: true,
-        message: 'Semua credential berhasil dihapus',
+        message: 'Semua dokumen credential berhasil dihapus',
         type: 'success',
       });
-    } catch {
+    } catch (error) {
+      console.log('DELETE DOCUMENTS ERROR:', error);
+
       setToast({
         visible: true,
-        message: 'Gagal menghapus credential',
+        message: 'Gagal menghapus dokumen credential',
         type: 'error',
       });
     }
   }
 
-  const verifiedCount = credentials.filter((vc) => !!vc.proof).length;
+  const totalAttributes = documents.reduce(
+    (total, doc) => total + doc.credentials.length,
+    0
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -128,14 +133,15 @@ export default function WalletScreen() {
         >
           <View>
             <Text style={styles.heroLabel}>Credential Wallet</Text>
-            <Text style={styles.heroTitle}>My Credentials</Text>
+            <Text style={styles.heroTitle}>My Documents</Text>
             <Text style={styles.heroSubtitle}>
-              Store, manage, and present your Verifiable Credentials securely.
+              Kelola dokumen credential seperti KTP, SIM, dan Ijazah secara
+              modular.
             </Text>
           </View>
 
           <View style={styles.heroIcon}>
-            <Ionicons name="id-card-outline" size={36} color="#2563EB" />
+            <Ionicons name="wallet-outline" size={36} color="#2563EB" />
           </View>
         </LinearGradient>
 
@@ -143,75 +149,90 @@ export default function WalletScreen() {
           <View style={styles.statCard}>
             <View style={styles.statIconBlue}>
               <Ionicons
-                name="file-tray-full-outline"
+                name="folder-open-outline"
                 size={24}
                 color="#2563EB"
               />
             </View>
             <Text style={styles.statNumber}>
-              {loadingVC ? '-' : credentials.length}
+              {loadingDocs ? '-' : documents.length}
             </Text>
-            <Text style={styles.statLabel}>Total VC</Text>
+            <Text style={styles.statLabel}>Documents</Text>
           </View>
 
           <View style={styles.statCard}>
             <View style={styles.statIconOrange}>
               <Ionicons
-                name="shield-checkmark-outline"
+                name="list-outline"
                 size={24}
                 color="#F97316"
               />
             </View>
             <Text style={styles.statNumber}>
-              {loadingVC ? '-' : verifiedCount}
+              {loadingDocs ? '-' : totalAttributes}
             </Text>
-            <Text style={styles.statLabel}>With Proof</Text>
+            <Text style={styles.statLabel}>Attributes</Text>
           </View>
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Wallet Actions</Text>
+          <Text style={styles.sectionTitle}>Create Demo Document</Text>
 
-          <View style={styles.actionRow}>
+          <View style={styles.documentActionGrid}>
             <AnimatedButton
-              style={styles.primaryButton}
-              onPress={() => router.push('/credential/import')}
-            >
-              <Ionicons name="download-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>Import VC</Text>
-            </AnimatedButton>
-
-            <AnimatedButton
-              style={styles.secondaryButton}
-              onPress={handleAddDummyVC}
+              style={styles.ktpButton}
+              onPress={() => handleCreateDocument('KTP')}
               disabled={loading}
             >
-              <Ionicons name="add-circle-outline" size={20} color="#2563EB" />
+              <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>KTP</Text>
             </AnimatedButton>
 
-            {credentials.length > 0 && (
-              <AnimatedButton
-                style={styles.dangerButton}
-                onPress={handleDeleteAllVCs}
-              >
-                <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-              </AnimatedButton>
-            )}
+            <AnimatedButton
+              style={styles.simButton}
+              onPress={() => handleCreateDocument('SIM')}
+              disabled={loading}
+            >
+              <Ionicons name="car-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>SIM</Text>
+            </AnimatedButton>
+
+            <AnimatedButton
+              style={styles.ijazahButton}
+              onPress={() => handleCreateDocument('IJAZAH')}
+              disabled={loading}
+            >
+              <Ionicons name="school-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>Ijazah</Text>
+            </AnimatedButton>
           </View>
+
+          {documents.length > 0 && (
+            <AnimatedButton
+              style={styles.dangerFullButton}
+              onPress={handleDeleteAllDocuments}
+              disabled={loading}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.dangerFullButtonText}>
+                Hapus Semua Dokumen
+              </Text>
+            </AnimatedButton>
+          )}
         </View>
 
-        {loadingVC ? (
+        {loadingDocs ? (
           <View style={styles.listSection}>
             {[1, 2, 3].map((item) => (
-              <View key={item} style={styles.credentialCard}>
+              <View key={item} style={styles.documentCard}>
                 <View style={styles.cardHeader}>
-                  <SkeletonBox width={52} height={52} borderRadius={26} />
+                  <SkeletonBox width={56} height={56} borderRadius={28} />
 
                   <View style={{ flex: 1 }}>
-                    <SkeletonBox width="70%" height={16} />
+                    <SkeletonBox width="70%" height={18} />
                     <SkeletonBox
                       width="50%"
-                      height={13}
+                      height={14}
                       style={{ marginTop: 8 }}
                     />
                   </View>
@@ -221,112 +242,87 @@ export default function WalletScreen() {
 
                 <SkeletonBox width="100%" height={14} />
                 <SkeletonBox width="80%" height={14} style={{ marginTop: 10 }} />
-                <SkeletonBox
-                  width="45%"
-                  height={30}
-                  borderRadius={999}
-                  style={{ marginTop: 16 }}
-                />
               </View>
             ))}
           </View>
-        ) : credentials.length === 0 ? (
+        ) : documents.length === 0 ? (
           <View style={styles.emptyCard}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="wallet-outline" size={44} color="#2563EB" />
+              <Ionicons name="folder-open-outline" size={44} color="#2563EB" />
             </View>
 
-            <Text style={styles.emptyTitle}>Wallet Masih Kosong</Text>
+            <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Import Verifiable Credential pertama kamu untuk mulai menggunakan
-              fitur presentasi dan verifikasi identitas digital.
+              Buat demo KTP, SIM, atau Ijazah terlebih dahulu. Setiap dokumen
+              akan berisi beberapa Verifiable Credential modular.
             </Text>
-
-            <AnimatedButton
-              style={styles.emptyButton}
-              onPress={() => router.push('/credential/import')}
-            >
-              <Ionicons name="download-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.emptyButtonText}>Import Credential</Text>
-            </AnimatedButton>
           </View>
         ) : (
           <View style={styles.listSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Credential List</Text>
-              <Text style={styles.countText}>{credentials.length} items</Text>
+              <Text style={styles.sectionTitle}>Document List</Text>
+              <Text style={styles.countText}>{documents.length} documents</Text>
             </View>
 
-            {credentials.map((vc) => (
+            {documents.map((doc) => (
               <Pressable
-                key={vc.id}
-                style={styles.credentialCard}
+                key={doc.documentId}
+                style={styles.documentCard}
                 onPress={() =>
                   router.push({
-                    pathname: '/credential/[id]',
-                    params: { id: vc.id },
+                    pathname: '/credential/document/[documentId]',
+                    params: { documentId: doc.documentId },
                   })
                 }
               >
                 <View style={styles.cardHeader}>
-                  <View style={styles.credentialIcon}>
+                  <View style={styles.documentIcon}>
                     <Ionicons
-                      name="shield-checkmark-outline"
-                      size={28}
+                      name={getDocumentIcon(doc.documentType)}
+                      size={30}
                       color="#2563EB"
                     />
                   </View>
 
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.credentialTitle}>
-                      {vc.type.includes('IdentityCredential')
-                        ? 'Identity Credential'
-                        : 'Verifiable Credential'}
+                    <Text style={styles.documentTitle}>
+                      {doc.documentName}
                     </Text>
 
-                    <Text style={styles.credentialSubtitle}>
-                      Issued by {vc.issuer}
+                    <Text style={styles.documentSubtitle}>
+                      {doc.documentType} • {doc.credentials.length} atribut
                     </Text>
                   </View>
 
-                  <View
-                    style={vc.proof ? styles.verifiedBadge : styles.pendingBadge}
-                  >
-                    <Text
-                      style={
-                        vc.proof
-                          ? styles.verifiedBadgeText
-                          : styles.pendingBadgeText
-                      }
-                    >
-                      {vc.proof ? 'PROOF' : 'NO PROOF'}
+                  <View style={styles.documentBadge}>
+                    <Text style={styles.documentBadgeText}>
+                      {doc.documentType}
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.divider} />
 
-                <Text style={styles.label}>Credential ID</Text>
-                <Text style={styles.value}>{vc.id}</Text>
+                <Text style={styles.label}>Attributes</Text>
 
-                <View style={styles.subjectBox}>
-                  <View>
-                    <Text style={styles.label}>Subject Name</Text>
-                    <Text style={styles.subjectValue}>
-                      {vc.credentialSubject.name ?? '-'}
-                    </Text>
-                  </View>
+                <View style={styles.attributePreviewWrap}>
+                  {doc.credentials.slice(0, 4).map((vc) => (
+                    <View key={vc.id} style={styles.attributeChip}>
+                      <Text style={styles.attributeChipText}>
+                        {vc.credentialSubject.attributeName}
+                      </Text>
+                    </View>
+                  ))}
 
-                  <View style={styles.subjectIcon}>
-                    <Ionicons name="person-outline" size={20} color="#F97316" />
-                  </View>
+                  {doc.credentials.length > 4 && (
+                    <View style={styles.attributeChipMore}>
+                      <Text style={styles.attributeChipMoreText}>
+                        +{doc.credentials.length - 4}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-
-                <Text style={styles.label}>Issued At</Text>
-                <Text style={styles.value}>
-                  {new Date(vc.issuanceDate).toLocaleString()}
-                </Text>
 
                 <View style={styles.footerRow}>
                   <View style={styles.localBadge}>
@@ -355,9 +351,9 @@ export default function WalletScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
           <Text style={styles.noteText}>
-            Credential disimpan secara lokal pada perangkat. Untuk versi
-            produksi, credential dapat dienkripsi dan diverifikasi dengan tanda
-            tangan kriptografi.
+            Setiap dokumen terdiri dari beberapa credential modular. Saat
+            presentasi, pengguna dapat memilih atribut mana saja yang ingin
+            ditampilkan ke verifier.
           </Text>
         </View>
       </ScrollView>
@@ -370,6 +366,14 @@ export default function WalletScreen() {
       />
     </View>
   );
+}
+
+function getDocumentIcon(documentType: string) {
+  if (documentType === 'KTP') return 'id-card-outline';
+  if (documentType === 'SIM') return 'car-outline';
+  if (documentType === 'IJAZAH') return 'school-outline';
+
+  return 'document-text-outline';
 }
 
 const styles = StyleSheet.create({
@@ -468,40 +472,184 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#111827',
   },
-  actionRow: {
+  documentActionGrid: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 14,
   },
-  primaryButton: {
+  ktpButton: {
     flex: 1,
     backgroundColor: '#2563EB',
     paddingVertical: 14,
-    paddingHorizontal: 16,
     borderRadius: 16,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
-  primaryButtonText: {
+  simButton: {
+    flex: 1,
+    backgroundColor: '#F97316',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  ijazahButton: {
+    flex: 1,
+    backgroundColor: '#16A34A',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  actionButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
-    fontSize: 15,
+    fontSize: 13,
   },
-  secondaryButton: {
-    backgroundColor: '#DBEAFE',
-    width: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dangerButton: {
+  dangerFullButton: {
     backgroundColor: '#DC2626',
-    width: 52,
+    marginTop: 14,
     borderRadius: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dangerFullButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
+  },
+  listSection: {
+    marginTop: 18,
+  },
+  sectionHeader: {
+    marginBottom: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  countText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  documentCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 14,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  documentIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  documentTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  documentSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  documentBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  documentBadgeText: {
+    color: '#2563EB',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 16,
+  },
+  label: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '800',
+  },
+  attributePreviewWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  attributeChip: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  attributeChipText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '800',
+  },
+  attributeChipMore: {
+    backgroundColor: '#FFEDD5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  attributeChipMoreText: {
+    fontSize: 12,
+    color: '#C2410C',
+    fontWeight: '900',
+  },
+  footerRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  localBadge: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  localBadgeText: {
+    color: '#166534',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  detailText: {
+    color: '#6B7280',
+    fontWeight: '900',
+    fontSize: 13,
   },
   emptyCard: {
     backgroundColor: '#FFFFFF',
@@ -533,159 +681,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     marginTop: 10,
-    marginBottom: 22,
-  },
-  emptyButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  emptyButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 15,
-  },
-  listSection: {
-    marginTop: 18,
-  },
-  sectionHeader: {
-    marginBottom: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  countText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#2563EB',
-  },
-  credentialCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 14,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  credentialIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  credentialTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#111827',
-  },
-  credentialSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 3,
-  },
-  verifiedBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  pendingBadge: {
-    backgroundColor: '#FFEDD5',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  verifiedBadgeText: {
-    color: '#166534',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  pendingBadgeText: {
-    color: '#C2410C',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 16,
-  },
-  label: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '800',
-    marginTop: 8,
-  },
-  value: {
-    fontSize: 13,
-    color: '#111827',
-    fontWeight: '600',
-    marginTop: 4,
-    lineHeight: 19,
-  },
-  subjectBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  subjectValue: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  subjectIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFEDD5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerRow: {
-    marginTop: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  localBadge: {
-    backgroundColor: '#DCFCE7',
-    borderRadius: 999,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  localBadgeText: {
-    color: '#166534',
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  detailText: {
-    color: '#6B7280',
-    fontWeight: '900',
-    fontSize: 13,
   },
   noteCard: {
     backgroundColor: '#EFF6FF',

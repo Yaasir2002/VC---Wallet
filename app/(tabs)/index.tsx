@@ -244,32 +244,31 @@ export default function HomeScreen() {
           <Text style={styles.sectionTitle}>Quick Action</Text>
 
           <AnimatedButton
-            style={[
-              styles.presentButton,
-              !latestCredential && styles.disabledButton,
-            ]}
-            disabled={!latestCredential}
-            onPress={() => {
-              if (!latestCredential) return;
+              style={[
+                styles.presentButton,
+                credentials.length === 0 && styles.disabledButton,
+              ]}
+              disabled={credentials.length === 0}
+              onPress={() => {
+                if (credentials.length === 0) return;
+                router.push('/credential/present');
+              }}
+            >
+              <View style={styles.presentIcon}>
+                <Ionicons name="checkbox-outline" size={24} color="#FFFFFF" />
+              </View>
 
-              router.push('/credential/present');
-            }}
-          >
-            <View style={styles.presentIcon}>
-              <Ionicons name="qr-code-outline" size={24} color="#FFFFFF" />
-            </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.presentTitle}>Present Selected Data</Text>
+                <Text style={styles.presentSubtitle}>
+                  {credentials.length > 0
+                    ? 'Choose which attributes will be shared as a QR presentation.'
+                    : 'Create or import credential first to use presentation.'}
+                </Text>
+              </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.presentTitle}>Present Credential</Text>
-              <Text style={styles.presentSubtitle}>
-                {latestCredential
-                  ? 'Share your latest credential as QR presentation.'
-                  : 'Import credential first to use presentation.'}
-              </Text>
-            </View>
-
-            <Ionicons name="chevron-forward-outline" size={22} color="#6B7280" />
-          </AnimatedButton>
+              <Ionicons name="chevron-forward-outline" size={22} color="#6B7280" />
+            </AnimatedButton>
         </View>
           </AnimatedScreen>
 
@@ -309,13 +308,12 @@ export default function HomeScreen() {
 
               <View style={{ flex: 1 }}>
                 <Text style={styles.credentialTitle}>
-                  {latestCredential.type.includes('IdentityCredential')
-                    ? 'Identity Credential'
-                    : 'Verifiable Credential'}
-                </Text>
-                <Text style={styles.credentialSubtitle}>
-                  Issuer: {latestCredential.issuer}
-                </Text>
+                      {latestCredential.credentialSubject?.attributeName ??
+                        'Verifiable Credential'}
+                    </Text>
+                    <Text style={styles.credentialSubtitle}>
+                      {latestCredential.credentialSubject?.attributeValue ?? '-'}
+                  </Text>
               </View>
             </Pressable>
           ) : (

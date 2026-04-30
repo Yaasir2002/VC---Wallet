@@ -6,7 +6,7 @@ import {
   ScrollView,
   Pressable,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
@@ -24,10 +24,17 @@ import LoadingOverlay from '../../components/ui/LoadingOverlay';
 export default function PresentCredentialScreen() {
   const router = useRouter();
 
+  const { documentId } = useLocalSearchParams<{
+    documentId?: string;
+  }>();
+
   const [credentials, setCredentials] = useState<ModularCredential[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [presentationJwt, setPresentationJwt] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const [documentName, setDocumentName] = useState('');
+  const [documentType, setDocumentType] = useState('');
 
   const [toast, setToast] = useState({
     visible: false,
@@ -37,20 +44,32 @@ export default function PresentCredentialScreen() {
 
   useEffect(() => {
     loadCredentials();
-  }, []);
+  }, [documentId]);
 
   async function loadCredentials() {
     try {
       setLoading(true);
 
-      const vcs = await getAllVCs();
-      setCredentials(vcs);
+      const allVCs = await getAllVCs();
 
-      // Default: belum ada yang dipilih supaya user sadar harus memilih.
+      const filteredVCs = documentId
+        ? allVCs.filter((vc) => vc.documentId === documentId)
+        : allVCs;
+
+      setCredentials(filteredVCs);
       setSelectedIds([]);
       setPresentationJwt('');
+
+      if (filteredVCs.length > 0) {
+        setDocumentName(filteredVCs[0].documentName || 'Credential Document');
+        setDocumentType(filteredVCs[0].documentType || 'CUSTOM');
+      } else {
+        setDocumentName('');
+        setDocumentType('');
+      }
     } catch (error) {
       console.log('LOAD VC ERROR:', error);
+
       setToast({
         visible: true,
         message: 'Gagal mengambil credential',
@@ -88,7 +107,7 @@ export default function PresentCredentialScreen() {
       if (selectedIds.length === 0) {
         setToast({
           visible: true,
-          message: 'Pilih minimal 1 credential untuk dipresentasikan',
+          message: 'Pilih minimal 1 atribut untuk dipresentasikan',
           type: 'error',
         });
         return;
@@ -120,7 +139,7 @@ export default function PresentCredentialScreen() {
 
       setToast({
         visible: true,
-        message: `${selectedCredentials.length} credential berhasil dibuat menjadi QR`,
+        message: `${selectedCredentials.length} atribut berhasil dibuat menjadi QR`,
         type: 'success',
       });
     } catch (error) {
@@ -152,6 +171,11 @@ export default function PresentCredentialScreen() {
     selectedIds.includes(vc.id)
   );
 
+  const title = documentName || 'Pilih Data';
+  const subtitle = documentId
+    ? `Pilih atribut dari ${documentName || 'dokumen ini'} yang ingin ditampilkan ke verifier.`
+    : 'Pilih credential mana saja yang ingin ditampilkan ke verifier.';
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -167,11 +191,14 @@ export default function PresentCredentialScreen() {
           style={styles.hero}
         >
           <View>
-            <Text style={styles.heroLabel}>Selective Disclosure</Text>
-            <Text style={styles.heroTitle}>Pilih Data</Text>
+            <Text style={styles.heroLabel}>
+              {documentType ? `${documentType} Selective Disclosure` : 'Selective Disclosure'}
+            </Text>
+
+            <Text style={styles.heroTitle}>{title}</Text>
+
             <Text style={styles.heroSubtitle}>
-              Pilih credential mana saja yang ingin ditampilkan ke verifier.
-              Hanya credential terpilih yang masuk ke VP QR.
+              {subtitle}
             </Text>
           </View>
 
@@ -182,8 +209,8 @@ export default function PresentCredentialScreen() {
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeaderBetween}>
-            <View>
-              <Text style={styles.sectionTitle}>Credential yang Ditampilkan</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Atribut yang Ditampilkan</Text>
               <Text style={styles.smallText}>
                 Dipilih: {selectedIds.length} dari {credentials.length}
               </Text>
@@ -203,9 +230,9 @@ export default function PresentCredentialScreen() {
           {credentials.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="file-tray-outline" size={38} color="#9CA3AF" />
-              <Text style={styles.emptyTitle}>Belum Ada Credential</Text>
+              <Text style={styles.emptyTitle}>Belum Ada Atribut</Text>
               <Text style={styles.emptyText}>
-                Buat atau import credential terlebih dahulu di halaman Wallet.
+                Dokumen ini belum memiliki credential atau data tidak ditemukan.
               </Text>
             </View>
           ) : (
@@ -314,7 +341,7 @@ export default function PresentCredentialScreen() {
               </View>
 
               <Text style={styles.qrNote}>
-                QR ini hanya berisi credential yang kamu pilih.
+                QR ini hanya berisi atribut yang kamu pilih.
               </Text>
             </View>
 
@@ -338,8 +365,8 @@ export default function PresentCredentialScreen() {
                 color="#F97316"
               />
               <Text style={styles.noteText}>
-                Verifier hanya dapat melihat credential yang dipilih user.
-                Credential lain tetap tersimpan di wallet dan tidak masuk ke QR.
+                Verifier hanya dapat melihat atribut yang dipilih user.
+                Atribut lain tetap tersimpan di wallet dan tidak masuk ke QR.
               </Text>
             </View>
           </>
@@ -401,15 +428,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#FFEDD5',
     fontWeight: '900',
+    maxWidth: 230,
   },
   heroTitle: {
-    fontSize: 32,
+    fontSize: 30,
     color: '#FFFFFF',
     fontWeight: '900',
     marginTop: 2,
+    maxWidth: 230,
   },
   heroSubtitle: {
     fontSize: 14,

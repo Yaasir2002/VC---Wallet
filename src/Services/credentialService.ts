@@ -68,6 +68,9 @@ function createLocalDevelopmentJWT(payload: any): string {
 
 export async function createAttributeCredential(params: {
   subjectDid: string;
+  documentId: string;
+  documentType: 'KTP' | 'SIM' | 'IJAZAH' | 'CUSTOM';
+  documentName: string;
   attributeType: AttributeType;
   attributeName: string;
   attributeValue: string;
@@ -101,17 +104,20 @@ export async function createAttributeCredential(params: {
   console.log('SUBJECT DID:', params.subjectDid);
 
   const credentialPayload = removeUndefinedFields({
-    issuer: issuerDid,
-    issuanceDate,
-    expirationDate: params.expirationDate,
-    type: ['VerifiableCredential', 'AttributeCredential'],
-    credentialSubject: {
-      id: params.subjectDid,
-      attributeType: params.attributeType,
-      attributeName: params.attributeName,
-      attributeValue: params.attributeValue,
-    },
-  });
+  issuer: issuerDid,
+  issuanceDate,
+  expirationDate: params.expirationDate,
+  type: ['VerifiableCredential', 'AttributeCredential'],
+  credentialSubject: {
+    id: params.subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
+  },
+});
 
   console.log('VC PAYLOAD:', JSON.stringify(credentialPayload, null, 2));
 
@@ -150,24 +156,27 @@ export async function createAttributeCredential(params: {
   }
 
   return {
-    id: `vc-${params.attributeType}-${Date.now()}`,
-    type: ['VerifiableCredential', 'AttributeCredential'],
-    issuer: issuerDid,
-    issuanceDate,
-    expirationDate: params.expirationDate,
-    credentialSubject: {
-      id: params.subjectDid,
-      attributeType: params.attributeType,
-      attributeName: params.attributeName,
-      attributeValue: params.attributeValue,
-    },
-    proof: {
-      type: 'JwtProof2020',
-      jwt,
-      created: issuanceDate,
-      proofPurpose: 'assertionMethod',
-      verificationMethod: issuerDid,
-    },
+  id: `vc-${params.documentType}-${params.attributeType}-${Date.now()}`,
+  documentId: params.documentId,
+  documentType: params.documentType,
+  documentName: params.documentName,
+  type: ['VerifiableCredential', 'AttributeCredential'],
+  issuer: issuerDid,
+  issuanceDate,
+  expirationDate: params.expirationDate,
+  credentialSubject: {
+    id: params.subjectDid,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
+  },
+  proof: {
+    type: 'JwtProof2020',
     jwt,
+    created: issuanceDate,
+    proofPurpose: 'assertionMethod',
+    verificationMethod: issuerDid,
+  },
+  jwt,
   };
 }
