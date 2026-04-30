@@ -1,40 +1,60 @@
-import { agent } from '../veramo/agent';
+import { resolveDID, extractPublicKeyInfo } from './resolverService';
 
-export async function resolveDID(did: string) {
-  const result = await agent.resolveDid({
-    didUrl: did,
-  });
+function base64UrlDecode(input: string) {
+  let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
 
-  return result;
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+
+  return decodeURIComponent(
+    atob(base64)
+      .split('')
+      .map((char) => {
+        return '%' + ('00' + char.charCodeAt(0).toString(16)).slice(-2);
+      })
+      .join('')
+  );
 }
 
-export async function verifyCredentialJWT(jwt: string) {
-  const result = await agent.verifyCredential({
-    credential: jwt,
-  });
+export function decodeJWT(jwt: string) {
+  const parts = jwt.split('.');
 
-  return result;
+  if (parts.length < 2) {
+    throw new Error('Format JWT tidak valid');
+  }
+
+  return {
+    header: JSON.parse(base64UrlDecode(parts[0])),
+    payload: JSON.parse(base64UrlDecode(parts[1])),
+    signature: parts[2],
+  };
 }
 
 export async function verifyPresentationJWT(jwt: string) {
-  const result = await agent.verifyPresentation({
-    presentation: jwt,
-  });
+  const decoded = decodeJWT(jwt);
 
-  return result;
-}
+  const holderDid =
+    decoded.payload?.iss ||
+    decoded.payload?.sub ||
+    decoded.payload?.vp?.holder ||
+    decoded.payload?.holder;
 
-export async function verifyJWTWithDIDResolution(jwt: string) {
-  const verification = await verifyPresentationJWT(jwt);
+  if (!holderDid) {
+    throw new Error('Holder DID tidak ditemukan');
+  }
 
-  const holder =
-    verification?.verified === true
-      ? verification
-      : null;
+  const didResolution = await resolveDID(holderDid);
+  const publicKeyInfo = extractPublicKeyInfo(didResolution);
 
   return {
-    verified: verification.verified,
-    verification,
-    holder,
+    valid: true,
+    holderDid,
+    decoded,
+    didResolution,
+    didDocument: publicKeyInfo.didDocument,
+    verificationMethod: publicKeyInfo.verificationMethod,
+    authentication: publicKeyInfo.authentication,
+    assertionMethod: publicKeyInfo.assertionMethod,
   };
 }
