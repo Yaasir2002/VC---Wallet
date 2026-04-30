@@ -7,6 +7,7 @@ import { DIDResolverPlugin } from '@veramo/did-resolver';
 import { CredentialPlugin } from '@veramo/credential-w3c';
 import { Resolver } from 'did-resolver';
 import { getResolver as getEthrResolver } from 'ethr-did-resolver';
+import { SecurePrivateKeyStore } from './securePrivateKeyStore';
 
 const networks = [
   {
@@ -19,11 +20,11 @@ const networks = [
 export const agent = createAgent({
   plugins: [
     new KeyManager({
-      store: new MemoryKeyStore(),
-      kms: {
-        local: new KeyManagementSystem(new MemoryPrivateKeyStore()),
-      },
-    }),
+        store: new MemoryKeyStore(),
+        kms: {
+            local: new KeyManagementSystem(new SecurePrivateKeyStore() as any),
+        },
+        }),
 
     new DIDManager({
       store: new MemoryDIDStore(),
