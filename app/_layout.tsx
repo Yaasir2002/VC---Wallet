@@ -1,5 +1,6 @@
 import 'react-native-get-random-values';
 import '@ethersproject/shims';
+import 'react-native-url-polyfill/auto';
 import { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';

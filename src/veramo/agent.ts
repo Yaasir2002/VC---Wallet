@@ -8,8 +8,6 @@ import { CredentialPlugin } from '@veramo/credential-w3c';
 import { Resolver } from 'did-resolver';
 import { getResolver as getEthrResolver } from 'ethr-did-resolver';
 
-const INFURA_PROJECT_ID = 'project_id_kamu';
-
 const networks = [
   {
     name: 'sepolia',

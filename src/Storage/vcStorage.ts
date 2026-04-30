@@ -1,11 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
+import { ModularCredential } from '../types/vc';
 
 const VC_KEY = 'USER_VERIFIABLE_CREDENTIALS';
 
-export const saveVC = async (vc: any) => {
-  const oldData = await SecureStore.getItemAsync(VC_KEY);
-  const oldVCs = oldData ? JSON.parse(oldData) : [];
-
+function normalizeVC(vc: any): ModularCredential {
   const jwt =
     typeof vc === 'string'
       ? vc
@@ -16,12 +14,63 @@ export const saveVC = async (vc: any) => {
     throw new Error('JWT VC tidak ditemukan dari hasil Veramo');
   }
 
-  const newVC = {
-    id: Date.now().toString(),
+  if (typeof vc === 'string') {
+    return {
+      id: `vc-${Date.now()}`,
+      type: ['VerifiableCredential'],
+      issuer: '-',
+      issuanceDate: new Date().toISOString(),
+      credentialSubject: {
+        id: '-',
+        attributeType: 'custom',
+        attributeName: 'Imported JWT',
+        attributeValue: jwt,
+      },
+      proof: {
+        type: 'JwtProof2020',
+        jwt,
+        created: new Date().toISOString(),
+        proofPurpose: 'assertionMethod',
+        verificationMethod: '-',
+      },
+      jwt,
+    };
+  }
+
+  return {
+    id: vc?.id || `vc-${Date.now()}`,
+    type: vc?.type || ['VerifiableCredential'],
+    issuer:
+      typeof vc?.issuer === 'string'
+        ? vc.issuer
+        : vc?.issuer?.id || '-',
+    issuanceDate: vc?.issuanceDate || new Date().toISOString(),
+    expirationDate: vc?.expirationDate,
+    credentialSubject: {
+      id: vc?.credentialSubject?.id || '-',
+      attributeType: vc?.credentialSubject?.attributeType || 'custom',
+      attributeName: vc?.credentialSubject?.attributeName || 'Credential',
+      attributeValue: vc?.credentialSubject?.attributeValue || '',
+    },
+    proof: vc?.proof || {
+      type: 'JwtProof2020',
+      jwt,
+      created: vc?.issuanceDate || new Date().toISOString(),
+      proofPurpose: 'assertionMethod',
+      verificationMethod:
+        typeof vc?.issuer === 'string'
+          ? vc.issuer
+          : vc?.issuer?.id || '-',
+    },
     jwt,
-    vc,
-    createdAt: new Date().toISOString(),
   };
+}
+
+export const saveVC = async (vc: any): Promise<ModularCredential> => {
+  const oldData = await SecureStore.getItemAsync(VC_KEY);
+  const oldVCs: ModularCredential[] = oldData ? JSON.parse(oldData) : [];
+
+  const newVC = normalizeVC(vc);
 
   const updatedVCs = [newVC, ...oldVCs];
 
@@ -30,9 +79,20 @@ export const saveVC = async (vc: any) => {
   return newVC;
 };
 
-export const getVCs = async () => {
+export const getVCs = async (): Promise<ModularCredential[]> => {
   const data = await SecureStore.getItemAsync(VC_KEY);
   return data ? JSON.parse(data) : [];
+};
+
+export const getAllVCs = async (): Promise<ModularCredential[]> => {
+  return await getVCs();
+};
+
+export const getVCById = async (
+  id: string
+): Promise<ModularCredential | null> => {
+  const vcs = await getVCs();
+  return vcs.find((vc) => vc.id === id) || null;
 };
 
 export const deleteAllVCs = async () => {
