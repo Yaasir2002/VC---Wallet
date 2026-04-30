@@ -1,26 +1,20 @@
-import { DIDData } from '../types/did';
-import {
-  saveSecureData,
-  getSecureData,
-  deleteSecureData,
-} from './secureStorage';
+import * as SecureStore from 'expo-secure-store';
+import { DIDData } from '../Services/didService';
 
-const DID_STORAGE_KEY = 'USER_DID';
+const DID_KEY = 'USER_VERAMO_DID';
 
-export async function saveDID(data: DIDData): Promise<void> {
-  await saveSecureData(DID_STORAGE_KEY, JSON.stringify(data));
-}
+export const saveDID = async (didData: DIDData) => {
+  await SecureStore.setItemAsync(DID_KEY, JSON.stringify(didData));
+};
 
-export async function getDID(): Promise<DIDData | null> {
-  const data = await getSecureData(DID_STORAGE_KEY);
+export const getDID = async (): Promise<DIDData | null> => {
+  const data = await SecureStore.getItemAsync(DID_KEY);
 
-  if (!data) {
-    return null;
-  }
+  if (!data) return null;
 
-  return JSON.parse(data) as DIDData;
-}
+  return JSON.parse(data);
+};
 
-export async function deleteDID(): Promise<void> {
-  await deleteSecureData(DID_STORAGE_KEY);
-}
+export const deleteDID = async () => {
+  await SecureStore.deleteItemAsync(DID_KEY);
+};

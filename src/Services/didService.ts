@@ -1,25 +1,37 @@
-import * as Crypto from 'expo-crypto';
-import { ethers } from 'ethers';
-import { DIDData } from '../types/did';
+import { agent } from '../veramo/agent';
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
+export type DIDData = {
+  did: string;
+  provider: string;
+  alias?: string;
+  method: string;
+  network: string;
+  controllerKeyId?: string;
+  createdAt: string;
+};
 
-export function generateEthrDID(): DIDData {
-  const randomBytes = Crypto.getRandomBytes(32);
-  const privateKey = `0x${bytesToHex(randomBytes)}`;
+export const generateEthrDID = async (): Promise<DIDData> => {
+  try {
+    const identifier = await agent.didManagerCreate({
+      provider: 'did:ethr:sepolia',
+      alias: `user-${Date.now()}`,
+    });
 
-  const wallet = new ethers.Wallet(privateKey);
+    return {
+      did: identifier.did,
+      provider: identifier.provider,
+      alias: identifier.alias,
+      method: 'ethr',
+      network: 'sepolia',
+      controllerKeyId: identifier.controllerKeyId,
+      createdAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.log('CREATE VERAMO DID ERROR:', error);
+    throw error;
+  }
+};
 
-  return {
-    did: `did:ethr:sepolia:${wallet.address}`,
-    method: 'ethr',
-    network: 'sepolia',
-    address: wallet.address,
-    privateKey: wallet.privateKey,
-    createdAt: new Date().toISOString(),
-  };
-}
+export const getManagedDIDs = async () => {
+  return await agent.didManagerFind();
+};

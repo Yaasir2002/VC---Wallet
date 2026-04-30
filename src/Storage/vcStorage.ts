@@ -1,39 +1,40 @@
-import { VerifiableCredential } from '../types/vc';
-import {
-  saveSecureData,
-  getSecureData,
-  deleteSecureData,
-} from './secureStorage';
+import * as SecureStore from 'expo-secure-store';
 
-const VC_STORAGE_KEY = 'USER_VERIFIABLE_CREDENTIALS';
+const VC_KEY = 'USER_VERIFIABLE_CREDENTIALS';
 
-export async function saveVC(vc: VerifiableCredential): Promise<void> {
-  const currentVCs = await getAllVCs();
-  const updatedVCs = [...currentVCs, vc];
+export const saveVC = async (vc: any) => {
+  const oldData = await SecureStore.getItemAsync(VC_KEY);
+  const oldVCs = oldData ? JSON.parse(oldData) : [];
 
-  await saveSecureData(VC_STORAGE_KEY, JSON.stringify(updatedVCs));
-}
+  const jwt =
+    typeof vc === 'string'
+      ? vc
+      : vc?.proof?.jwt || vc?.jwt || vc?.verifiableCredential || '';
 
-export async function getAllVCs(): Promise<VerifiableCredential[]> {
-  const data = await getSecureData(VC_STORAGE_KEY);
-
-  if (!data) {
-    return [];
+  if (!jwt) {
+    console.log('VC YANG GAGAL DISIMPAN:', vc);
+    throw new Error('JWT VC tidak ditemukan dari hasil Veramo');
   }
 
-  return JSON.parse(data) as VerifiableCredential[];
-}
+  const newVC = {
+    id: Date.now().toString(),
+    jwt,
+    vc,
+    createdAt: new Date().toISOString(),
+  };
 
-export async function getVCById(
-  id: string
-): Promise<VerifiableCredential | null> {
-  const vcs = await getAllVCs();
+  const updatedVCs = [newVC, ...oldVCs];
 
-  const selectedVC = vcs.find((vc) => vc.id === id);
+  await SecureStore.setItemAsync(VC_KEY, JSON.stringify(updatedVCs));
 
-  return selectedVC ?? null;
-}
+  return newVC;
+};
 
-export async function deleteAllVCs(): Promise<void> {
-  await deleteSecureData(VC_STORAGE_KEY);
-}
+export const getVCs = async () => {
+  const data = await SecureStore.getItemAsync(VC_KEY);
+  return data ? JSON.parse(data) : [];
+};
+
+export const deleteAllVCs = async () => {
+  await SecureStore.deleteItemAsync(VC_KEY);
+};

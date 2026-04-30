@@ -9,10 +9,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-
+import { getDID } from '../../src/Storage/didStorage';
 import { VerifiableCredential } from '../../src/types/vc';
 import { saveVC, getAllVCs, deleteAllVCs } from '../../src/Storage/vcStorage';
-import { dummyKtpVC } from '../../src/data/dummyVc';
+import { createAttributeCredential } from '../../src/Services/credentialService';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -56,30 +56,43 @@ export default function WalletScreen() {
 
   async function handleAddDummyVC() {
     try {
-      setLoading(true);
+      const didData = await getDID();
 
-      const newVC: VerifiableCredential = {
-        ...dummyKtpVC,
-        id: `vc-ktp-${Date.now()}`,
-        issuanceDate: new Date().toISOString(),
-      };
+      if (!didData?.did) {
+        setToast({
+          visible: true,
+          message: 'DID belum dibuat',
+          type: 'error',
+        });
+        return;
+      }
 
-      await saveVC(newVC);
-      await loadVCs();
+      const vc = await createAttributeCredential({
+          subjectDid: didData.did,
+          attributeType: 'legalName',
+          attributeName: 'Nama Lengkap',
+          attributeValue: 'John Doe',
+        });
+
+      await saveVC(vc);
+
+      const updated = await getAllVCs();
+      setCredentials(updated);
 
       setToast({
         visible: true,
-        message: 'Credential dummy berhasil disimpan',
+        message: 'Credential JWT berhasil dibuat',
         type: 'success',
       });
-    } catch {
+
+    } catch (error) {
+      console.log(error);
+
       setToast({
         visible: true,
-        message: 'Gagal menyimpan credential',
+        message: 'Gagal membuat credential',
         type: 'error',
       });
-    } finally {
-      setLoading(false);
     }
   }
 

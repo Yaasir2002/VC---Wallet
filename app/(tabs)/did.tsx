@@ -41,30 +41,23 @@ export default function DIDScreen() {
     }
   }
 
-  async function handleCreateDID() {
-    try {
-      setLoading(true);
+      const handleCreateDID = async () => {
+      try {
+        setLoading(true);
 
-      const newDID = generateEthrDID();
+        const newDID = await generateEthrDID();
 
-      await saveDID(newDID);
-      setDidData(newDID);
+        await saveDID(newDID);
+        setDidData(newDID);
 
-      setToast({
-        visible: true,
-        message: 'DID Ethereum berhasil dibuat',
-        type: 'success',
-      });
-    } catch {
-      setToast({
-        visible: true,
-        message: 'Gagal membuat DID Ethereum',
-        type: 'error',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
+        Alert.alert('Berhasil', 'DID berhasil dibuat menggunakan Veramo Agent.');
+      } catch (error) {
+        console.log(error);
+        Alert.alert('Gagal', 'Gagal membuat DID menggunakan Veramo Agent.');
+      } finally {
+        setLoading(false);
+      }
+    };
 
   async function handleCopy(text?: string, label = 'Data') {
     if (!text) return;
