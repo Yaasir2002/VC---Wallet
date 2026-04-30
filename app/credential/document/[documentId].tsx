@@ -9,11 +9,9 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 
 import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
 import { getCredentialDocumentById } from '../../../src/Services/documentCredentialService';
-import AnimatedButton from '../../../components/ui/AnimatedButton';
 
 export default function CredentialDocumentDetailScreen() {
   const { documentId } = useLocalSearchParams<{ documentId: string }>();
@@ -53,7 +51,9 @@ export default function CredentialDocumentDetailScreen() {
     );
   }
 
-  const documentStatus = getDocumentStatus(document);
+  const mainCredential = getMainCredential(document);
+  const status = getMainCredentialStatus(document);
+  const isValid = status.status === 'VALID';
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -62,274 +62,84 @@ export default function CredentialDocumentDetailScreen() {
         <Text style={styles.backText}>Kembali</Text>
       </Pressable>
 
-      <LinearGradient
-        colors={['#2563EB', '#1D4ED8', '#F97316']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.hero}
-      >
-        <View>
-          <Text style={styles.heroLabel}>Detail Kredensial</Text>
-          <Text style={styles.heroTitle}>{document.documentName}</Text>
-          <Text style={styles.heroSubtitle}>
-            Lihat atribut spesifik, status verifikasi, issuer, dan masa berlaku
-            kredensial.
-          </Text>
-        </View>
-
-        <View style={styles.heroIcon}>
+      <View style={styles.titleSection}>
+        <View style={styles.documentIcon}>
           <Ionicons
             name={getDocumentIcon(document.documentType)}
-            size={36}
+            size={38}
             color="#2563EB"
           />
         </View>
-      </LinearGradient>
 
-      <View
-        style={[
-          styles.statusCard,
-          documentStatus.status === 'VALID'
-            ? styles.validStatusCard
-            : styles.expiredStatusCard,
-        ]}
-      >
+        <Text style={styles.documentTitle}>
+          {getDetailTitle(document)}
+        </Text>
+
+        <Text style={styles.documentSubtitle}>
+          Credential Parent
+        </Text>
+
         <View
           style={[
-            styles.statusIcon,
-            documentStatus.status === 'VALID'
-              ? styles.validStatusIcon
-              : styles.expiredStatusIcon,
+            styles.statusBadge,
+            isValid ? styles.statusValid : styles.statusExpired,
           ]}
         >
-          <Ionicons
-            name={
-              documentStatus.status === 'VALID'
-                ? 'checkmark-circle-outline'
-                : 'alert-circle-outline'
-            }
-            size={28}
-            color={documentStatus.status === 'VALID' ? '#16A34A' : '#DC2626'}
-          />
-        </View>
-
-        <View style={{ flex: 1 }}>
           <Text
             style={[
-              styles.statusTitle,
-              documentStatus.status === 'VALID'
-                ? styles.validText
-                : styles.expiredText,
+              styles.statusText,
+              isValid ? styles.statusTextValid : styles.statusTextExpired,
             ]}
           >
-            {documentStatus.label}
-          </Text>
-          <Text style={styles.statusSubtitle}>
-            {documentStatus.description}
+            {status.label}
           </Text>
         </View>
-      </View>
 
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconBlue}>
-            <Ionicons name="document-text-outline" size={22} color="#2563EB" />
-          </View>
-          <Text style={styles.sectionTitle}>Informasi Kredensial</Text>
-        </View>
-
-        <InfoItem label="Document ID" value={document.documentId} />
-        <InfoItem label="Document Type" value={document.documentType} />
-        <InfoItem label="Document Name" value={document.documentName} />
-        <InfoItem
-          label="Jumlah Atribut"
-          value={`${document.credentials.length} atribut`}
-        />
-      </View>
-
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconOrange}>
-            <Ionicons name="list-outline" size={22} color="#F97316" />
-          </View>
-          <Text style={styles.sectionTitle}>Atribut di Dalam Kredensial</Text>
-        </View>
-
-        {document.credentials.map((vc) => (
-          <AttributeItem key={vc.id} credential={vc} />
-        ))}
-      </View>
-
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconBlue}>
-            <Ionicons name="shield-checkmark-outline" size={22} color="#2563EB" />
-          </View>
-          <Text style={styles.sectionTitle}>Status Verifikasi</Text>
-        </View>
-
-        <VerificationCheck
-          label="Struktur Credential"
-          valid={document.credentials.length > 0}
-        />
-        <VerificationCheck
-          label="Issuer DID"
-          valid={document.credentials.every((vc) => !!vc.issuer)}
-        />
-        <VerificationCheck
-          label="Subject DID"
-          valid={document.credentials.every((vc) => !!vc.credentialSubject?.id)}
-        />
-        <VerificationCheck
-          label="JWT / Proof"
-          valid={document.credentials.every((vc) => !!vc.jwt || !!vc.proof?.jwt)}
-        />
-      </View>
-
-      <AnimatedButton
-        style={styles.prepareButton}
-        onPress={() =>
-          router.push({
-            pathname: '/credential/present',
-            params: {
-              documentId: document.documentId,
-              requester: 'Cascadia Regional Security',
-            },
-          })
-        }
-      >
-        <Ionicons name="qr-code-outline" size={22} color="#FFFFFF" />
-        <Text style={styles.prepareButtonText}>Prepare Presentation</Text>
-      </AnimatedButton>
-
-      <View style={styles.noteCard}>
-        <Ionicons name="information-circle-outline" size={22} color="#F97316" />
-        <Text style={styles.noteText}>
-          Tombol Prepare Presentation akan membuka halaman selective disclosure.
-          Kamu dapat memilih atribut mana saja yang ingin dibagikan kepada pihak
-          verifikator.
+        <Text style={styles.issuerText} numberOfLines={2}>
+          Issuer: {mainCredential?.issuer ?? 'Unknown Issuer'}
         </Text>
+      </View>
+
+      <View style={styles.tableCard}>
+        <Text style={styles.tableTitle}>Daftar Atribut</Text>
+
+        <View style={styles.tableHeader}>
+          <Text style={[styles.tableHeaderText, styles.attributeColumn]}>
+            Atribut
+          </Text>
+          <Text style={[styles.tableHeaderText, styles.valueColumn]}>
+            Nilai
+          </Text>
+        </View>
+
+        {document.credentials.map((credential) => (
+          <AttributeRow key={credential.id} credential={credential} />
+        ))}
       </View>
     </ScrollView>
   );
 }
 
-function AttributeItem({ credential }: { credential: ModularCredential }) {
-  const status = getCredentialStatus(credential);
-
+function AttributeRow({ credential }: { credential: ModularCredential }) {
   return (
-    <View style={styles.attributeItem}>
-      <View style={styles.attributeIcon}>
-        <Ionicons name="document-text-outline" size={20} color="#2563EB" />
-      </View>
+    <View style={styles.tableRow}>
+      <Text style={[styles.attributeName, styles.attributeColumn]}>
+        {credential.credentialSubject.attributeName}
+      </Text>
 
-      <View style={{ flex: 1 }}>
-        <Text style={styles.attributeName}>
-          {credential.credentialSubject.attributeName}
-        </Text>
-
-        <Text style={styles.attributeValue}>
-          {credential.credentialSubject.attributeValue || '-'}
-        </Text>
-
-        <Text style={styles.attributeMeta}>
-          Type: {credential.credentialSubject.attributeType}
-        </Text>
-
-        <Text style={styles.attributeMeta}>
-          Issuer: {shorten(credential.issuer)}
-        </Text>
-      </View>
-
-      <View
-        style={
-          status.status === 'VALID'
-            ? styles.attributeValidBadge
-            : styles.attributeExpiredBadge
-        }
-      >
-        <Text
-          style={
-            status.status === 'VALID'
-              ? styles.attributeValidBadgeText
-              : styles.attributeExpiredBadgeText
-          }
-        >
-          {status.label}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function VerificationCheck({
-  label,
-  valid,
-}: {
-  label: string;
-  valid: boolean;
-}) {
-  return (
-    <View style={styles.checkRow}>
-      <Ionicons
-        name={valid ? 'checkmark-circle-outline' : 'close-circle-outline'}
-        size={22}
-        color={valid ? '#16A34A' : '#DC2626'}
-      />
-      <Text style={styles.checkText}>{label}</Text>
-      <Text style={valid ? styles.checkValidText : styles.checkInvalidText}>
-        {valid ? 'Valid' : 'Invalid'}
+      <Text style={[styles.attributeValue, styles.valueColumn]}>
+        {credential.credentialSubject.attributeValue || '-'}
       </Text>
     </View>
   );
 }
 
-function InfoItem({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.infoItem}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
-    </View>
-  );
-}
+function getDetailTitle(document: CredentialDocument) {
+  if (document.documentType === 'KTP') return 'KTP (Kartu Tanda Penduduk)';
+  if (document.documentType === 'SIM') return 'SIM (Surat Izin Mengemudi)';
+  if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
 
-function getCredentialStatus(credential: ModularCredential) {
-  if (!credential.expirationDate) {
-    return {
-      status: 'VALID',
-      label: 'VALID',
-    };
-  }
-
-  const isExpired = new Date(credential.expirationDate) < new Date();
-
-  return {
-    status: isExpired ? 'EXPIRED' : 'VALID',
-    label: isExpired ? 'EXPIRED' : 'VALID',
-  };
-}
-
-function getDocumentStatus(document: CredentialDocument) {
-  const hasExpired = document.credentials.some((vc) => {
-    if (!vc.expirationDate) return false;
-    return new Date(vc.expirationDate) < new Date();
-  });
-
-  if (hasExpired) {
-    return {
-      status: 'EXPIRED',
-      label: 'EXPIRED',
-      description:
-        'Salah satu atribut credential sudah melewati masa berlaku.',
-    };
-  }
-
-  return {
-    status: 'VALID',
-    label: 'VALID CREDENTIAL',
-    description:
-      'Seluruh atribut credential masih dapat digunakan untuk presentasi.',
-  };
+  return document.documentName || 'Credential Document';
 }
 
 function getDocumentIcon(documentType: string) {
@@ -340,10 +150,40 @@ function getDocumentIcon(documentType: string) {
   return 'document-text-outline';
 }
 
-function shorten(value?: string) {
-  if (!value) return '-';
-  if (value.length <= 22) return value;
-  return `${value.slice(0, 14)}...${value.slice(-6)}`;
+function getMainCredential(document: CredentialDocument) {
+  const credentials = document.credentials ?? [];
+
+  return (
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'legalName'
+    ) ||
+    credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
+    ) ||
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'studentId'
+    ) ||
+    credentials[0]
+  );
+}
+
+function getMainCredentialStatus(document: CredentialDocument) {
+  const mainCredential = getMainCredential(document);
+
+  if (!mainCredential?.expirationDate) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const isExpired = new Date(mainCredential.expirationDate) < new Date();
+
+  return {
+    status: isExpired ? 'EXPIRED' : 'VALID',
+    label: isExpired ? 'EXPIRED' : 'VALID',
+  };
 }
 
 const styles = StyleSheet.create({
@@ -371,95 +211,82 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 16,
+    marginBottom: 22,
   },
   backText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#111827',
   },
-  hero: {
+  titleSection: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     borderRadius: 28,
     padding: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  heroLabel: {
-    fontSize: 14,
-    color: '#FFEDD5',
-    fontWeight: '900',
-  },
-  heroTitle: {
-    fontSize: 28,
-    color: '#FFFFFF',
-    fontWeight: '900',
-    marginTop: 2,
-    maxWidth: 230,
-  },
-  heroSubtitle: {
-    fontSize: 14,
-    color: '#DBEAFE',
-    marginTop: 8,
-    lineHeight: 21,
-    maxWidth: 230,
-  },
-  heroIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusCard: {
-    marginTop: 18,
-    borderRadius: 24,
-    padding: 18,
     borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    borderColor: '#E5E7EB',
   },
-  validStatusCard: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
-  },
-  expiredStatusCard: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-  statusIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+  documentIcon: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 16,
   },
-  validStatusIcon: {
-    backgroundColor: '#DCFCE7',
-  },
-  expiredStatusIcon: {
-    backgroundColor: '#FEE2E2',
-  },
-  statusTitle: {
-    fontSize: 20,
+  documentTitle: {
+    fontSize: 26,
     fontWeight: '900',
+    color: '#111827',
+    textAlign: 'center',
+    lineHeight: 32,
   },
-  validText: {
+  documentSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 1.4,
+  },
+  statusBadge: {
+    marginTop: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  statusValid: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#166534',
+  },
+  statusExpired: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#991B1B',
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  statusTextValid: {
     color: '#166534',
   },
-  expiredText: {
+  statusTextExpired: {
     color: '#991B1B',
   },
-  statusSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 3,
-    lineHeight: 19,
+  issuerText: {
+    marginTop: 14,
+    fontSize: 12,
+    color: '#64748B',
     fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 18,
   },
-  sectionCard: {
+  tableCard: {
     backgroundColor: '#FFFFFF',
     marginTop: 18,
     borderRadius: 24,
@@ -467,165 +294,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  sectionIconBlue: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionIconOrange: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFEDD5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionTitle: {
+  tableTitle: {
     fontSize: 18,
-    color: '#111827',
     fontWeight: '900',
-    flex: 1,
-  },
-  infoItem: {
-    marginTop: 12,
-  },
-  label: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '900',
-  },
-  value: {
-    fontSize: 14,
     color: '#111827',
-    marginTop: 5,
-    lineHeight: 20,
-    fontWeight: '600',
+    marginBottom: 14,
   },
-  attributeItem: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  tableHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
+    backgroundColor: '#EFF6FF',
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
   },
-  attributeIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
+  tableHeaderText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#2563EB',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 13,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  attributeColumn: {
+    flex: 0.45,
+    paddingRight: 10,
+  },
+  valueColumn: {
+    flex: 0.55,
   },
   attributeName: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#111827',
     fontWeight: '900',
   },
   attributeValue: {
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '700',
-    marginTop: 3,
-  },
-  attributeMeta: {
-    fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  attributeValidBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  attributeExpiredBadge: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  attributeValidBadgeText: {
-    color: '#166534',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  attributeExpiredBadgeText: {
-    color: '#991B1B',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  checkRow: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 10,
-  },
-  checkText: {
-    flex: 1,
-    color: '#111827',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  checkValidText: {
-    color: '#166534',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  checkInvalidText: {
-    color: '#991B1B',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  prepareButton: {
-    backgroundColor: '#F97316',
-    marginTop: 18,
-    paddingVertical: 15,
-    borderRadius: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  prepareButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 15,
-  },
-  noteCard: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-    borderRadius: 20,
-    padding: 16,
-    marginTop: 18,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-  },
-  noteText: {
-    flex: 1,
-    color: '#9A3412',
     fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 19,
+    color: '#374151',
+    fontWeight: '600',
+    lineHeight: 18,
   },
 });

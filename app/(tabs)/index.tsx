@@ -208,13 +208,13 @@ export default function HomeScreen() {
             {loadingDashboard ? (
               <View>
                 {[1, 2].map((item) => (
-                  <View key={item} style={styles.credentialCard}>
-                    <View style={styles.credentialHeader}>
-                      <SkeletonBox width={48} height={48} borderRadius={14} />
+                  <View key={item} style={styles.parentCredentialCard}>
+                    <View style={styles.parentCredentialHeader}>
+                      <SkeletonBox width={50} height={50} borderRadius={16} />
                       <View style={{ flex: 1 }}>
-                        <SkeletonBox width="70%" height={16} />
+                        <SkeletonBox width="70%" height={17} />
                         <SkeletonBox
-                          width="50%"
+                          width="55%"
                           height={12}
                           style={{ marginTop: 8 }}
                         />
@@ -242,15 +242,15 @@ export default function HomeScreen() {
               </View>
             ) : (
               documents.map((doc) => {
-                const status = getDocumentStatus(doc);
+                const status = getParentCredentialStatus(doc);
                 const isValid = status.status === 'VALID';
 
                 return (
                   <Pressable
                     key={doc.documentId}
                     style={({ pressed }) => [
-                      styles.credentialCard,
-                      pressed && styles.credentialCardPressed,
+                      styles.parentCredentialCard,
+                      pressed && styles.parentCredentialCardPressed,
                     ]}
                     onPress={() =>
                       router.push({
@@ -259,41 +259,44 @@ export default function HomeScreen() {
                       })
                     }
                   >
-                    <View style={styles.credentialHeader}>
-                      <View style={styles.credentialLeft}>
-                        <View style={styles.credentialIconBox}>
+                    <View style={styles.parentCredentialHeader}>
+                      <View style={styles.parentCredentialLeft}>
+                        <View style={styles.parentCredentialIconBox}>
                           <Ionicons
                             name={getDocumentIcon(doc.documentType)}
-                            size={24}
+                            size={25}
                             color="#2563EB"
                           />
                         </View>
 
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.credentialTitle}>
+                          <Text style={styles.parentCredentialTitle}>
                             {getDocumentDisplayName(doc)}
                           </Text>
 
-                          <Text style={styles.credentialIssuer} numberOfLines={1}>
-                            {getCredentialIssuer(doc)}
+                          <Text
+                            style={styles.parentCredentialIssuer}
+                            numberOfLines={1}
+                          >
+                            {getParentCredentialIssuer(doc)}
                           </Text>
                         </View>
                       </View>
 
                       <View
                         style={[
-                          styles.credentialStatusBadge,
+                          styles.parentStatusBadge,
                           isValid
-                            ? styles.credentialStatusValid
-                            : styles.credentialStatusExpired,
+                            ? styles.parentStatusValid
+                            : styles.parentStatusExpired,
                         ]}
                       >
                         <Text
                           style={[
-                            styles.credentialStatusText,
+                            styles.parentStatusText,
                             isValid
-                              ? styles.credentialStatusTextValid
-                              : styles.credentialStatusTextExpired,
+                              ? styles.parentStatusTextValid
+                              : styles.parentStatusTextExpired,
                           ]}
                         >
                           {status.label}
@@ -301,14 +304,14 @@ export default function HomeScreen() {
                       </View>
                     </View>
 
-                    <View style={styles.credentialFooter}>
-                      <Text style={styles.credentialExcerpt} numberOfLines={1}>
-                        {getCredentialExcerpt(doc)}
+                    <View style={styles.parentCredentialFooter}>
+                      <Text style={styles.parentCredentialHint}>
+                        Klik untuk melihat detail atribut
                       </Text>
 
                       <Ionicons
                         name="chevron-forward"
-                        size={15}
+                        size={16}
                         color="#94A3B8"
                       />
                     </View>
@@ -399,11 +402,15 @@ export default function HomeScreen() {
 }
 
 function getDocumentDisplayName(document: CredentialDocument) {
+  if (document.documentName) {
+    return document.documentName;
+  }
+
   if (document.documentType === 'KTP') return 'KTP Digital';
   if (document.documentType === 'SIM') return 'SIM Digital';
   if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
 
-  return document.documentName || 'Credential Document';
+  return 'Credential Document';
 }
 
 function getDocumentIcon(documentType: string) {
@@ -414,53 +421,50 @@ function getDocumentIcon(documentType: string) {
   return 'document-text-outline';
 }
 
-function getCredentialIssuer(document: CredentialDocument) {
-  const firstCredential = document.credentials?.[0];
+function getParentCredentialIssuer(document: CredentialDocument) {
+  const mainCredential = getMainCredential(document);
 
-  if (firstCredential?.issuer) {
-    if (typeof firstCredential.issuer === 'string') {
-      return firstCredential.issuer;
-    }
-
-    if (
-      typeof firstCredential.issuer === 'object' &&
-      'id' in firstCredential.issuer
-    ) {
-      return String(firstCredential.issuer.id);
-    }
+  if (mainCredential?.issuer) {
+    return mainCredential.issuer;
   }
 
-  return 'SELF SOVEREIGN IDENTITY';
+  return 'Unknown Issuer';
 }
 
-function getCredentialExcerpt(document: CredentialDocument) {
-  const totalAttributes = document.credentials?.length ?? 0;
-  const documentType = document.documentType || 'Credential';
+function getParentCredentialStatus(document: CredentialDocument) {
+  const mainCredential = getMainCredential(document);
 
-  return `${documentType} • ${totalAttributes} atribut tersimpan`;
-}
-
-function getDocumentStatus(document: CredentialDocument) {
-  const now = new Date();
-
-  const expirationDates = document.credentials
-    .map((vc) => vc.expirationDate)
-    .filter(Boolean)
-    .map((date) => new Date(date as string));
-
-  if (expirationDates.length === 0) {
+  if (!mainCredential?.expirationDate) {
     return {
       status: 'VALID',
       label: 'VALID',
     };
   }
 
-  const hasExpired = expirationDates.some((date) => date < now);
+  const isExpired = new Date(mainCredential.expirationDate) < new Date();
 
   return {
-    status: hasExpired ? 'EXPIRED' : 'VALID',
-    label: hasExpired ? 'EXPIRED' : 'VALID',
+    status: isExpired ? 'EXPIRED' : 'VALID',
+    label: isExpired ? 'EXPIRED' : 'VALID',
   };
+}
+
+function getMainCredential(document: CredentialDocument) {
+  const credentials = document.credentials ?? [];
+
+  return (
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'legalName'
+    ) ||
+    credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
+    ) ||
+    credentials.find(
+      (vc) => vc.credentialSubject?.attributeType === 'studentId'
+    ) ||
+    credentials[0]
+  );
 }
 
 const styles = StyleSheet.create({
@@ -646,7 +650,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
   },
-  credentialCard: {
+  parentCredentialCard: {
     backgroundColor: '#FFFFFF',
     padding: 18,
     borderRadius: 20,
@@ -659,89 +663,86 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
-  credentialCardPressed: {
+  parentCredentialCardPressed: {
     borderColor: '#2563EB',
     backgroundColor: '#F8FAFC',
     transform: [{ scale: 0.99 }],
   },
-  credentialHeader: {
+  parentCredentialHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 14,
     gap: 10,
   },
-  credentialLeft: {
+  parentCredentialLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     flex: 1,
   },
-  credentialIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  parentCredentialIconBox: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     backgroundColor: '#EFF6FF',
     borderWidth: 1,
     borderColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  credentialTitle: {
-    fontSize: 15,
+  parentCredentialTitle: {
+    fontSize: 16,
     fontWeight: '900',
     color: '#111827',
-    lineHeight: 20,
+    lineHeight: 21,
   },
-  credentialIssuer: {
+  parentCredentialIssuer: {
     fontSize: 10,
     color: '#64748B',
-    marginTop: 3,
+    marginTop: 4,
     textTransform: 'uppercase',
     letterSpacing: 1.3,
     fontWeight: '700',
   },
-  credentialStatusBadge: {
+  parentStatusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 7,
     borderWidth: 1,
   },
-  credentialStatusValid: {
+  parentStatusValid: {
     borderColor: '#166534',
     backgroundColor: '#DCFCE7',
   },
-  credentialStatusExpired: {
+  parentStatusExpired: {
     borderColor: '#CBD5E1',
     backgroundColor: '#F8FAFC',
   },
-  credentialStatusText: {
+  parentStatusText: {
     fontSize: 9,
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 1.1,
   },
-  credentialStatusTextValid: {
+  parentStatusTextValid: {
     color: '#166534',
   },
-  credentialStatusTextExpired: {
+  parentStatusTextExpired: {
     color: '#64748B',
   },
-  credentialFooter: {
+  parentCredentialFooter: {
+    marginTop: 16,
     paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
   },
-  credentialExcerpt: {
-    flex: 1,
-    fontSize: 12,
+  parentCredentialHint: {
     color: '#64748B',
-    opacity: 0.85,
-    fontFamily: 'monospace',
+    fontSize: 12,
+    fontWeight: '700',
   },
   emptyCredential: {
     marginTop: 14,
