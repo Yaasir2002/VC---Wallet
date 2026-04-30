@@ -5,11 +5,13 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
+import QRCode from 'react-native-qrcode-svg';
 
 import { DIDData } from '../../src/types/did';
 import { CredentialDocument } from '../../src/types/vc';
@@ -27,6 +29,7 @@ export default function HomeScreen() {
   const [didData, setDidData] = useState<DIDData | null>(null);
   const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [showDIDQR, setShowDIDQR] = useState(false);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -57,7 +60,14 @@ export default function HomeScreen() {
   }
 
   async function handleCopyDID() {
-    if (!didData?.did) return;
+    if (!didData?.did) {
+      setToast({
+        visible: true,
+        message: 'DID belum tersedia',
+        type: 'error',
+      });
+      return;
+    }
 
     await Clipboard.setStringAsync(didData.did);
 
@@ -66,6 +76,19 @@ export default function HomeScreen() {
       message: 'DID berhasil disalin',
       type: 'success',
     });
+  }
+
+  function handleShowDIDQR() {
+    if (!didData?.did) {
+      setToast({
+        visible: true,
+        message: 'DID belum tersedia',
+        type: 'error',
+      });
+      return;
+    }
+
+    setShowDIDQR(true);
   }
 
   useFocusEffect(
@@ -160,13 +183,23 @@ export default function HomeScreen() {
               </Text>
 
               {didData ? (
-                <AnimatedButton
-                  style={styles.copyDidButton}
-                  onPress={handleCopyDID}
-                >
-                  <Ionicons name="copy-outline" size={16} color="#2563EB" />
-                  <Text style={styles.copyDidText}>Copy DID Address</Text>
-                </AnimatedButton>
+                <View style={styles.didActionRow}>
+                  <AnimatedButton
+                    style={styles.copyDidButton}
+                    onPress={handleCopyDID}
+                  >
+                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                    <Text style={styles.copyDidText}>Copy DID</Text>
+                  </AnimatedButton>
+
+                  <AnimatedButton
+                    style={styles.qrDidButton}
+                    onPress={handleShowDIDQR}
+                  >
+                    <Ionicons name="qr-code-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.qrDidText}>Generate QR</Text>
+                  </AnimatedButton>
+                </View>
               ) : (
                 <AnimatedButton
                   style={styles.createButton}
@@ -176,18 +209,6 @@ export default function HomeScreen() {
                   <Text style={styles.createButtonText}>Create DID</Text>
                 </AnimatedButton>
               )}
-
-              <View style={styles.didMetaRow}>
-                <View style={styles.metaBox}>
-                  <Text style={styles.metaLabel}>Method</Text>
-                  <Text style={styles.metaValue}>{didData?.method ?? '-'}</Text>
-                </View>
-
-                <View style={styles.metaBox}>
-                  <Text style={styles.metaLabel}>Network</Text>
-                  <Text style={styles.metaValue}>{didData?.network ?? '-'}</Text>
-                </View>
-              </View>
             </View>
           )}
         </AnimatedScreen>
@@ -390,6 +411,43 @@ export default function HomeScreen() {
         </AnimatedScreen>
       </ScrollView>
 
+      <Modal visible={showDIDQR} transparent animationType="fade">
+        <View style={styles.qrModalOverlay}>
+          <View style={styles.qrModalBox}>
+            <View style={styles.qrModalIcon}>
+              <Ionicons name="qr-code-outline" size={34} color="#2563EB" />
+            </View>
+
+            <Text style={styles.qrModalTitle}>DID QR Code</Text>
+            <Text style={styles.qrModalSubtitle}>
+              QR ini berisi DID Address wallet kamu.
+            </Text>
+
+            <View style={styles.qrContainer}>
+              {didData?.did ? <QRCode value={didData.did} size={220} /> : null}
+            </View>
+
+            <Text style={styles.qrDidAddress} numberOfLines={4}>
+              {didData?.did}
+            </Text>
+
+            <View style={styles.qrModalActionRow}>
+              <Pressable style={styles.qrCopyButton} onPress={handleCopyDID}>
+                <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                <Text style={styles.qrCopyButtonText}>Copy DID</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.qrCloseButton}
+                onPress={() => setShowDIDQR(false)}
+              >
+                <Text style={styles.qrCloseButtonText}>Tutup</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <AppToast
         visible={toast.visible}
         message={toast.message}
@@ -548,8 +606,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '600',
   },
-  copyDidButton: {
+  didActionRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 12,
+  },
+  copyDidButton: {
+    flex: 1,
     backgroundColor: '#EFF6FF',
     borderRadius: 12,
     paddingVertical: 10,
@@ -561,6 +624,22 @@ const styles = StyleSheet.create({
   },
   copyDidText: {
     color: '#2563EB',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  qrDidButton: {
+    flex: 1,
+    backgroundColor: '#F97316',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  qrDidText: {
+    color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 13,
   },
@@ -577,28 +656,6 @@ const styles = StyleSheet.create({
   createButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
-  },
-  didMetaRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
-  },
-  metaBox: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-  },
-  metaLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '700',
-  },
-  metaValue: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '900',
-    marginTop: 4,
   },
   statsRow: {
     flexDirection: 'row',
@@ -826,5 +883,90 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 19,
+  },
+  qrModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  qrModalBox: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    padding: 22,
+    alignItems: 'center',
+  },
+  qrModalIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  qrModalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  qrModalSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '700',
+    marginTop: 6,
+    marginBottom: 18,
+    textAlign: 'center',
+  },
+  qrContainer: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  qrDidAddress: {
+    fontSize: 12,
+    color: '#2563EB',
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  qrModalActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+    width: '100%',
+  },
+  qrCopyButton: {
+    flex: 1,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  qrCopyButtonText: {
+    color: '#2563EB',
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  qrCloseButton: {
+    flex: 1,
+    backgroundColor: '#111827',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrCloseButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
   },
 });
