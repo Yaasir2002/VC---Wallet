@@ -252,10 +252,7 @@ export default function HomeScreen() {
             onPress={() => {
               if (!latestCredential) return;
 
-              router.push({
-                pathname: '/credential/present',
-                params: { id: latestCredential.id },
-              });
+              router.push('/credential/present');
             }}
           >
             <View style={styles.presentIcon}>
