@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-import { getPin } from '../../src/Storage/authStorage';
+import { getPin, isBiometricEnabled } from '../../src/Storage/authStorage';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import AppToast from '../../components/ui/AppToast';
 
@@ -39,27 +39,38 @@ export default function UnlockScreen() {
   }
 
   async function handleBiometric() {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+  const biometricEnabled = await isBiometricEnabled();
 
-    if (!hasHardware || !isEnrolled) {
-      setToast({
-        visible: true,
-        message: 'Biometrik tidak tersedia di perangkat ini',
-        type: 'error',
-      });
-      return;
-    }
-
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock VC Wallet',
-      cancelLabel: 'Batal',
+  if (!biometricEnabled) {
+    setToast({
+      visible: true,
+      message: 'Biometrik belum diaktifkan pada wallet ini',
+      type: 'error',
     });
-
-    if (result.success) {
-      router.replace('/(tabs)');
-    }
+    return;
   }
+
+  const hasHardware = await LocalAuthentication.hasHardwareAsync();
+  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+  if (!hasHardware || !isEnrolled) {
+    setToast({
+      visible: true,
+      message: 'Biometrik tidak tersedia di perangkat ini',
+      type: 'error',
+    });
+    return;
+  }
+
+  const result = await LocalAuthentication.authenticateAsync({
+    promptMessage: 'Unlock VC Wallet',
+    cancelLabel: 'Batal',
+  });
+
+  if (result.success) {
+    router.replace('/(tabs)');
+  }
+}
 
   function handleUnlock() {
     if (!inputPin) {

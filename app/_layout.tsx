@@ -1,10 +1,14 @@
 import 'react-native-get-random-values';
 import '@ethersproject/shims';
 import 'react-native-url-polyfill/auto';
+
 import { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { hasPin } from '../src/Storage/authStorage';
+import {
+  hasPin,
+  isOnboardingCompleted,
+} from '../src/Storage/authStorage';
 
 export default function RootLayout() {
   return (
@@ -23,20 +27,39 @@ function AuthGate() {
 
   useEffect(() => {
     checkAuth();
-  }, []);
+  }, [segments]);
 
   async function checkAuth() {
     const pinExists = await hasPin();
+    const onboardingDone = await isOnboardingCompleted();
 
     const currentGroup = segments[0];
+    const currentScreen = segments[1];
+
     const isAuthRoute = currentGroup === 'auth';
 
-    if (!pinExists && !isAuthRoute) {
-      router.replace('/auth/create-pin');
+    if (!onboardingDone && !isAuthRoute) {
+      router.replace('/auth/onboarding');
+      setChecking(false);
+      return;
     }
 
-    if (pinExists && !isAuthRoute) {
+    if (onboardingDone && !pinExists && !isAuthRoute) {
+      router.replace('/auth/create-pin');
+      setChecking(false);
+      return;
+    }
+
+    if (onboardingDone && pinExists && !isAuthRoute) {
       router.replace('/auth/unlock');
+      setChecking(false);
+      return;
+    }
+
+    if (onboardingDone && pinExists && isAuthRoute && currentScreen === 'create-pin') {
+      router.replace('/auth/unlock');
+      setChecking(false);
+      return;
     }
 
     setChecking(false);
