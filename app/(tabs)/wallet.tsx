@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -85,25 +86,45 @@ export default function WalletScreen() {
   }
 
   async function handleDeleteAllDocuments() {
-    try {
-      await deleteAllVCs();
-      setDocuments([]);
+  Alert.alert(
+    'Hapus Semua Dokumen',
+    'Apakah kamu yakin ingin menghapus semua credential? Tindakan ini tidak dapat dibatalkan.',
+    [
+      {
+        text: 'Batal',
+        style: 'cancel',
+      },
+      {
+        text: 'Hapus',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoading(true);
 
-      setToast({
-        visible: true,
-        message: 'Semua dokumen credential berhasil dihapus',
-        type: 'success',
-      });
-    } catch (error) {
-      console.log('DELETE DOCUMENTS ERROR:', error);
+            await deleteAllVCs();
+            setDocuments([]);
 
-      setToast({
-        visible: true,
-        message: 'Gagal menghapus dokumen credential',
-        type: 'error',
-      });
-    }
-  }
+            setToast({
+              visible: true,
+              message: 'Semua dokumen credential berhasil dihapus',
+              type: 'success',
+            });
+          } catch (error) {
+            console.log('DELETE DOCUMENTS ERROR:', error);
+
+            setToast({
+              visible: true,
+              message: 'Gagal menghapus dokumen credential',
+              type: 'error',
+            });
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]
+  );
+}
 
   const totalAttributes = documents.reduce(
     (total, doc) => total + doc.credentials.length,

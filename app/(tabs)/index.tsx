@@ -96,7 +96,7 @@ export default function HomeScreen() {
 
     setToast({
       visible: true,
-      message: 'Public key berhasil disalin',
+      message: 'Controller Key ID berhasil disalin',
       type: 'success',
     });
   }
@@ -188,7 +188,7 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              <Text style={styles.didAddressLabel}>Public Key</Text>
+              <Text style={styles.didAddressLabel}>Controller Key ID</Text>
               <Text style={styles.didAddress}>
                 {didData?.controllerKeyId ??
                   'Public key belum tersedia. Buat akun terlebih dahulu.'}
@@ -201,7 +201,7 @@ export default function HomeScreen() {
                     onPress={handleCopyPublicKey}
                   >
                     <Ionicons name="key-outline" size={16} color="#2563EB" />
-                    <Text style={styles.copyDidText}>Copy Public Key</Text>
+                    <Text style={styles.copyDidText}>Copy Key ID</Text>
                   </AnimatedButton>
 
                   <AnimatedButton
