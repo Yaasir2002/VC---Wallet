@@ -27,7 +27,6 @@ export async function createDocumentCredentials(params: {
   }
 
   const documentId = `${params.documentType}-${Date.now()}`;
-
   const createdCredentials: ModularCredential[] = [];
 
   for (const attribute of params.attributes) {
@@ -56,7 +55,8 @@ export async function getCredentialDocuments(): Promise<CredentialDocument[]> {
   for (const vc of credentials) {
     const documentId = vc.documentId || `LEGACY-${vc.id}`;
     const documentType = vc.documentType || 'CUSTOM';
-    const documentName = vc.documentName || 'Credential Document';
+    const documentName =
+      vc.documentName || getDefaultDocumentName(documentType);
 
     if (!grouped[documentId]) {
       grouped[documentId] = {
@@ -81,20 +81,28 @@ export async function getCredentialDocumentById(
   return documents.find((doc) => doc.documentId === documentId) || null;
 }
 
+function getDefaultDocumentName(documentType: DocumentType) {
+  if (documentType === 'KTP') return 'KTP Digital';
+  if (documentType === 'SIM') return 'SIM Digital';
+  if (documentType === 'IJAZAH') return 'Ijazah Digital';
+
+  return 'Credential Document';
+}
+
 export async function createDummyKTP() {
   return await createDocumentCredentials({
     documentType: 'KTP',
-    documentName: 'Kartu Tanda Penduduk',
+    documentName: 'KTP Digital',
     attributes: [
       {
         attributeType: 'legalName',
         attributeName: 'Nama Lengkap',
-        attributeValue: 'John Doe',
+        attributeValue: 'Muhammad Yaasir',
       },
       {
         attributeType: 'nik',
         attributeName: 'NIK',
-        attributeValue: '317xxxxxxxxxxxxx',
+        attributeValue: '3276010101020001',
       },
       {
         attributeType: 'birthPlace',
@@ -104,7 +112,7 @@ export async function createDummyKTP() {
       {
         attributeType: 'birthDate',
         attributeName: 'Tanggal Lahir',
-        attributeValue: '2002-01-01',
+        attributeValue: '01 Januari 2002',
       },
       {
         attributeType: 'address',
@@ -123,17 +131,17 @@ export async function createDummyKTP() {
 export async function createDummySIM() {
   return await createDocumentCredentials({
     documentType: 'SIM',
-    documentName: 'Surat Izin Mengemudi',
+    documentName: 'SIM Digital',
     attributes: [
       {
         attributeType: 'legalName',
         attributeName: 'Nama Lengkap',
-        attributeValue: 'John Doe',
+        attributeValue: 'Muhammad Yaasir',
       },
       {
         attributeType: 'licenseNumber',
         attributeName: 'Nomor SIM',
-        attributeValue: 'SIM-123456789',
+        attributeValue: 'SIM-C-3276010101020001',
       },
       {
         attributeType: 'licenseType',
@@ -143,7 +151,7 @@ export async function createDummySIM() {
       {
         attributeType: 'birthDate',
         attributeName: 'Tanggal Lahir',
-        attributeValue: '2002-01-01',
+        attributeValue: '01 Januari 2002',
       },
     ],
   });
@@ -152,12 +160,12 @@ export async function createDummySIM() {
 export async function createDummyIjazah() {
   return await createDocumentCredentials({
     documentType: 'IJAZAH',
-    documentName: 'Ijazah Pendidikan',
+    documentName: 'Ijazah Digital',
     attributes: [
       {
         attributeType: 'legalName',
         attributeName: 'Nama Lengkap',
-        attributeValue: 'John Doe',
+        attributeValue: 'Muhammad Yaasir',
       },
       {
         attributeType: 'studentId',

@@ -79,8 +79,13 @@ export default function HomeScreen() {
     0
   );
 
-  const validDocuments = documents.filter((doc) => getDocumentStatus(doc).status === 'VALID').length;
-  const expiredDocuments = documents.filter((doc) => getDocumentStatus(doc).status === 'EXPIRED').length;
+  const validDocuments = documents.filter(
+    (doc) => getDocumentStatus(doc).status === 'VALID'
+  ).length;
+
+  const expiredDocuments = documents.filter(
+    (doc) => getDocumentStatus(doc).status === 'EXPIRED'
+  ).length;
 
   return (
     <View style={{ flex: 1 }}>
@@ -96,8 +101,8 @@ export default function HomeScreen() {
               <Text style={styles.welcomeTextGradient}>SSI Wallet</Text>
               <Text style={styles.appTitleGradient}>Dashboard</Text>
               <Text style={styles.subtitleGradient}>
-                Kelola DID, Verifiable Credential, dan permintaan verifikasi
-                dari satu tempat.
+                Kelola DID, dokumen kredensial digital, dan permintaan
+                verifikasi dari satu tempat.
               </Text>
             </View>
 
@@ -240,7 +245,7 @@ export default function HomeScreen() {
         <AnimatedScreen delay={320}>
           <View style={styles.documentSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>My Verifiable Credentials</Text>
+              <Text style={styles.sectionTitle}>My VC Documents</Text>
 
               <Pressable onPress={() => router.push('/(tabs)/wallet')}>
                 <Text style={styles.viewAllText}>View Wallet</Text>
@@ -308,10 +313,11 @@ export default function HomeScreen() {
 
                       <View style={{ flex: 1 }}>
                         <Text style={styles.documentTitle}>
-                          {doc.documentName}
+                          {getDocumentDisplayName(doc)}
                         </Text>
+
                         <Text style={styles.documentSubtitle}>
-                          {doc.documentType} • {doc.credentials.length} atribut
+                          {doc.documentType} Credential
                         </Text>
                       </View>
 
@@ -334,22 +340,16 @@ export default function HomeScreen() {
                       </View>
                     </View>
 
-                    <View style={styles.attributePreviewWrap}>
-                      {doc.credentials.slice(0, 3).map((vc) => (
-                        <View key={vc.id} style={styles.attributeChip}>
-                          <Text style={styles.attributeChipText}>
-                            {vc.credentialSubject.attributeName}
-                          </Text>
-                        </View>
-                      ))}
+                    <View style={styles.documentFooter}>
+                      <Text style={styles.documentHint}>
+                        Klik untuk melihat detail isi credential
+                      </Text>
 
-                      {doc.credentials.length > 3 && (
-                        <View style={styles.attributeChipMore}>
-                          <Text style={styles.attributeChipMoreText}>
-                            +{doc.credentials.length - 3}
-                          </Text>
-                        </View>
-                      )}
+                      <Ionicons
+                        name="chevron-forward-outline"
+                        size={18}
+                        color="#6B7280"
+                      />
                     </View>
                   </Pressable>
                 );
@@ -383,8 +383,8 @@ export default function HomeScreen() {
             <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
             <Text style={styles.securityText}>
               Wallet dilindungi dengan secure storage, PIN lokal, dan biometrik.
-              Credential ditampilkan dalam bentuk dokumen digital yang dapat
-              dipresentasikan secara selektif.
+              Credential ditampilkan sebagai dokumen digital seperti KTP, SIM,
+              dan Ijazah.
             </Text>
           </View>
         </AnimatedScreen>
@@ -398,6 +398,14 @@ export default function HomeScreen() {
       />
     </View>
   );
+}
+
+function getDocumentDisplayName(document: CredentialDocument) {
+  if (document.documentType === 'KTP') return 'KTP Digital';
+  if (document.documentType === 'SIM') return 'SIM Digital';
+  if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
+
+  return document.documentName || 'Credential Document';
 }
 
 function getDocumentIcon(documentType: string) {
@@ -704,6 +712,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '700',
   },
+  documentFooter: {
+    marginTop: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  documentHint: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   validBadge: {
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 9,
@@ -724,36 +743,6 @@ const styles = StyleSheet.create({
   expiredBadgeText: {
     color: '#991B1B',
     fontSize: 10,
-    fontWeight: '900',
-  },
-  attributePreviewWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-  },
-  attributeChip: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  attributeChipText: {
-    fontSize: 12,
-    color: '#374151',
-    fontWeight: '800',
-  },
-  attributeChipMore: {
-    backgroundColor: '#FFEDD5',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  attributeChipMoreText: {
-    fontSize: 12,
-    color: '#C2410C',
     fontWeight: '900',
   },
   emptyCredential: {
