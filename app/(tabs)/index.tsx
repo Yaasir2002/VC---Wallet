@@ -6,11 +6,11 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 
 import { DIDData } from '../../src/types/did';
@@ -100,27 +100,27 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <AnimatedScreen>
-          <LinearGradient
-            colors={['#2563EB', '#1D4ED8', '#F97316']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroGradient}
-          >
-            <View>
-              <Text style={styles.welcomeTextGradient}>SSI Wallet</Text>
-              <Text style={styles.appTitleGradient}>Dashboard</Text>
-              <Text style={styles.subtitleGradient}>
-                Kelola DID, dokumen kredensial digital, dan permintaan
-                verifikasi dari satu tempat.
-              </Text>
-            </View>
+        <View style={styles.topHeader}>
+          <View style={styles.profileRow}>
+            <Image
+              source={{
+                uri: 'https://i.pravatar.cc/150?img=12',
+              }}
+              style={styles.profileImage}
+            />
 
-            <View style={styles.logoCircleGradient}>
-              <Ionicons name="shield-checkmark" size={34} color="#2563EB" />
+            <View>
+              <Text style={styles.greetingText}>Halo,</Text>
+              <Text style={styles.userName}>Muhammad Yaasir</Text>
             </View>
-          </LinearGradient>
-        </AnimatedScreen>
+          </View>
+
+          <Pressable style={styles.notificationButton}>
+            <Ionicons name="notifications-outline" size={24} color="#111827" />
+
+            <View style={styles.notificationDot} />
+          </Pressable>
+        </View>
 
         <AnimatedScreen delay={120}>
           {loadingDashboard ? (
@@ -228,8 +228,8 @@ export default function HomeScreen() {
                 <Ionicons name="file-tray-outline" size={34} color="#9CA3AF" />
                 <Text style={styles.emptyTitleSmall}>Belum Ada VC</Text>
                 <Text style={styles.emptyText}>
-                  Tambahkan KTP Digital, SIM, Ijazah, atau kredensial lain dari
-                  halaman Wallet.
+                  Buat dummy credential dari halaman Wallet untuk menambahkan
+                  credential parent ke dashboard.
                 </Text>
 
                 <AnimatedButton
@@ -347,8 +347,8 @@ export default function HomeScreen() {
             <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
             <Text style={styles.securityText}>
               Wallet dilindungi dengan secure storage, PIN lokal, dan biometrik.
-              Credential ditampilkan sebagai dokumen digital seperti KTP, SIM,
-              dan Ijazah.
+              Credential ditampilkan sebagai credential parent yang membungkus
+              beberapa atribut identitas.
             </Text>
           </View>
         </AnimatedScreen>
@@ -474,44 +474,60 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+    paddingTop: 22,
     paddingBottom: 40,
   },
-  heroGradient: {
-    borderRadius: 28,
-    padding: 24,
+  topHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 18,
   },
-  welcomeTextGradient: {
-    fontSize: 14,
-    color: '#FFEDD5',
-    fontWeight: '900',
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
   },
-  appTitleGradient: {
-    fontSize: 34,
+  profileImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#DBEAFE',
+  },
+  greetingText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  userName: {
+    fontSize: 18,
+    color: '#111827',
     fontWeight: '900',
-    color: '#FFFFFF',
     marginTop: 2,
   },
-  subtitleGradient: {
-    fontSize: 14,
-    color: '#DBEAFE',
-    marginTop: 8,
-    lineHeight: 21,
-    maxWidth: 240,
-  },
-  logoCircleGradient: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  notificationButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  notificationDot: {
+    position: 'absolute',
+    top: 12,
+    right: 13,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F97316',
   },
   didCard: {
     backgroundColor: '#FFFFFF',
-    marginTop: 18,
     borderRadius: 26,
     padding: 20,
     borderWidth: 1,
