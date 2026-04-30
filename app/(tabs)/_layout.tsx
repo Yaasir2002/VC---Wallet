@@ -23,7 +23,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Dashboard',
+          headerTitleAlign: 'center',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
@@ -34,6 +35,7 @@ export default function TabLayout() {
         name="did"
         options={{
           title: 'DID',
+          headerTitleAlign: 'center',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="finger-print-outline" size={size} color={color} />
           ),
@@ -44,6 +46,7 @@ export default function TabLayout() {
         name="wallet"
         options={{
           title: 'Wallet',
+          headerTitleAlign: 'center',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet-outline" size={size} color={color} />
           ),
@@ -54,6 +57,7 @@ export default function TabLayout() {
         name="verifier"
         options={{
           title: 'Verifier',
+          headerTitleAlign: 'center',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="scan-outline" size={size} color={color} />
           ),
@@ -64,6 +68,7 @@ export default function TabLayout() {
         name="setting"
         options={{
           title: 'Settings',
+          headerTitleAlign: 'center',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-outline" size={size} color={color} />
           ),
