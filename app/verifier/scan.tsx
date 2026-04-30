@@ -13,12 +13,68 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   verifyPresentationJWT,
-  resolveDID,
+  decodeJWT,
 } from '../../src/Services/verificationService';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
+
+type PresentedCredential = {
+  jwt: string;
+  issuer?: string;
+  subject?: string;
+  type?: string[];
+  issuanceDate?: string;
+  attributeName?: string;
+  attributeValue?: string;
+  attributeType?: string;
+  error?: string;
+};
+
+function extractPresentedCredentials(decodedPayload: any): PresentedCredential[] {
+  const credentialJWTs = decodedPayload?.vp?.verifiableCredential || [];
+
+  if (!Array.isArray(credentialJWTs)) {
+    return [];
+  }
+
+  return credentialJWTs.map((jwt: string) => {
+    try {
+      const decodedVC = decodeJWT(jwt);
+      const vcPayload = decodedVC.payload?.vc;
+      const credentialSubject = vcPayload?.credentialSubject;
+
+      return {
+        jwt,
+        issuer: decodedVC.payload?.iss || vcPayload?.issuer || '-',
+        subject:
+          decodedVC.payload?.sub ||
+          credentialSubject?.id ||
+          '-',
+        type: vcPayload?.type || [],
+        issuanceDate: vcPayload?.issuanceDate || '-',
+        attributeName:
+          credentialSubject?.attributeName || 'Credential',
+        attributeValue:
+          credentialSubject?.attributeValue || '-',
+        attributeType:
+          credentialSubject?.attributeType || 'custom',
+      };
+    } catch (error) {
+      return {
+        jwt,
+        error: 'Gagal decode credential JWT',
+      };
+    }
+  });
+}
+
+function shorten(value?: string) {
+  if (!value) return '-';
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 14)}...${value.slice(-8)}`;
+}
 
 export default function ScanPresentationScreen() {
   const router = useRouter();
@@ -32,6 +88,10 @@ export default function ScanPresentationScreen() {
   const [holderDid, setHolderDid] = useState('');
   const [didDocument, setDidDocument] = useState<any | null>(null);
   const [publicKeyInfo, setPublicKeyInfo] = useState<any | null>(null);
+  const [presentedCredentials, setPresentedCredentials] = useState<
+    PresentedCredential[]
+  >([]);
+  const [decodedPayload, setDecodedPayload] = useState<any | null>(null);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -49,55 +109,47 @@ export default function ScanPresentationScreen() {
       setLoading(true);
 
       const verificationResult = await verifyPresentationJWT(data);
+      const isValid = verificationResult.valid === true;
 
-      const isVerified = verificationResult.verified === true;
-      setVerified(isVerified);
-
-      const vpHolder =
-        verificationResult?.verifiablePresentation?.holder ||
-        verificationResult?.presentation?.holder ||
-        verificationResult?.payload?.vp?.holder ||
-        '';
-
-      setHolderDid(vpHolder);
-
-      if (!vpHolder) {
-        setToast({
-          visible: true,
-          message: 'Holder DID tidak ditemukan pada VP JWT',
-          type: 'error',
-        });
-        return;
-      }
-
-      const resolved = await resolveDID(vpHolder);
-      const document = resolved?.didDocument;
-
-      setDidDocument(document);
+      setVerified(isValid);
+      setHolderDid(verificationResult.holderDid || '');
+      setDidDocument(verificationResult.didDocument || null);
+      setDecodedPayload(verificationResult.decoded?.payload || null);
 
       const firstVerificationMethod =
-        document?.verificationMethod?.[0] ||
-        document?.authentication?.[0] ||
-        document?.assertionMethod?.[0] ||
+        verificationResult.verificationMethod?.[0] ||
+        verificationResult.authentication?.[0] ||
+        verificationResult.assertionMethod?.[0] ||
         null;
 
       setPublicKeyInfo(firstVerificationMethod);
 
+      const credentials = extractPresentedCredentials(
+        verificationResult.decoded?.payload
+      );
+
+      setPresentedCredentials(credentials);
+
       setToast({
         visible: true,
-        message: isVerified
-          ? 'Presentation berhasil diverifikasi'
-          : 'Presentation tidak valid',
-        type: isVerified ? 'success' : 'error',
+        message: isValid
+          ? 'QR berhasil dibaca dan DID berhasil di-resolve'
+          : 'QR terbaca tetapi belum valid',
+        type: isValid ? 'success' : 'error',
       });
     } catch (error) {
       console.log('VERIFY VP JWT ERROR:', error);
 
       setVerified(false);
+      setHolderDid('');
+      setDidDocument(null);
+      setPublicKeyInfo(null);
+      setPresentedCredentials([]);
+      setDecodedPayload(null);
 
       setToast({
         visible: true,
-        message: 'QR tidak valid atau JWT gagal diverifikasi',
+        message: 'QR tidak valid atau DID gagal di-resolve',
         type: 'error',
       });
     } finally {
@@ -113,6 +165,8 @@ export default function ScanPresentationScreen() {
     setHolderDid('');
     setDidDocument(null);
     setPublicKeyInfo(null);
+    setPresentedCredentials([]);
+    setDecodedPayload(null);
   }
 
   if (!permission) {
@@ -129,13 +183,18 @@ export default function ScanPresentationScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="camera-outline" size={56} color="#2563EB" />
+
         <Text style={styles.centerTitle}>Izin Kamera Dibutuhkan</Text>
+
         <Text style={styles.centerText}>
           Aplikasi membutuhkan akses kamera untuk scan QR Verifiable
           Presentation.
         </Text>
 
-        <AnimatedButton style={styles.permissionButton} onPress={requestPermission}>
+        <AnimatedButton
+          style={styles.permissionButton}
+          onPress={requestPermission}
+        >
           <Text style={styles.permissionButtonText}>Izinkan Kamera</Text>
         </AnimatedButton>
       </View>
@@ -163,28 +222,58 @@ export default function ScanPresentationScreen() {
           >
             <View>
               <Text style={styles.heroLabel}>Verification Result</Text>
+
               <Text style={styles.heroTitle}>
-                {verified ? 'VALID VP JWT' : 'INVALID VP JWT'}
+                {verified ? 'DID RESOLVED' : 'INVALID QR'}
               </Text>
+
               <Text style={styles.heroSubtitle}>
-                Hasil verifikasi presentation melalui JWT dan DID resolution.
+                Hasil decode VP JWT dan DID resolution.
               </Text>
             </View>
 
             <View style={styles.heroIcon}>
               <Ionicons
-                name={verified ? 'checkmark-circle-outline' : 'close-circle-outline'}
+                name={
+                  verified
+                    ? 'checkmark-circle-outline'
+                    : 'close-circle-outline'
+                }
                 size={36}
                 color={verified ? '#16A34A' : '#DC2626'}
               />
             </View>
           </LinearGradient>
 
+          <View style={styles.statusCard}>
+            <Ionicons
+              name={verified ? 'shield-checkmark-outline' : 'warning-outline'}
+              size={22}
+              color={verified ? '#16A34A' : '#DC2626'}
+            />
+
+            <Text
+              style={[
+                styles.statusText,
+                { color: verified ? '#166534' : '#991B1B' },
+              ]}
+            >
+              {verified
+                ? 'VP JWT berhasil di-decode dan Holder DID berhasil di-resolve.'
+                : 'QR gagal diverifikasi atau DID tidak dapat di-resolve.'}
+            </Text>
+          </View>
+
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionIconBlue}>
-                <Ionicons name="person-circle-outline" size={22} color="#2563EB" />
+                <Ionicons
+                  name="person-circle-outline"
+                  size={22}
+                  color="#2563EB"
+                />
               </View>
+
               <Text style={styles.sectionTitle}>Holder DID</Text>
             </View>
 
@@ -193,9 +282,67 @@ export default function ScanPresentationScreen() {
 
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconOrange}>
-                <Ionicons name="document-text-outline" size={22} color="#F97316" />
+              <View style={styles.sectionIconBlue}>
+                <Ionicons name="id-card-outline" size={22} color="#2563EB" />
               </View>
+
+              <Text style={styles.sectionTitle}>Data yang Dipresentasikan</Text>
+            </View>
+
+            {presentedCredentials.length > 0 ? (
+              presentedCredentials.map((credential, index) => (
+                <View key={index} style={styles.presentedItem}>
+                  {credential.error ? (
+                    <>
+                      <Text style={styles.presentedLabel}>Credential Error</Text>
+                      <Text style={styles.presentedValue}>{credential.error}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.presentedLabel}>
+                        {credential.attributeName}
+                      </Text>
+
+                      <Text style={styles.presentedValue}>
+                        {credential.attributeValue}
+                      </Text>
+
+                      <Text style={styles.presentedMeta}>
+                        Type: {credential.attributeType}
+                      </Text>
+
+                      <Text style={styles.presentedMeta}>
+                        Issuer: {shorten(credential.issuer)}
+                      </Text>
+
+                      <Text style={styles.presentedMeta}>
+                        Subject: {shorten(credential.subject)}
+                      </Text>
+
+                      <Text style={styles.presentedMeta}>
+                        Issued At: {credential.issuanceDate}
+                      </Text>
+                    </>
+                  )}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>
+                Tidak ada credential yang dapat dibaca dari VP JWT.
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIconOrange}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={22}
+                  color="#F97316"
+                />
+              </View>
+
               <Text style={styles.sectionTitle}>DID Document</Text>
             </View>
 
@@ -213,7 +360,10 @@ export default function ScanPresentationScreen() {
               <View style={styles.sectionIconBlue}>
                 <Ionicons name="key-outline" size={22} color="#2563EB" />
               </View>
-              <Text style={styles.sectionTitle}>Public Key / Verification Method</Text>
+
+              <Text style={styles.sectionTitle}>
+                Public Key / Verification Method
+              </Text>
             </View>
 
             {publicKeyInfo ? (
@@ -230,8 +380,27 @@ export default function ScanPresentationScreen() {
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionIconOrange}>
+                <Ionicons name="layers-outline" size={22} color="#F97316" />
+              </View>
+
+              <Text style={styles.sectionTitle}>Decoded VP Payload</Text>
+            </View>
+
+            {decodedPayload ? (
+              <Text style={styles.jsonText}>
+                {JSON.stringify(decodedPayload, null, 2)}
+              </Text>
+            ) : (
+              <Text style={styles.emptyText}>Payload tidak tersedia.</Text>
+            )}
+          </View>
+
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIconOrange}>
                 <Ionicons name="qr-code-outline" size={22} color="#F97316" />
               </View>
+
               <Text style={styles.sectionTitle}>Raw VP JWT</Text>
             </View>
 
@@ -273,6 +442,7 @@ export default function ScanPresentationScreen() {
         </Pressable>
 
         <Text style={styles.scanTitle}>Scan VP JWT</Text>
+
         <Text style={styles.scanSubtitle}>
           Arahkan kamera ke QR Verifiable Presentation berbentuk JWT.
         </Text>
@@ -461,6 +631,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  statusCard: {
+    backgroundColor: '#FFFFFF',
+    marginTop: 18,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  statusText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 19,
+  },
   sectionCard: {
     backgroundColor: '#FFFFFF',
     marginTop: 18,
@@ -502,6 +689,32 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     fontWeight: '700',
     lineHeight: 20,
+  },
+  presentedItem: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  presentedLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '900',
+  },
+  presentedValue: {
+    fontSize: 17,
+    color: '#111827',
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  presentedMeta: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+    marginTop: 5,
+    lineHeight: 17,
   },
   jsonText: {
     backgroundColor: '#F8FAFC',
