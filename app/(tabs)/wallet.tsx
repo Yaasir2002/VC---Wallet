@@ -58,9 +58,9 @@ export default function WalletScreen() {
     }, [])
   );
 
-function handleAddCredential() {
-  router.push('/credential/create');
-}
+  function handleAddCredential() {
+    router.push('/credential/create');
+  }
 
   function handleDeleteAllDocuments() {
     Alert.alert(

@@ -88,26 +88,47 @@ export default function CreateKtmScreen() {
   }
 
   function validateForm() {
-    if (!fullName.trim()) return 'Nama lengkap wajib diisi.';
-    if (!studentId.trim()) return 'NIM wajib diisi.';
-    if (!/^[a-zA-Z0-9]+$/.test(studentId.trim())) {
-      return 'NIM hanya boleh berisi huruf dan angka.';
-    }
-    if (!universityName.trim()) return 'Nama kampus wajib diisi.';
-    if (!faculty.trim()) return 'Fakultas wajib diisi.';
-    if (!studyProgram.trim()) return 'Program studi wajib diisi.';
-    if (!degree.trim()) return 'Jenjang pendidikan wajib dipilih.';
-    if (!enrollmentYear.trim()) return 'Tahun masuk wajib diisi.';
-    if (!/^[0-9]{4}$/.test(enrollmentYear.trim())) {
-      return 'Tahun masuk harus berisi 4 digit angka.';
-    }
-    if (!studentStatus.trim()) return 'Status mahasiswa wajib dipilih.';
-    if (campusEmail.trim() && !isValidEmail(campusEmail.trim())) {
-      return 'Format email kampus tidak valid.';
-    }
+  if (!fullName.trim()) return 'Nama lengkap wajib diisi.';
 
-    return '';
+  if (!studentId.trim()) return 'NIM wajib diisi.';
+
+  if (!/^[a-zA-Z0-9]+$/.test(studentId.trim())) {
+    return 'NIM hanya boleh berisi huruf dan angka.';
   }
+
+  if (!universityName.trim()) return 'Nama kampus wajib diisi.';
+
+  if (!faculty.trim()) return 'Fakultas wajib diisi.';
+
+  if (!studyProgram.trim()) return 'Program studi wajib diisi.';
+
+  if (!degree.trim()) return 'Jenjang pendidikan wajib dipilih.';
+
+  if (!enrollmentYear.trim()) return 'Tahun masuk wajib diisi.';
+
+  if (!/^[0-9]{4}$/.test(enrollmentYear.trim())) {
+    return 'Tahun masuk harus berisi 4 digit angka.';
+  }
+
+  const enrollmentYearNumber = Number(enrollmentYear.trim());
+  const currentYear = new Date().getFullYear();
+
+  if (enrollmentYearNumber > currentYear) {
+    return 'Tahun masuk tidak boleh melebihi tahun saat ini.';
+  }
+
+  if (enrollmentYearNumber < 1900) {
+    return 'Tahun masuk tidak valid.';
+  }
+
+  if (!studentStatus.trim()) return 'Status mahasiswa wajib dipilih.';
+
+  if (campusEmail.trim() && !isValidEmail(campusEmail.trim())) {
+    return 'Format email kampus tidak valid.';
+  }
+
+  return '';
+}
 
   return (
     <View style={{ flex: 1 }}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 import {
-  getPin,
+  verifyPin,
   isBiometricEnabled,
   setSessionUnlocked,
 } from '../../src/Storage/authStorage';
@@ -25,7 +25,7 @@ export default function UnlockScreen() {
   const router = useRouter();
 
   const [inputPin, setInputPin] = useState('');
-  const [savedPin, setSavedPin] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -33,72 +33,93 @@ export default function UnlockScreen() {
     type: 'info' as 'success' | 'error' | 'info',
   });
 
-  useEffect(() => {
-    loadPin();
-  }, []);
-
-  async function loadPin() {
-    const pin = await getPin();
-    setSavedPin(pin);
-  }
-
   async function handleBiometric() {
-  const biometricEnabled = await isBiometricEnabled();
+    try {
+      const biometricEnabled = await isBiometricEnabled();
 
-  if (!biometricEnabled) {
-    setToast({
-      visible: true,
-      message: 'Biometrik belum diaktifkan pada wallet ini',
-      type: 'error',
-    });
-    return;
+      if (!biometricEnabled) {
+        setToast({
+          visible: true,
+          message: 'Biometrik belum diaktifkan pada wallet ini',
+          type: 'error',
+        });
+        return;
+      }
+
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        setToast({
+          visible: true,
+          message: 'Biometrik tidak tersedia di perangkat ini',
+          type: 'error',
+        });
+        return;
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Unlock VC Wallet',
+        cancelLabel: 'Batal',
+      });
+
+      if (result.success) {
+        await setSessionUnlocked(true);
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.log('BIOMETRIC UNLOCK ERROR:', error);
+
+      setToast({
+        visible: true,
+        message: 'Gagal membuka wallet dengan biometrik',
+        type: 'error',
+      });
+    }
   }
-
-  const hasHardware = await LocalAuthentication.hasHardwareAsync();
-  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-  if (!hasHardware || !isEnrolled) {
-    setToast({
-      visible: true,
-      message: 'Biometrik tidak tersedia di perangkat ini',
-      type: 'error',
-    });
-    return;
-  }
-
-  const result = await LocalAuthentication.authenticateAsync({
-    promptMessage: 'Unlock VC Wallet',
-    cancelLabel: 'Batal',
-  });
-
-    if (result.success) {
-    await setSessionUnlocked(true);
-    router.replace('/(tabs)');
-  }
-}
 
   async function handleUnlock() {
-  if (!inputPin) {
-    setToast({
-      visible: true,
-      message: 'Masukkan PIN terlebih dahulu',
-      type: 'error',
-    });
-    return;
-  }
+    const trimmedPin = inputPin.trim();
 
-  if (inputPin === savedPin) {
-    await setSessionUnlocked(true);
-    router.replace('/(tabs)');
-  } else {
-    setToast({
-      visible: true,
-      message: 'PIN salah',
-      type: 'error',
-    });
-    setInputPin('');
+    if (!trimmedPin) {
+      setToast({
+        visible: true,
+        message: 'Masukkan PIN terlebih dahulu',
+        type: 'error',
+      });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const isValidPin = await verifyPin(trimmedPin);
+
+      if (isValidPin) {
+        await setSessionUnlocked(true);
+        router.replace('/(tabs)');
+        return;
+      }
+
+      setToast({
+        visible: true,
+        message: 'PIN salah',
+        type: 'error',
+      });
+
+      setInputPin('');
+    } catch (error) {
+      console.log('PIN UNLOCK ERROR:', error);
+
+      setToast({
+        visible: true,
+        message: 'Gagal membuka wallet. Silakan coba lagi.',
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   return (
     <View style={{ flex: 1 }}>
@@ -131,18 +152,33 @@ export default function UnlockScreen() {
             secureTextEntry
             maxLength={6}
             value={inputPin}
-            onChangeText={setInputPin}
+            onChangeText={(value) => {
+              setInputPin(value.replace(/[^0-9]/g, ''));
+            }}
             placeholder="••••••"
             placeholderTextColor="#9CA3AF"
             textAlign="center"
           />
 
-          <AnimatedButton style={styles.unlockButton} onPress={handleUnlock}>
+          <AnimatedButton
+            style={[styles.unlockButton, loading && styles.disabledButton]}
+            onPress={handleUnlock}
+            disabled={loading}
+          >
             <Ionicons name="key-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.unlockButtonText}>Unlock</Text>
+            <Text style={styles.unlockButtonText}>
+              {loading ? 'Membuka...' : 'Unlock'}
+            </Text>
           </AnimatedButton>
 
-          <Pressable style={styles.bioButton} onPress={handleBiometric}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.bioButton,
+              pressed && styles.bioButtonPressed,
+            ]}
+            onPress={handleBiometric}
+            disabled={loading}
+          >
             <Ionicons name="finger-print-outline" size={22} color="#2563EB" />
             <Text style={styles.bioButtonText}>Gunakan Biometrik</Text>
           </Pressable>
@@ -235,6 +271,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  disabledButton: {
+    opacity: 0.65,
+  },
   unlockButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
@@ -249,6 +288,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
+  },
+  bioButtonPressed: {
+    opacity: 0.8,
   },
   bioButtonText: {
     color: '#2563EB',

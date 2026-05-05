@@ -71,13 +71,9 @@ export default function CredentialDocumentDetailScreen() {
           />
         </View>
 
-        <Text style={styles.documentTitle}>
-          {getDetailTitle(document)}
-        </Text>
+        <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
 
-        <Text style={styles.documentSubtitle}>
-          Credential Parent
-        </Text>
+        <Text style={styles.documentSubtitle}>Credential Parent</Text>
 
         <View
           style={[
@@ -136,6 +132,7 @@ function AttributeRow({ credential }: { credential: ModularCredential }) {
 
 function getDetailTitle(document: CredentialDocument) {
   if (document.documentType === 'KTP') return 'KTP (Kartu Tanda Penduduk)';
+  if (document.documentType === 'KTM') return 'KTM (Kartu Tanda Mahasiswa)';
   if (document.documentType === 'SIM') return 'SIM (Surat Izin Mengemudi)';
   if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
 
@@ -144,6 +141,7 @@ function getDetailTitle(document: CredentialDocument) {
 
 function getDocumentIcon(documentType: string) {
   if (documentType === 'KTP') return 'id-card-outline';
+  if (documentType === 'KTM') return 'school-outline';
   if (documentType === 'SIM') return 'car-outline';
   if (documentType === 'IJAZAH') return 'school-outline';
 
@@ -159,10 +157,10 @@ function getMainCredential(document: CredentialDocument) {
     ) ||
     credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
     credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
+      (vc) => vc.credentialSubject?.attributeType === 'studentId'
     ) ||
     credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'studentId'
+      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
     ) ||
     credentials[0]
   );
