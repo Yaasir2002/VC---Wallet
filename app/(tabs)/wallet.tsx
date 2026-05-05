@@ -13,10 +13,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { deleteAllVCs } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
-import {
-  getCredentialDocuments,
-  createDummyKTP,
-} from '../../src/Services/documentCredentialService';
+import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
 import { getDocumentIcon } from '../../src/utils/credentialUtils';
 
 import AppToast from '../../components/ui/AppToast';
@@ -61,29 +58,8 @@ export default function WalletScreen() {
     }, [])
   );
 
-  async function handleCreateDummyCredential() {
-    try {
-      setLoading(true);
-
-      await createDummyKTP();
-      await loadDocuments();
-
-      setToast({
-        visible: true,
-        message: 'Dummy credential berhasil dibuat',
-        type: 'success',
-      });
-    } catch (error) {
-      console.log('CREATE DUMMY CREDENTIAL ERROR:', error);
-
-      setToast({
-        visible: true,
-        message: 'Gagal membuat dummy credential. Pastikan DID sudah dibuat.',
-        type: 'error',
-      });
-    } finally {
-      setLoading(false);
-    }
+  function handleAddCredential() {
+    router.push('/credential/create');
   }
 
   function handleDeleteAllDocuments() {
@@ -182,23 +158,21 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Create Dummy Credential</Text>
+          <Text style={styles.sectionTitle}>Tambah Credential</Text>
 
           <Text style={styles.actionDescription}>
-            Buat satu dummy credential parent KTP Digital untuk simulasi.
-            Credential ini berisi atribut seperti nama lengkap, NIK, tempat
-            lahir, tanggal lahir, alamat, dan kewarganegaraan.
+            Tambahkan credential digital seperti KTP atau KTM dengan mengisi data
+            dokumen secara manual. Credential akan dibuat sebagai dokumen parent
+            yang berisi beberapa atribut identitas.
           </Text>
 
           <AnimatedButton
-            style={styles.dummyCredentialButton}
-            onPress={handleCreateDummyCredential}
+            style={styles.addCredentialButton}
+            onPress={handleAddCredential}
             disabled={loading}
           >
-            <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>
-              {loading ? 'Membuat...' : 'Create Dummy Credential'}
-            </Text>
+            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Tambah Credential</Text>
           </AnimatedButton>
 
           {documents.length > 0 && (
@@ -248,8 +222,8 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Buat dummy credential terlebih dahulu. Satu credential parent akan
-              berisi beberapa atribut identitas modular.
+              Tambahkan credential KTP atau KTM terlebih dahulu. Satu credential
+              parent akan berisi beberapa atribut identitas modular.
             </Text>
           </View>
         ) : (
@@ -346,9 +320,9 @@ export default function WalletScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
           <Text style={styles.noteText}>
-            Credential parent membungkus beberapa atribut seperti nama, NIK,
-            tanggal lahir, alamat, dan data identitas lainnya. Saat detail
-            dibuka, atribut akan tampil sebagai tabel sederhana.
+            Credential parent membungkus beberapa atribut seperti nama, NIK, NIM,
+            tanggal lahir, alamat, kampus, dan data identitas lainnya. Saat
+            detail dibuka, atribut akan tampil sebagai tabel sederhana.
           </Text>
         </View>
       </ScrollView>
@@ -466,7 +440,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 8,
   },
-  dummyCredentialButton: {
+  addCredentialButton: {
     backgroundColor: '#2563EB',
     marginTop: 16,
     borderRadius: 16,
