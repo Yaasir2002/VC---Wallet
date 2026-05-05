@@ -76,22 +76,71 @@ export async function createDocumentCredentials(params: {
 }
 
 export async function createKtpCredential(input: KtpCredentialInput) {
+  const attributes: DocumentAttributeInput[] = [
+    {
+      attributeType: 'legalName',
+      attributeName: 'Nama Lengkap',
+      attributeValue: input.fullName,
+    },
+    {
+      attributeType: 'nik',
+      attributeName: 'NIK',
+      attributeValue: input.nik,
+    },
+    {
+      attributeType: 'birthPlace',
+      attributeName: 'Tempat Lahir',
+      attributeValue: input.birthPlace,
+    },
+    {
+      attributeType: 'birthDate',
+      attributeName: 'Tanggal Lahir',
+      attributeValue: input.birthDate,
+    },
+    {
+      attributeType: 'gender',
+      attributeName: 'Jenis Kelamin',
+      attributeValue: input.gender,
+    },
+    {
+      attributeType: 'address',
+      attributeName: 'Alamat',
+      attributeValue: input.address,
+    },
+    {
+      attributeType: 'religion',
+      attributeName: 'Agama',
+      attributeValue: input.religion,
+    },
+    {
+      attributeType: 'maritalStatus',
+      attributeName: 'Status Perkawinan',
+      attributeValue: input.maritalStatus,
+    },
+    {
+      attributeType: 'occupation',
+      attributeName: 'Pekerjaan',
+      attributeValue: input.occupation,
+    },
+    {
+      attributeType: 'citizenship',
+      attributeName: 'Kewarganegaraan',
+      attributeValue: input.citizenship,
+    },
+  ];
+
+  if (input.validUntil) {
+    attributes.push({
+      attributeType: 'validUntil',
+      attributeName: 'Berlaku Hingga',
+      attributeValue: input.validUntil,
+    });
+  }
+
   return await createDocumentCredentials({
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    attributes: [
-      { attributeType: 'legalName', attributeName: 'Nama Lengkap', attributeValue: input.fullName },
-      { attributeType: 'nik', attributeName: 'NIK', attributeValue: input.nik },
-      { attributeType: 'birthPlace', attributeName: 'Tempat Lahir', attributeValue: input.birthPlace },
-      { attributeType: 'birthDate', attributeName: 'Tanggal Lahir', attributeValue: input.birthDate },
-      { attributeType: 'gender', attributeName: 'Jenis Kelamin', attributeValue: input.gender },
-      { attributeType: 'address', attributeName: 'Alamat', attributeValue: input.address },
-      { attributeType: 'religion', attributeName: 'Agama', attributeValue: input.religion },
-      { attributeType: 'maritalStatus', attributeName: 'Status Perkawinan', attributeValue: input.maritalStatus },
-      { attributeType: 'occupation', attributeName: 'Pekerjaan', attributeValue: input.occupation },
-      { attributeType: 'citizenship', attributeName: 'Kewarganegaraan', attributeValue: input.citizenship },
-      ...(input.validUntil ? [{ attributeType: 'validUntil', attributeName: 'Berlaku Hingga', attributeValue: input.validUntil }] : []),
-    ],
+    attributes,
   });
 }
 
