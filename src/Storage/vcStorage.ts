@@ -1,16 +1,32 @@
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ModularCredential } from '../types/vc';
 
 const VC_INDEX_KEY = 'USER_VERIFIABLE_CREDENTIAL_INDEX';
 const VC_ITEM_PREFIX = 'USER_VERIFIABLE_CREDENTIAL_ITEM_';
 
 async function getVCIds(): Promise<string[]> {
-  const data = await SecureStore.getItemAsync(VC_INDEX_KEY);
-  return data ? JSON.parse(data) : [];
+  const data = await AsyncStorage.getItem(VC_INDEX_KEY);
+
+  if (!data) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(data);
+
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    return [];
+  } catch (error) {
+    console.log('PARSE VC IDS ERROR:', error);
+    return [];
+  }
 }
 
 async function saveVCIds(ids: string[]) {
-  await SecureStore.setItemAsync(VC_INDEX_KEY, JSON.stringify(ids));
+  await AsyncStorage.setItem(VC_INDEX_KEY, JSON.stringify(ids));
 }
 
 function normalizeVC(vc: any): ModularCredential {
@@ -27,6 +43,9 @@ function normalizeVC(vc: any): ModularCredential {
   if (typeof vc === 'string') {
     return {
       id: `vc-${Date.now()}`,
+      documentId: `LEGACY-${Date.now()}`,
+      documentType: 'CUSTOM',
+      documentName: 'Imported Credential',
       type: ['VerifiableCredential'],
       issuer: '-',
       issuanceDate: new Date().toISOString(),
@@ -49,6 +68,9 @@ function normalizeVC(vc: any): ModularCredential {
 
   return {
     id: vc?.id || `vc-${Date.now()}`,
+    documentId: vc?.documentId || `LEGACY-${vc?.id || Date.now()}`,
+    documentType: vc?.documentType || 'CUSTOM',
+    documentName: vc?.documentName || 'Credential Document',
     type: vc?.type || ['VerifiableCredential'],
     issuer:
       typeof vc?.issuer === 'string'
@@ -82,7 +104,7 @@ export const saveVC = async (vc: any): Promise<ModularCredential> => {
 
   const updatedIds = [newVC.id, ...ids.filter((id) => id !== newVC.id)];
 
-  await SecureStore.setItemAsync(
+  await AsyncStorage.setItem(
     `${VC_ITEM_PREFIX}${newVC.id}`,
     JSON.stringify(newVC)
   );
@@ -97,10 +119,16 @@ export const getVCs = async (): Promise<ModularCredential[]> => {
   const vcs: ModularCredential[] = [];
 
   for (const id of ids) {
-    const data = await SecureStore.getItemAsync(`${VC_ITEM_PREFIX}${id}`);
+    const data = await AsyncStorage.getItem(`${VC_ITEM_PREFIX}${id}`);
 
-    if (data) {
+    if (!data) {
+      continue;
+    }
+
+    try {
       vcs.push(JSON.parse(data));
+    } catch (error) {
+      console.log('PARSE VC ITEM ERROR:', error);
     }
   }
 
@@ -114,19 +142,24 @@ export const getAllVCs = async (): Promise<ModularCredential[]> => {
 export const getVCById = async (
   id: string
 ): Promise<ModularCredential | null> => {
-  const data = await SecureStore.getItemAsync(`${VC_ITEM_PREFIX}${id}`);
+  const data = await AsyncStorage.getItem(`${VC_ITEM_PREFIX}${id}`);
 
   if (!data) return null;
 
-  return JSON.parse(data);
+  try {
+    return JSON.parse(data);
+  } catch (error) {
+    console.log('PARSE VC BY ID ERROR:', error);
+    return null;
+  }
 };
 
 export const deleteAllVCs = async () => {
   const ids = await getVCIds();
 
   for (const id of ids) {
-    await SecureStore.deleteItemAsync(`${VC_ITEM_PREFIX}${id}`);
+    await AsyncStorage.removeItem(`${VC_ITEM_PREFIX}${id}`);
   }
 
-  await SecureStore.deleteItemAsync(VC_INDEX_KEY);
+  await AsyncStorage.removeItem(VC_INDEX_KEY);
 };
