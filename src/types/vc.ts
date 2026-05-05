@@ -2,10 +2,22 @@ export type AttributeType =
   | 'legalName'
   | 'birthDate'
   | 'birthPlace'
+  | 'gender'
   | 'address'
+  | 'religion'
+  | 'maritalStatus'
+  | 'occupation'
   | 'nik'
   | 'citizenship'
+  | 'validUntil'
   | 'studentId'
+  | 'universityName'
+  | 'faculty'
+  | 'studyProgram'
+  | 'degree'
+  | 'enrollmentYear'
+  | 'studentStatus'
+  | 'campusEmail'
   | 'licenseNumber'
   | 'licenseType'
   | 'educationLevel'
@@ -14,7 +26,7 @@ export type AttributeType =
   | 'major'
   | 'custom';
 
-export type DocumentType = 'KTP' | 'SIM' | 'IJAZAH' | 'CUSTOM';
+export type DocumentType = 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
 
 export interface ModularCredential {
   id: string;
