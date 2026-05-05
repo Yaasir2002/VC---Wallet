@@ -13,13 +13,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { deleteAllVCs } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
-<<<<<<< HEAD
-import {
-  getCredentialDocuments
-} from '../../src/Services/documentCredentialService';
-=======
 import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
->>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
 import { getDocumentIcon } from '../../src/utils/credentialUtils';
 
 import AppToast from '../../components/ui/AppToast';
@@ -64,12 +58,9 @@ export default function WalletScreen() {
     }, [])
   );
 
-<<<<<<< HEAD
-=======
-  function handleAddCredential() {
-    router.push('/credential/create');
-  }
->>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
+function handleAddCredential() {
+  router.push('/credential/create');
+}
 
   function handleDeleteAllDocuments() {
     Alert.alert(
@@ -175,23 +166,14 @@ export default function WalletScreen() {
             yang berisi beberapa atribut identitas.
           </Text>
 
-<<<<<<< HEAD
-          <AnimatedButton onPress={() => router.push('/credential/create')}>
-            
-            <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>
-              {loading ? 'Membuat...' : 'Create Dummy Credential'}
-            </Text>
-=======
-          <AnimatedButton
-            style={styles.addCredentialButton}
-            onPress={handleAddCredential}
-            disabled={loading}
-          >
-            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>Tambah Credential</Text>
->>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
-          </AnimatedButton>
+            <AnimatedButton
+              style={styles.addCredentialButton}
+              onPress={handleAddCredential}
+              disabled={loading}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>Tambah Credential</Text>
+            </AnimatedButton>
 
           {documents.length > 0 && (
             <AnimatedButton
