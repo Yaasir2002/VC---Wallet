@@ -13,9 +13,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { deleteAllVCs } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
+<<<<<<< HEAD
 import {
   getCredentialDocuments
 } from '../../src/Services/documentCredentialService';
+=======
+import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
+>>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
 import { getDocumentIcon } from '../../src/utils/credentialUtils';
 
 import AppToast from '../../components/ui/AppToast';
@@ -60,6 +64,12 @@ export default function WalletScreen() {
     }, [])
   );
 
+<<<<<<< HEAD
+=======
+  function handleAddCredential() {
+    router.push('/credential/create');
+  }
+>>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
 
   function handleDeleteAllDocuments() {
     Alert.alert(
@@ -160,17 +170,27 @@ export default function WalletScreen() {
           <Text style={styles.sectionTitle}>Tambah Credential</Text>
 
           <Text style={styles.actionDescription}>
-            Buat satu dummy credential parent KTP Digital untuk simulasi.
-            Credential ini berisi atribut seperti nama lengkap, NIK, tempat
-            lahir, tanggal lahir, alamat, dan kewarganegaraan.
+            Tambahkan credential digital seperti KTP atau KTM dengan mengisi data
+            dokumen secara manual. Credential akan dibuat sebagai dokumen parent
+            yang berisi beberapa atribut identitas.
           </Text>
 
+<<<<<<< HEAD
           <AnimatedButton onPress={() => router.push('/credential/create')}>
             
             <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
             <Text style={styles.actionButtonText}>
               {loading ? 'Membuat...' : 'Create Dummy Credential'}
             </Text>
+=======
+          <AnimatedButton
+            style={styles.addCredentialButton}
+            onPress={handleAddCredential}
+            disabled={loading}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Tambah Credential</Text>
+>>>>>>> a2d5b5aa79ae97981c5166d36167311f7dbd114b
           </AnimatedButton>
 
           {documents.length > 0 && (
@@ -220,8 +240,8 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Buat dummy credential terlebih dahulu. Satu credential parent akan
-              berisi beberapa atribut identitas modular.
+              Tambahkan credential KTP atau KTM terlebih dahulu. Satu credential
+              parent akan berisi beberapa atribut identitas modular.
             </Text>
           </View>
         ) : (
@@ -318,9 +338,9 @@ export default function WalletScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
           <Text style={styles.noteText}>
-            Credential parent membungkus beberapa atribut seperti nama, NIK,
-            tanggal lahir, alamat, dan data identitas lainnya. Saat detail
-            dibuka, atribut akan tampil sebagai tabel sederhana.
+            Credential parent membungkus beberapa atribut seperti nama, NIK, NIM,
+            tanggal lahir, alamat, kampus, dan data identitas lainnya. Saat
+            detail dibuka, atribut akan tampil sebagai tabel sederhana.
           </Text>
         </View>
       </ScrollView>
@@ -438,7 +458,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 8,
   },
-  dummyCredentialButton: {
+  addCredentialButton: {
     backgroundColor: '#2563EB',
     marginTop: 16,
     borderRadius: 16,

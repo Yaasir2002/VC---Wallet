@@ -15,6 +15,33 @@ type DocumentAttributeInput = {
   expirationDate?: string;
 };
 
+export type KtpCredentialInput = {
+  fullName: string;
+  nik: string;
+  birthPlace: string;
+  birthDate: string;
+  gender: string;
+  address: string;
+  religion: string;
+  maritalStatus: string;
+  occupation: string;
+  citizenship: string;
+  validUntil?: string;
+};
+
+export type KtmCredentialInput = {
+  fullName: string;
+  studentId: string;
+  universityName: string;
+  faculty: string;
+  studyProgram: string;
+  degree: string;
+  enrollmentYear: string;
+  studentStatus: string;
+  campusEmail?: string;
+  validUntil?: string;
+};
+
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
   documentName: string;
@@ -46,6 +73,53 @@ export async function createDocumentCredentials(params: {
   }
 
   return createdCredentials;
+}
+
+export async function createKtpCredential(input: KtpCredentialInput) {
+  return await createDocumentCredentials({
+    documentType: 'KTP',
+    documentName: 'KTP Digital',
+    attributes: [
+      { attributeType: 'legalName', attributeName: 'Nama Lengkap', attributeValue: input.fullName },
+      { attributeType: 'nik', attributeName: 'NIK', attributeValue: input.nik },
+      { attributeType: 'birthPlace', attributeName: 'Tempat Lahir', attributeValue: input.birthPlace },
+      { attributeType: 'birthDate', attributeName: 'Tanggal Lahir', attributeValue: input.birthDate },
+      { attributeType: 'gender', attributeName: 'Jenis Kelamin', attributeValue: input.gender },
+      { attributeType: 'address', attributeName: 'Alamat', attributeValue: input.address },
+      { attributeType: 'religion', attributeName: 'Agama', attributeValue: input.religion },
+      { attributeType: 'maritalStatus', attributeName: 'Status Perkawinan', attributeValue: input.maritalStatus },
+      { attributeType: 'occupation', attributeName: 'Pekerjaan', attributeValue: input.occupation },
+      { attributeType: 'citizenship', attributeName: 'Kewarganegaraan', attributeValue: input.citizenship },
+      ...(input.validUntil ? [{ attributeType: 'validUntil', attributeName: 'Berlaku Hingga', attributeValue: input.validUntil }] : []),
+    ],
+  });
+}
+
+export async function createKtmCredential(input: KtmCredentialInput) {
+  const attributes: DocumentAttributeInput[] = [
+    { attributeType: 'legalName', attributeName: 'Nama Lengkap', attributeValue: input.fullName },
+    { attributeType: 'studentId', attributeName: 'NIM', attributeValue: input.studentId },
+    { attributeType: 'universityName', attributeName: 'Nama Kampus', attributeValue: input.universityName },
+    { attributeType: 'faculty', attributeName: 'Fakultas', attributeValue: input.faculty },
+    { attributeType: 'studyProgram', attributeName: 'Program Studi', attributeValue: input.studyProgram },
+    { attributeType: 'degree', attributeName: 'Jenjang', attributeValue: input.degree },
+    { attributeType: 'enrollmentYear', attributeName: 'Tahun Masuk', attributeValue: input.enrollmentYear },
+    { attributeType: 'studentStatus', attributeName: 'Status Mahasiswa', attributeValue: input.studentStatus },
+  ];
+
+  if (input.campusEmail) {
+    attributes.push({ attributeType: 'campusEmail', attributeName: 'Email Kampus', attributeValue: input.campusEmail });
+  }
+
+  if (input.validUntil) {
+    attributes.push({ attributeType: 'validUntil', attributeName: 'Berlaku Hingga', attributeValue: input.validUntil });
+  }
+
+  return await createDocumentCredentials({
+    documentType: 'KTM',
+    documentName: 'KTM Digital',
+    attributes,
+  });
 }
 
 export async function getCredentialDocuments(): Promise<CredentialDocument[]> {
@@ -83,110 +157,9 @@ export async function getCredentialDocumentById(
 
 function getDefaultDocumentName(documentType: DocumentType) {
   if (documentType === 'KTP') return 'KTP Digital';
+  if (documentType === 'KTM') return 'KTM Digital';
   if (documentType === 'SIM') return 'SIM Digital';
   if (documentType === 'IJAZAH') return 'Ijazah Digital';
 
   return 'Credential Document';
-}
-
-export async function createDummyKTP() {
-  return await createDocumentCredentials({
-    documentType: 'KTP',
-    documentName: 'KTP Digital',
-    attributes: [
-      {
-        attributeType: 'legalName',
-        attributeName: 'Nama Lengkap',
-        attributeValue: 'Muhammad Yaasir',
-      },
-      {
-        attributeType: 'nik',
-        attributeName: 'NIK',
-        attributeValue: '3276010101020001',
-      },
-      {
-        attributeType: 'birthPlace',
-        attributeName: 'Tempat Lahir',
-        attributeValue: 'Bogor',
-      },
-      {
-        attributeType: 'birthDate',
-        attributeName: 'Tanggal Lahir',
-        attributeValue: '01 Januari 2002',
-      },
-      {
-        attributeType: 'address',
-        attributeName: 'Alamat',
-        attributeValue: 'Bogor, Jawa Barat',
-      },
-      {
-        attributeType: 'citizenship',
-        attributeName: 'Kewarganegaraan',
-        attributeValue: 'WNI',
-      },
-    ],
-  });
-}
-
-export async function createDummySIM() {
-  return await createDocumentCredentials({
-    documentType: 'SIM',
-    documentName: 'SIM Digital',
-    attributes: [
-      {
-        attributeType: 'legalName',
-        attributeName: 'Nama Lengkap',
-        attributeValue: 'Muhammad Yaasir',
-      },
-      {
-        attributeType: 'licenseNumber',
-        attributeName: 'Nomor SIM',
-        attributeValue: 'SIM-C-3276010101020001',
-      },
-      {
-        attributeType: 'licenseType',
-        attributeName: 'Golongan SIM',
-        attributeValue: 'SIM C',
-      },
-      {
-        attributeType: 'birthDate',
-        attributeName: 'Tanggal Lahir',
-        attributeValue: '01 Januari 2002',
-      },
-    ],
-  });
-}
-
-export async function createDummyIjazah() {
-  return await createDocumentCredentials({
-    documentType: 'IJAZAH',
-    documentName: 'Ijazah Digital',
-    attributes: [
-      {
-        attributeType: 'legalName',
-        attributeName: 'Nama Lengkap',
-        attributeValue: 'Muhammad Yaasir',
-      },
-      {
-        attributeType: 'studentId',
-        attributeName: 'NISN/NIM',
-        attributeValue: '2026001234',
-      },
-      {
-        attributeType: 'schoolName',
-        attributeName: 'Nama Sekolah/Kampus',
-        attributeValue: 'STT Terpadu Nurul Fikri',
-      },
-      {
-        attributeType: 'major',
-        attributeName: 'Program Studi',
-        attributeValue: 'Teknik Informatika',
-      },
-      {
-        attributeType: 'graduationYear',
-        attributeName: 'Tahun Lulus',
-        attributeValue: '2026',
-      },
-    ],
-  });
 }

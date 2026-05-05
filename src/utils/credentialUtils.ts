@@ -6,6 +6,7 @@ export function getDocumentDisplayName(document: CredentialDocument) {
   }
 
   if (document.documentType === 'KTP') return 'KTP Digital';
+  if (document.documentType === 'KTM') return 'KTM Digital';
   if (document.documentType === 'SIM') return 'SIM Digital';
   if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
 
@@ -14,6 +15,7 @@ export function getDocumentDisplayName(document: CredentialDocument) {
 
 export function getDocumentIcon(documentType: string) {
   if (documentType === 'KTP') return 'id-card-outline';
+  if (documentType === 'KTM') return 'school-outline';
   if (documentType === 'SIM') return 'car-outline';
   if (documentType === 'IJAZAH') return 'school-outline';
 
@@ -29,10 +31,10 @@ export function getMainCredential(document: CredentialDocument) {
     ) ||
     credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
     credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
+      (vc) => vc.credentialSubject?.attributeType === 'studentId'
     ) ||
     credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'studentId'
+      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
     ) ||
     credentials[0]
   );
