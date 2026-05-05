@@ -14,8 +14,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { deleteAllVCs } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
 import {
-  getCredentialDocuments,
-  createDummyKTP,
+  getCredentialDocuments
 } from '../../src/Services/documentCredentialService';
 import { getDocumentIcon } from '../../src/utils/credentialUtils';
 
@@ -61,30 +60,6 @@ export default function WalletScreen() {
     }, [])
   );
 
-  async function handleCreateDummyCredential() {
-    try {
-      setLoading(true);
-
-      await createDummyKTP();
-      await loadDocuments();
-
-      setToast({
-        visible: true,
-        message: 'Dummy credential berhasil dibuat',
-        type: 'success',
-      });
-    } catch (error) {
-      console.log('CREATE DUMMY CREDENTIAL ERROR:', error);
-
-      setToast({
-        visible: true,
-        message: 'Gagal membuat dummy credential. Pastikan DID sudah dibuat.',
-        type: 'error',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function handleDeleteAllDocuments() {
     Alert.alert(
@@ -182,7 +157,7 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Create Dummy Credential</Text>
+          <Text style={styles.sectionTitle}>Tambah Credential</Text>
 
           <Text style={styles.actionDescription}>
             Buat satu dummy credential parent KTP Digital untuk simulasi.
@@ -190,11 +165,8 @@ export default function WalletScreen() {
             lahir, tanggal lahir, alamat, dan kewarganegaraan.
           </Text>
 
-          <AnimatedButton
-            style={styles.dummyCredentialButton}
-            onPress={handleCreateDummyCredential}
-            disabled={loading}
-          >
+          <AnimatedButton onPress={() => router.push('/credential/create')}>
+            
             <Ionicons name="id-card-outline" size={20} color="#FFFFFF" />
             <Text style={styles.actionButtonText}>
               {loading ? 'Membuat...' : 'Create Dummy Credential'}
