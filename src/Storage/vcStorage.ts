@@ -40,6 +40,7 @@ function normalizeVC(vc: any): ModularCredential {
     throw new Error('JWT VC tidak ditemukan');
   }
 
+  // Data Model VC
   if (typeof vc === 'string') {
     return {
       id: `vc-${Date.now()}`,
