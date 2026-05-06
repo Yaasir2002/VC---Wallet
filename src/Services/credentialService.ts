@@ -69,7 +69,7 @@ function createLocalDevelopmentJWT(payload: any): string {
 export async function createAttributeCredential(params: {
   subjectDid: string;
   documentId: string;
-  documentType: 'KTP' | 'SIM' | 'IJAZAH' | 'CUSTOM';
+  documentType: 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
   documentName: string;
   attributeType: AttributeType;
   attributeName: string;
