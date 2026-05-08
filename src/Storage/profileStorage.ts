@@ -2,6 +2,10 @@ import * as SecureStore from 'expo-secure-store';
 
 const USER_PROFILE_KEY = 'USER_PROFILE';
 
+const secureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
+
 export type UserProfile = {
   fullName: string;
   birthDate: string;
@@ -13,18 +17,24 @@ export type UserProfile = {
 };
 
 export async function saveUserProfile(profile: UserProfile) {
-  await SecureStore.setItemAsync(USER_PROFILE_KEY, JSON.stringify(profile));
+  await SecureStore.setItemAsync(
+    USER_PROFILE_KEY,
+    JSON.stringify(profile),
+    secureStoreOptions
+  );
 }
 
 export async function getUserProfile(): Promise<UserProfile | null> {
   const data = await SecureStore.getItemAsync(USER_PROFILE_KEY);
 
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
 
   try {
     return JSON.parse(data);
-  } catch (error) {
-    console.log('PARSE USER PROFILE ERROR:', error);
+  } catch {
+    console.log('PARSE USER PROFILE ERROR');
     return null;
   }
 }
