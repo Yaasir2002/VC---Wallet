@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,20 +19,69 @@ import {
   saveScannedCredential,
 } from '../../src/Services/qrCredentialService';
 
+type ToastState = {
+  visible: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info';
+};
+
+function getSafeErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+
+  if (!message) {
+    return fallback;
+  }
+
+  const unsafePatterns = [
+    /stack/i,
+    /token/i,
+    /private/i,
+    /secret/i,
+    /key/i,
+    /jwt/i,
+    /file:\/\//i,
+    /documentDirectory/i,
+    /SecureStore/i,
+    /AsyncStorage/i,
+  ];
+
+  if (unsafePatterns.some((pattern) => pattern.test(message))) {
+    return fallback;
+  }
+
+  return message.slice(0, 160);
+}
+
 export default function ScanQRScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
+
+  const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   const [isScanning, setIsScanning] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [parsedCredential, setParsedCredential] =
     useState<ParsedScannedCredential | null>(null);
 
-  const [toast, setToast] = useState({
+  const [toast, setToast] = useState<ToastState>({
     visible: false,
     message: '',
-    type: 'info' as 'success' | 'error' | 'info',
+    type: 'info',
   });
+
+  useEffect(() => {
+    return () => {
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   async function handleBarcodeScanned({ data }: { data: string }) {
     if (!isScanning || isProcessing || parsedCredential) {
@@ -48,10 +97,7 @@ export default function ScanQRScreen() {
     } catch (error) {
       setToast({
         visible: true,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'QR tidak dapat diproses',
+        message: getSafeErrorMessage(error, 'QR tidak dapat diproses'),
         type: 'error',
       });
     } finally {
@@ -81,16 +127,13 @@ export default function ScanQRScreen() {
         type: 'success',
       });
 
-      setTimeout(() => {
+      navigationTimeoutRef.current = setTimeout(() => {
         router.replace('/(tabs)/wallet');
       }, 700);
     } catch (error) {
       setToast({
         visible: true,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Gagal menyimpan credential',
+        message: getSafeErrorMessage(error, 'Gagal menyimpan credential'),
         type: 'error',
       });
     } finally {
@@ -217,9 +260,7 @@ export default function ScanQRScreen() {
                 size={15}
                 color="#C2410C"
               />
-              <Text style={styles.statusBadgeText}>
-                Pending Verification
-              </Text>
+              <Text style={styles.statusBadgeText}>Pending Verification</Text>
             </View>
 
             <View style={styles.detailGroup}>
@@ -292,7 +333,7 @@ export default function ScanQRScreen() {
         visible={toast.visible}
         message={toast.message}
         type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
+        onHide={() => setToast((current) => ({ ...current, visible: false }))}
       />
     </View>
   );

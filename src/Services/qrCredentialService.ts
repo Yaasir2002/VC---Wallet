@@ -1,6 +1,5 @@
 import * as Crypto from 'expo-crypto';
 
-import { getAllVCs } from '../Storage/vcStorage';
 import {
   AttributeType,
   DocumentType,
@@ -13,6 +12,7 @@ import {
   readResponseTextWithLimit,
   validateQrPayloadSize,
 } from './qrPayloadService';
+import { isCredentialAlreadySaved } from './credentialDeduplicationService';
 
 type RawCredential = Record<string, any>;
 
@@ -94,18 +94,29 @@ function isHttpUrl(value: string): boolean {
 
 function assertSafeUrl(value: string) {
   const url = new URL(value);
+  const hostname = url.hostname.toLowerCase();
 
   if (url.protocol !== 'https:') {
     throw new Error('URL credential tidak aman. Gunakan HTTPS.');
   }
 
-  if (
-    url.hostname === 'localhost' ||
-    url.hostname === '127.0.0.1' ||
-    url.hostname.startsWith('192.168.') ||
-    url.hostname.startsWith('10.') ||
-    url.hostname.endsWith('.local')
-  ) {
+  const blockedHosts = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '::1',
+  ];
+
+  const isPrivateHost =
+    blockedHosts.includes(hostname) ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    hostname.endsWith('.local') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) ||
+    hostname.startsWith('169.254.') ||
+    hostname.startsWith('fe80:');
+
+  if (isPrivateHost) {
     throw new Error('URL credential tidak diizinkan');
   }
 }
@@ -151,7 +162,7 @@ async function fetchJSONWithTimeout(url: string): Promise<any> {
     });
 
     if (!response.ok) {
-      throw new Error(`Server mengembalikan status ${response.status}`);
+      throw new Error('Credential offer tidak dapat diambil');
     }
 
     assertJsonContentType(response);
@@ -176,21 +187,30 @@ async function fetchJSONWithTimeout(url: string): Promise<any> {
 }
 
 function looksLikeVC(value: any): boolean {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
 
   const type = value.type;
-  const hasVCType =
-    Array.isArray(type) && type.some((item) => item === 'VerifiableCredential');
+  const types = Array.isArray(type) ? type : [type];
 
-  return Boolean(
-    value.credentialSubject &&
-      value.issuer &&
-      type &&
-      (hasVCType || typeof type === 'string') &&
-      (value.issuanceDate || value.validFrom || value.jwt || value.proof?.jwt)
+  const hasVCType = types.some(
+    (item) => typeof item === 'string' && item === 'VerifiableCredential'
   );
+
+  const hasIssuer =
+    typeof value.issuer === 'string' ||
+    typeof value.issuer?.id === 'string';
+
+  const hasSubject =
+    value.credentialSubject &&
+    typeof value.credentialSubject === 'object' &&
+    !Array.isArray(value.credentialSubject);
+
+  const hasDate = Boolean(value.issuanceDate || value.validFrom);
+  const hasProofOrJwt = Boolean(value.jwt || value.proof?.jwt || value.proof?.jws || value.proof);
+
+  return Boolean(hasVCType && hasIssuer && hasSubject && (hasDate || hasProofOrJwt));
 }
 
 function getIssuerId(issuer: any): string {
@@ -268,21 +288,32 @@ function inferAttributeType(label: string): AttributeType {
 }
 
 function inferDocumentType(vc: RawCredential): DocumentType {
-  const text = JSON.stringify(vc).toLowerCase();
+  const relevantText = [
+    vc.name,
+    vc.documentName,
+    Array.isArray(vc.type) ? vc.type.join(' ') : vc.type,
+    Object.keys(vc.credentialSubject || {}).join(' '),
+  ]
+    .join(' ')
+    .toLowerCase();
 
-  if (text.includes('ktp') || text.includes('nik')) {
+  if (relevantText.includes('ktp') || relevantText.includes('nik')) {
     return 'KTP';
   }
 
-  if (text.includes('ktm') || text.includes('student') || text.includes('nim')) {
+  if (
+    relevantText.includes('ktm') ||
+    relevantText.includes('student') ||
+    relevantText.includes('nim')
+  ) {
     return 'KTM';
   }
 
-  if (text.includes('sim') || text.includes('license')) {
+  if (relevantText.includes('sim') || relevantText.includes('license')) {
     return 'SIM';
   }
 
-  if (text.includes('ijazah') || text.includes('school')) {
+  if (relevantText.includes('ijazah') || relevantText.includes('school')) {
     return 'IJAZAH';
   }
 
@@ -290,11 +321,16 @@ function inferDocumentType(vc: RawCredential): DocumentType {
 }
 
 async function createStableCredentialId(vc: RawCredential): Promise<string> {
+  if (typeof vc.id === 'string' && vc.id.trim()) {
+    return vc.id;
+  }
+
   const source = JSON.stringify({
-    id: vc.id,
     issuer: vc.issuer,
     issuanceDate: vc.issuanceDate || vc.validFrom,
     credentialSubject: vc.credentialSubject,
+    proof: vc.proof,
+    jwt: vc.jwt,
   });
 
   const hash = await Crypto.digestStringAsync(
@@ -302,7 +338,7 @@ async function createStableCredentialId(vc: RawCredential): Promise<string> {
     source
   );
 
-  return vc.id || `qr-vc-${hash.slice(0, 24)}`;
+  return `qr-vc-${hash.slice(0, 24)}`;
 }
 
 async function normalizeCredential(
@@ -366,9 +402,7 @@ async function normalizeCredential(
       issuer,
       subject,
       issuanceDate,
-      expirationDate: expirationDate
-        ? sanitizeText(expirationDate)
-        : undefined,
+      expirationDate: expirationDate ? sanitizeText(expirationDate) : undefined,
       mainClaims,
     },
     verificationStatus: 'pending_verification',
@@ -451,24 +485,6 @@ export async function parseCredentialFromQR(
   }
 
   return await normalizeCredential(payload);
-}
-
-export async function isCredentialAlreadySaved(
-  credential: ModularCredential
-): Promise<boolean> {
-  const savedCredentials = await getAllVCs();
-
-  return savedCredentials.some((item) => {
-    const sameId = item.id === credential.id;
-
-    const sameFingerprint =
-      item.issuer === credential.issuer &&
-      item.issuanceDate === credential.issuanceDate &&
-      JSON.stringify(item.credentialSubject) ===
-        JSON.stringify(credential.credentialSubject);
-
-    return sameId || sameFingerprint;
-  });
 }
 
 export async function saveScannedCredential(

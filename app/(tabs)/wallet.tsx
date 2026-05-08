@@ -20,6 +20,43 @@ import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import SkeletonBox from '../../components/ui/SkeletonBox';
 
+type ToastState = {
+  visible: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info';
+};
+
+function getSafeErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+
+  if (!message) {
+    return fallback;
+  }
+
+  const unsafePatterns = [
+    /stack/i,
+    /token/i,
+    /private/i,
+    /secret/i,
+    /key/i,
+    /jwt/i,
+    /file:\/\//i,
+    /documentDirectory/i,
+    /SecureStore/i,
+    /AsyncStorage/i,
+  ];
+
+  if (unsafePatterns.some((pattern) => pattern.test(message))) {
+    return fallback;
+  }
+
+  return message.slice(0, 160);
+}
+
 export default function WalletScreen() {
   const router = useRouter();
 
@@ -30,13 +67,13 @@ export default function WalletScreen() {
     null
   );
 
-  const [toast, setToast] = useState({
+  const [toast, setToast] = useState<ToastState>({
     visible: false,
     message: '',
-    type: 'info' as 'success' | 'error' | 'info',
+    type: 'info',
   });
 
-  async function loadDocuments() {
+  const loadDocuments = useCallback(async () => {
     try {
       setLoadingDocs(true);
 
@@ -51,12 +88,12 @@ export default function WalletScreen() {
     } finally {
       setLoadingDocs(false);
     }
-  }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadDocuments();
-    }, [])
+    }, [loadDocuments])
   );
 
   function handleAddCredential() {
@@ -104,10 +141,10 @@ export default function WalletScreen() {
             } catch (error) {
               setToast({
                 visible: true,
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : 'Gagal menghapus credential',
+                message: getSafeErrorMessage(
+                  error,
+                  'Gagal menghapus credential'
+                ),
                 type: 'error',
               });
             } finally {
@@ -126,7 +163,7 @@ export default function WalletScreen() {
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.screen}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <LinearGradient
           colors={['#2563EB', '#1D4ED8', '#F97316']}
@@ -213,7 +250,7 @@ export default function WalletScreen() {
                 <View style={styles.cardHeader}>
                   <SkeletonBox width={56} height={56} borderRadius={28} />
 
-                  <View style={{ flex: 1 }}>
+                  <View style={styles.flexContent}>
                     <SkeletonBox width="70%" height={18} />
                     <SkeletonBox
                       width="50%"
@@ -277,7 +314,7 @@ export default function WalletScreen() {
                         />
                       </View>
 
-                      <View style={{ flex: 1 }}>
+                      <View style={styles.flexContent}>
                         <Text style={styles.documentTitle}>
                           {doc.documentName}
                         </Text>
@@ -381,13 +418,19 @@ export default function WalletScreen() {
         visible={toast.visible}
         message={toast.message}
         type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
+        onHide={() => setToast((current) => ({ ...current, visible: false }))}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  flexContent: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
