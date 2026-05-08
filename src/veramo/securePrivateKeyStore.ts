@@ -11,7 +11,16 @@ type ManagedPrivateKey = {
 
 async function getKeyIndex(): Promise<string[]> {
   const data = await SecureStore.getItemAsync(PRIVATE_KEY_INDEX);
-  return data ? JSON.parse(data) : [];
+
+  if (!data) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
 }
 
 async function saveKeyIndex(ids: string[]) {
@@ -20,26 +29,67 @@ async function saveKeyIndex(ids: string[]) {
   });
 }
 
-function getAlias(args: any): string {
-  return args?.alias || args?.kid || args?.key?.kid || args?.privateKeyHex;
+/**
+ * Ambil alias private key hanya dari field identifier yang aman.
+ *
+ * PENTING:
+ * Jangan pernah menggunakan privateKeyHex sebagai fallback alias.
+ * privateKeyHex adalah data sangat sensitif dan tidak boleh menjadi nama key,
+ * index, identifier, log, atau metadata penyimpanan.
+ */
+function getAlias(args: Partial<ManagedPrivateKey> & {
+  kid?: string;
+  key?: {
+    kid?: string;
+  };
+}): string | undefined {
+  return args.alias || args.kid || args.key?.kid;
+}
+
+function validateAlias(alias: string) {
+  if (!alias.trim()) {
+    throw new Error('Alias private key tidak boleh kosong');
+  }
+
+  if (alias.includes('\n') || alias.includes('\r')) {
+    throw new Error('Alias private key tidak valid');
+  }
 }
 
 export class SecurePrivateKeyStore {
   async getKey({ alias }: { alias: string }): Promise<ManagedPrivateKey> {
+    validateAlias(alias);
+
     const data = await SecureStore.getItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
     if (!data) {
       throw new Error(`Private key tidak ditemukan untuk alias: ${alias}`);
     }
 
-    return JSON.parse(data);
+    try {
+      return JSON.parse(data);
+    } catch {
+      throw new Error(`Data private key rusak untuk alias: ${alias}`);
+    }
   }
 
   async importKey(args: ManagedPrivateKey): Promise<boolean> {
     const alias = getAlias(args);
 
     if (!alias) {
-      throw new Error('Alias private key tidak ditemukan');
+      throw new Error(
+        'Alias private key tidak ditemukan. Alias wajib berasal dari alias, kid, atau key.kid.'
+      );
+    }
+
+    validateAlias(alias);
+
+    if (!args.type) {
+      throw new Error('Tipe private key tidak ditemukan');
+    }
+
+    if (!args.privateKeyHex) {
+      throw new Error('Private key tidak ditemukan');
     }
 
     const keyData: ManagedPrivateKey = {
@@ -66,6 +116,8 @@ export class SecurePrivateKeyStore {
   }
 
   async deleteKey({ alias }: { alias: string }): Promise<boolean> {
+    validateAlias(alias);
+
     await SecureStore.deleteItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
     const ids = await getKeyIndex();
