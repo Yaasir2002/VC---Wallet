@@ -15,18 +15,19 @@ async function getVCIds(): Promise<string[]> {
     const parsed = JSON.parse(data);
 
     if (Array.isArray(parsed)) {
-      return parsed;
+      return parsed.filter((id) => typeof id === 'string' && id.trim());
     }
 
     return [];
-  } catch (error) {
-    console.log('PARSE VC IDS ERROR:', error);
+  } catch {
+    console.log('PARSE VC IDS ERROR');
     return [];
   }
 }
 
 async function saveVCIds(ids: string[]) {
-  await AsyncStorage.setItem(VC_INDEX_KEY, JSON.stringify(ids));
+  const uniqueIds = Array.from(new Set(ids));
+  await AsyncStorage.setItem(VC_INDEX_KEY, JSON.stringify(uniqueIds));
 }
 
 function normalizeVC(vc: any): ModularCredential {
@@ -36,11 +37,9 @@ function normalizeVC(vc: any): ModularCredential {
       : vc?.proof?.jwt || vc?.jwt || vc?.verifiableCredential || '';
 
   if (!jwt) {
-    console.log('VC YANG GAGAL DISIMPAN:', vc);
     throw new Error('JWT VC tidak ditemukan');
   }
 
-  // Data Model VC
   if (typeof vc === 'string') {
     return {
       id: `vc-${Date.now()}`,
@@ -118,6 +117,7 @@ export const saveVC = async (vc: any): Promise<ModularCredential> => {
 export const getVCs = async (): Promise<ModularCredential[]> => {
   const ids = await getVCIds();
   const vcs: ModularCredential[] = [];
+  const validIds: string[] = [];
 
   for (const id of ids) {
     const data = await AsyncStorage.getItem(`${VC_ITEM_PREFIX}${id}`);
@@ -127,10 +127,16 @@ export const getVCs = async (): Promise<ModularCredential[]> => {
     }
 
     try {
-      vcs.push(JSON.parse(data));
-    } catch (error) {
-      console.log('PARSE VC ITEM ERROR:', error);
+      const parsed = JSON.parse(data);
+      vcs.push(parsed);
+      validIds.push(id);
+    } catch {
+      console.log('PARSE VC ITEM ERROR');
     }
+  }
+
+  if (validIds.length !== ids.length) {
+    await saveVCIds(validIds);
   }
 
   return vcs;
@@ -143,16 +149,69 @@ export const getAllVCs = async (): Promise<ModularCredential[]> => {
 export const getVCById = async (
   id: string
 ): Promise<ModularCredential | null> => {
+  if (!id?.trim()) {
+    return null;
+  }
+
   const data = await AsyncStorage.getItem(`${VC_ITEM_PREFIX}${id}`);
 
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
 
   try {
     return JSON.parse(data);
-  } catch (error) {
-    console.log('PARSE VC BY ID ERROR:', error);
+  } catch {
+    console.log('PARSE VC BY ID ERROR');
     return null;
   }
+};
+
+export const deleteVCById = async (id: string): Promise<boolean> => {
+  if (!id?.trim()) {
+    throw new Error('ID credential tidak valid');
+  }
+
+  const ids = await getVCIds();
+
+  if (!ids.includes(id)) {
+    throw new Error('Credential tidak ditemukan');
+  }
+
+  await AsyncStorage.removeItem(`${VC_ITEM_PREFIX}${id}`);
+  await saveVCIds(ids.filter((itemId) => itemId !== id));
+
+  return true;
+};
+
+export const deleteVCsByDocumentId = async (
+  documentId: string
+): Promise<number> => {
+  if (!documentId?.trim()) {
+    throw new Error('ID dokumen credential tidak valid');
+  }
+
+  const ids = await getVCIds();
+  const credentials = await getVCs();
+
+  const targetCredentials = credentials.filter(
+    (credential) => credential.documentId === documentId
+  );
+
+  if (targetCredentials.length === 0) {
+    throw new Error('Dokumen credential tidak ditemukan');
+  }
+
+  const targetIds = targetCredentials.map((credential) => credential.id);
+
+  for (const id of targetIds) {
+    await AsyncStorage.removeItem(`${VC_ITEM_PREFIX}${id}`);
+  }
+
+  const updatedIds = ids.filter((id) => !targetIds.includes(id));
+  await saveVCIds(updatedIds);
+
+  return targetIds.length;
 };
 
 export const deleteAllVCs = async () => {

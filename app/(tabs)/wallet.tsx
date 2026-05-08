@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 
-import { deleteAllVCs } from '../../src/Storage/vcStorage';
+import { deleteVCsByDocumentId } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
 import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
 import { getDocumentIcon } from '../../src/utils/credentialUtils';
@@ -26,6 +26,9 @@ export default function WalletScreen() {
   const [documents, setDocuments] = useState<CredentialDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(
+    null
+  );
 
   const [toast, setToast] = useState({
     visible: false,
@@ -39,9 +42,7 @@ export default function WalletScreen() {
 
       const docs = await getCredentialDocuments();
       setDocuments(docs);
-    } catch (error) {
-      console.log('LOAD DOCUMENTS ERROR:', error);
-
+    } catch {
       setToast({
         visible: true,
         message: 'Gagal mengambil dokumen credential',
@@ -62,10 +63,16 @@ export default function WalletScreen() {
     router.push('/credential/create');
   }
 
-  function handleDeleteAllDocuments() {
+  function handleScanQR() {
+    router.push('/wallet/scan-qr');
+  }
+
+  function handleDeleteDocument(document: CredentialDocument) {
+    const documentName = document.documentName || 'Credential';
+
     Alert.alert(
-      'Hapus Semua Dokumen',
-      'Apakah kamu yakin ingin menghapus semua credential? Tindakan ini tidak dapat dibatalkan.',
+      'Hapus Credential',
+      `Apakah kamu yakin ingin menghapus credential "${documentName}" dari wallet? Credential lain tidak akan ikut terhapus.`,
       [
         {
           text: 'Batal',
@@ -77,24 +84,34 @@ export default function WalletScreen() {
           onPress: async () => {
             try {
               setLoading(true);
+              setDeletingDocumentId(document.documentId);
 
-              await deleteAllVCs();
-              setDocuments([]);
+              await deleteVCsByDocumentId(document.documentId);
+
+              setDocuments((currentDocuments) =>
+                currentDocuments.filter(
+                  (item) => item.documentId !== document.documentId
+                )
+              );
 
               setToast({
                 visible: true,
-                message: 'Semua dokumen credential berhasil dihapus',
+                message: 'Credential berhasil dihapus',
                 type: 'success',
               });
-            } catch (error) {
-              console.log('DELETE DOCUMENTS ERROR:', error);
 
+              await loadDocuments();
+            } catch (error) {
               setToast({
                 visible: true,
-                message: 'Gagal menghapus dokumen credential',
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : 'Gagal menghapus credential',
                 type: 'error',
               });
             } finally {
+              setDeletingDocumentId(null);
               setLoading(false);
             }
           },
@@ -166,27 +183,23 @@ export default function WalletScreen() {
             yang berisi beberapa atribut identitas.
           </Text>
 
-            <AnimatedButton
-              style={styles.addCredentialButton}
-              onPress={handleAddCredential}
-              disabled={loading}
-            >
-              <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.actionButtonText}>Tambah Credential</Text>
-            </AnimatedButton>
+          <AnimatedButton
+            style={styles.addCredentialButton}
+            onPress={handleAddCredential}
+            disabled={loading}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Tambah Credential</Text>
+          </AnimatedButton>
 
-          {documents.length > 0 && (
-            <AnimatedButton
-              style={styles.dangerFullButton}
-              onPress={handleDeleteAllDocuments}
-              disabled={loading}
-            >
-              <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.dangerFullButtonText}>
-                Hapus Semua Dokumen
-              </Text>
-            </AnimatedButton>
-          )}
+          <AnimatedButton
+            style={styles.scanQRButton}
+            onPress={handleScanQR}
+            disabled={loading}
+          >
+            <Ionicons name="scan-outline" size={20} color="#2563EB" />
+            <Text style={styles.scanQRButtonText}>Scan QR Credential</Text>
+          </AnimatedButton>
         </View>
 
         {loadingDocs ? (
@@ -222,8 +235,9 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Tambahkan credential KTP atau KTM terlebih dahulu. Satu credential
-              parent akan berisi beberapa atribut identitas modular.
+              Tambahkan credential KTP, KTM, atau scan QR credential terlebih
+              dahulu. Satu credential parent dapat berisi beberapa atribut
+              identitas modular.
             </Text>
           </View>
         ) : (
@@ -233,87 +247,120 @@ export default function WalletScreen() {
               <Text style={styles.countText}>{documents.length} documents</Text>
             </View>
 
-            {documents.map((doc) => (
-              <Pressable
-                key={doc.documentId}
-                style={({ pressed }) => [
-                  styles.documentCard,
-                  pressed && styles.documentCardPressed,
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: '/credential/document/[documentId]',
-                    params: { documentId: doc.documentId },
-                  })
-                }
-              >
-                <View style={styles.cardHeader}>
-                  <View style={styles.documentIcon}>
-                    <Ionicons
-                      name={getDocumentIcon(doc.documentType)}
-                      size={30}
-                      color="#2563EB"
-                    />
-                  </View>
+            {documents.map((doc) => {
+              const isDeleting = deletingDocumentId === doc.documentId;
 
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.documentTitle}>{doc.documentName}</Text>
+              return (
+                <View key={doc.documentId} style={styles.documentCardWrapper}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.documentCard,
+                      pressed && styles.documentCardPressed,
+                    ]}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/credential/document/[documentId]',
+                        params: { documentId: doc.documentId },
+                      })
+                    }
+                    disabled={isDeleting}
+                  >
+                    <View style={styles.cardHeader}>
+                      <View style={styles.documentIcon}>
+                        <Ionicons
+                          name={getDocumentIcon(doc.documentType)}
+                          size={30}
+                          color="#2563EB"
+                        />
+                      </View>
 
-                    <Text style={styles.documentSubtitle}>
-                      {doc.documentType} • {doc.credentials.length} atribut
-                    </Text>
-                  </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.documentTitle}>
+                          {doc.documentName}
+                        </Text>
 
-                  <View style={styles.documentBadge}>
-                    <Text style={styles.documentBadgeText}>
-                      {doc.documentType}
-                    </Text>
-                  </View>
-                </View>
+                        <Text style={styles.documentSubtitle}>
+                          {doc.documentType} • {doc.credentials.length} atribut
+                        </Text>
+                      </View>
 
-                <View style={styles.divider} />
+                      <View style={styles.cardRightAction}>
+                        <View style={styles.documentBadge}>
+                          <Text style={styles.documentBadgeText}>
+                            {doc.documentType}
+                          </Text>
+                        </View>
 
-                <Text style={styles.label}>Attributes</Text>
-
-                <View style={styles.attributePreviewWrap}>
-                  {doc.credentials.slice(0, 4).map((vc) => (
-                    <View key={vc.id} style={styles.attributeChip}>
-                      <Text style={styles.attributeChipText}>
-                        {vc.credentialSubject.attributeName}
-                      </Text>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.deleteIconButton,
+                            pressed && styles.deleteIconButtonPressed,
+                            isDeleting && styles.deleteIconButtonDisabled,
+                          ]}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            handleDeleteDocument(doc);
+                          }}
+                          disabled={loading || isDeleting}
+                        >
+                          <Ionicons
+                            name={
+                              isDeleting
+                                ? 'hourglass-outline'
+                                : 'trash-outline'
+                            }
+                            size={18}
+                            color="#DC2626"
+                          />
+                        </Pressable>
+                      </View>
                     </View>
-                  ))}
 
-                  {doc.credentials.length > 4 && (
-                    <View style={styles.attributeChipMore}>
-                      <Text style={styles.attributeChipMoreText}>
-                        +{doc.credentials.length - 4}
-                      </Text>
+                    <View style={styles.divider} />
+
+                    <Text style={styles.label}>Attributes</Text>
+
+                    <View style={styles.attributePreviewWrap}>
+                      {doc.credentials.slice(0, 4).map((vc) => (
+                        <View key={vc.id} style={styles.attributeChip}>
+                          <Text style={styles.attributeChipText}>
+                            {vc.credentialSubject.attributeName}
+                          </Text>
+                        </View>
+                      ))}
+
+                      {doc.credentials.length > 4 && (
+                        <View style={styles.attributeChipMore}>
+                          <Text style={styles.attributeChipMoreText}>
+                            +{doc.credentials.length - 4}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
 
-                <View style={styles.footerRow}>
-                  <View style={styles.localBadge}>
-                    <Ionicons
-                      name="lock-closed-outline"
-                      size={15}
-                      color="#166534"
-                    />
-                    <Text style={styles.localBadgeText}>Stored Locally</Text>
-                  </View>
+                    <View style={styles.footerRow}>
+                      <View style={styles.localBadge}>
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={15}
+                          color="#166534"
+                        />
+                        <Text style={styles.localBadgeText}>Stored Locally</Text>
+                      </View>
 
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailText}>Detail</Text>
-                    <Ionicons
-                      name="chevron-forward-outline"
-                      size={18}
-                      color="#6B7280"
-                    />
-                  </View>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailText}>Detail</Text>
+                        <Ionicons
+                          name="chevron-forward-outline"
+                          size={18}
+                          color="#6B7280"
+                        />
+                      </View>
+                    </View>
+                  </Pressable>
                 </View>
-              </Pressable>
-            ))}
+              );
+            })}
           </View>
         )}
 
@@ -455,20 +502,22 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
   },
-  dangerFullButton: {
-    backgroundColor: '#DC2626',
-    marginTop: 14,
+  scanQRButton: {
+    backgroundColor: '#EFF6FF',
+    marginTop: 12,
     borderRadius: 16,
     paddingVertical: 14,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
   },
-  dangerFullButtonText: {
-    color: '#FFFFFF',
+  scanQRButtonText: {
+    color: '#2563EB',
     fontWeight: '900',
-    fontSize: 14,
+    fontSize: 13,
   },
   listSection: {
     marginTop: 18,
@@ -483,6 +532,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#2563EB',
+  },
+  documentCardWrapper: {
+    marginBottom: 14,
   },
   documentCard: {
     backgroundColor: '#FFFFFF',
@@ -521,6 +573,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '700',
   },
+  cardRightAction: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   documentBadge: {
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 9,
@@ -531,6 +587,23 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     fontSize: 10,
     fontWeight: '900',
+  },
+  deleteIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteIconButtonPressed: {
+    backgroundColor: '#FEE2E2',
+    transform: [{ scale: 0.96 }],
+  },
+  deleteIconButtonDisabled: {
+    opacity: 0.55,
   },
   divider: {
     height: 1,
