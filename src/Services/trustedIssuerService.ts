@@ -1,7 +1,7 @@
 import { TRUSTED_ISSUERS } from '../config/trustedIssuers';
-import { TrustedIssuerResult } from '../types/verification';
+import { TrustedIssuerValidationResult } from '../types/verification';
 
-export function normalizeIssuer(issuer: unknown): string | null {
+export function normalizeIssuerId(issuer: unknown): string | null {
   if (typeof issuer === 'string' && issuer.trim()) {
     return issuer.trim();
   }
@@ -18,14 +18,34 @@ export function normalizeIssuer(issuer: unknown): string | null {
   return null;
 }
 
-export function getIssuerId(vc: any): string | null {
-  return normalizeIssuer(vc?.issuer);
+export function normalizeIssuer(issuer: unknown): string | null {
+  return normalizeIssuerId(issuer);
 }
 
-export function isTrustedIssuer(
+export function extractIssuerId(vcOrJwtPayload: any): string | null {
+  if (!vcOrJwtPayload) {
+    return null;
+  }
+
+  if (typeof vcOrJwtPayload?.iss === 'string') {
+    return vcOrJwtPayload.iss;
+  }
+
+  if (vcOrJwtPayload?.vc?.issuer) {
+    return normalizeIssuerId(vcOrJwtPayload.vc.issuer);
+  }
+
+  return normalizeIssuerId(vcOrJwtPayload?.issuer);
+}
+
+export function getIssuerId(vc: any): string | null {
+  return extractIssuerId(vc);
+}
+
+export function validateTrustedIssuer(
   issuerId: string | null,
   credentialType?: string | string[]
-): TrustedIssuerResult {
+): TrustedIssuerValidationResult {
   if (!issuerId) {
     return {
       isTrusted: false,
@@ -34,7 +54,7 @@ export function isTrustedIssuer(
   }
 
   const trustedIssuer = TRUSTED_ISSUERS.find(
-    (issuer) => issuer.id === issuerId && issuer.status === 'active'
+    (issuer) => issuer.id === issuerId
   );
 
   if (!trustedIssuer) {
@@ -42,6 +62,15 @@ export function isTrustedIssuer(
       isTrusted: false,
       issuerId,
       reason: 'Issuer tidak termasuk daftar terpercaya',
+    };
+  }
+
+  if (trustedIssuer.status !== 'active') {
+    return {
+      isTrusted: false,
+      issuerId,
+      issuerName: trustedIssuer.name,
+      reason: 'Issuer tidak aktif',
     };
   }
 
@@ -53,6 +82,7 @@ export function isTrustedIssuer(
 
   const hasAllowedType =
     types.length === 0 ||
+    trustedIssuer.allowedCredentialTypes.length === 0 ||
     types.some((type) => trustedIssuer.allowedCredentialTypes.includes(type));
 
   if (!hasAllowedType) {
@@ -69,4 +99,11 @@ export function isTrustedIssuer(
     issuerId,
     issuerName: trustedIssuer.name,
   };
+}
+
+export function isTrustedIssuer(
+  issuerId: string | null,
+  credentialType?: string | string[]
+): TrustedIssuerValidationResult {
+  return validateTrustedIssuer(issuerId, credentialType);
 }

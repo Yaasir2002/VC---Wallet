@@ -118,6 +118,13 @@ function normalizeVC(vc: any): ModularCredential {
   }
 
   return {
+    verificationStatus: vc?.verificationStatus || 'pending_verification',
+    verificationResult: vc?.verificationResult,
+    verification: vc?.verification,
+    verifiedAt: vc?.verifiedAt ?? null,
+    importedAt: vc?.importedAt,
+    source: vc?.source,
+
     id: vc?.id || `vc-${Date.now()}`,
     documentId: vc?.documentId || `LEGACY-${vc?.id || Date.now()}`,
     documentType: vc?.documentType || 'CUSTOM',
@@ -137,10 +144,12 @@ function normalizeVC(vc: any): ModularCredential {
       attributeName: vc?.credentialSubject?.attributeName || 'Credential',
       attributeValue: vc?.credentialSubject?.attributeValue || '',
     },
-    proof: vc?.proof,
+        proof: vc?.proof,
     jwt,
     verificationStatus: vc?.verificationStatus || 'pending_verification',
     verificationResult: vc?.verificationResult,
+    verification: vc?.verification,
+    verifiedAt: vc?.verifiedAt ?? null,
     importedAt: vc?.importedAt,
     source: vc?.source,
   };
