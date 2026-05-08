@@ -59,6 +59,10 @@ export default function WalletScreen() {
     }, [])
   );
 
+  function handleAddCredential() {
+    router.push('/credential/create');
+  }
+
   function handleScanQR() {
     router.push('/wallet/scan-qr');
   }
@@ -153,9 +157,11 @@ export default function WalletScreen() {
                 color="#2563EB"
               />
             </View>
+
             <Text style={styles.statNumber}>
               {loadingDocs ? '-' : documents.length}
             </Text>
+
             <Text style={styles.statLabel}>Documents</Text>
           </View>
 
@@ -163,21 +169,32 @@ export default function WalletScreen() {
             <View style={styles.statIconOrange}>
               <Ionicons name="list-outline" size={24} color="#F97316" />
             </View>
+
             <Text style={styles.statNumber}>
               {loadingDocs ? '-' : totalAttributes}
             </Text>
+
             <Text style={styles.statLabel}>Attributes</Text>
           </View>
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Terima Credential</Text>
+          <Text style={styles.sectionTitle}>Kelola Credential</Text>
 
           <Text style={styles.actionDescription}>
-            Terima credential dari QR issuer atau credential offer. Credential
-            yang diterima akan ditampilkan sebagai dokumen di wallet setelah
-            kamu menyetujuinya.
+            Tambahkan credential secara manual atau terima credential dari QR
+            issuer. Credential yang diterima akan tampil sebagai dokumen di
+            wallet.
           </Text>
+
+          <AnimatedButton
+            style={styles.addCredentialButton}
+            onPress={handleAddCredential}
+            disabled={loading}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Tambah Credential</Text>
+          </AnimatedButton>
 
           <AnimatedButton
             style={styles.scanQRButton}
@@ -222,8 +239,8 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Wallet belum memiliki credential. Gunakan Scan QR Credential untuk
-              menerima credential dari issuer.
+              Wallet belum memiliki credential. Gunakan Tambah Credential atau
+              Scan QR Credential untuk menambahkan credential ke wallet.
             </Text>
           </View>
         ) : (
@@ -355,7 +372,7 @@ export default function WalletScreen() {
           <Text style={styles.noteText}>
             Dalam prinsip SSI, credential idealnya diterbitkan oleh issuer resmi.
             Wallet berperan untuk menerima, menyimpan, menampilkan, dan
-            membuktikan credential, bukan menerbitkan identitas akademik manual.
+            membuktikan credential.
           </Text>
         </View>
       </ScrollView>
@@ -473,9 +490,24 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 8,
   },
+  addCredentialButton: {
+    backgroundColor: '#2563EB',
+    marginTop: 16,
+    borderRadius: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
+  },
   scanQRButton: {
     backgroundColor: '#EFF6FF',
-    marginTop: 16,
+    marginTop: 12,
     borderRadius: 16,
     paddingVertical: 14,
     flexDirection: 'row',
