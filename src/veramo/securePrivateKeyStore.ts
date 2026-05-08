@@ -1,4 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { isBiometricEnabled } from '../Storage/authStorage';
 
 const PRIVATE_KEY_PREFIX = 'VERAMO_PRIVATE_KEY_';
 const PRIVATE_KEY_INDEX = 'VERAMO_PRIVATE_KEY_INDEX';
@@ -7,6 +9,10 @@ type ManagedPrivateKey = {
   alias: string;
   type: string;
   privateKeyHex: string;
+};
+
+const secureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
 async function getKeyIndex(): Promise<string[]> {
@@ -24,9 +30,11 @@ async function getKeyIndex(): Promise<string[]> {
 }
 
 async function saveKeyIndex(ids: string[]) {
-  await SecureStore.setItemAsync(PRIVATE_KEY_INDEX, JSON.stringify(ids), {
-    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-  });
+  await SecureStore.setItemAsync(
+    PRIVATE_KEY_INDEX,
+    JSON.stringify(ids),
+    secureStoreOptions
+  );
 }
 
 /**
@@ -37,12 +45,14 @@ async function saveKeyIndex(ids: string[]) {
  * privateKeyHex adalah data sangat sensitif dan tidak boleh menjadi nama key,
  * index, identifier, log, atau metadata penyimpanan.
  */
-function getAlias(args: Partial<ManagedPrivateKey> & {
-  kid?: string;
-  key?: {
+function getAlias(
+  args: Partial<ManagedPrivateKey> & {
     kid?: string;
-  };
-}): string | undefined {
+    key?: {
+      kid?: string;
+    };
+  }
+): string | undefined {
   return args.alias || args.kid || args.key?.kid;
 }
 
@@ -56,9 +66,42 @@ function validateAlias(alias: string) {
   }
 }
 
+async function requireBiometricConfirmation() {
+  const biometricEnabled = await isBiometricEnabled();
+
+  if (!biometricEnabled) {
+    return;
+  }
+
+  const hasHardware = await LocalAuthentication.hasHardwareAsync();
+
+  if (!hasHardware) {
+    throw new Error('Perangkat tidak mendukung autentikasi biometric');
+  }
+
+  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+  if (!isEnrolled) {
+    throw new Error('Biometric belum terdaftar di perangkat');
+  }
+
+  const result = await LocalAuthentication.authenticateAsync({
+    promptMessage: 'Verifikasi untuk mengakses private key',
+    cancelLabel: 'Batal',
+    fallbackLabel: 'Gunakan PIN perangkat',
+    disableDeviceFallback: false,
+  });
+
+  if (!result.success) {
+    throw new Error('Autentikasi biometric gagal atau dibatalkan');
+  }
+}
+
 export class SecurePrivateKeyStore {
   async getKey({ alias }: { alias: string }): Promise<ManagedPrivateKey> {
     validateAlias(alias);
+
+    await requireBiometricConfirmation();
 
     const data = await SecureStore.getItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
@@ -101,9 +144,7 @@ export class SecurePrivateKeyStore {
     await SecureStore.setItemAsync(
       `${PRIVATE_KEY_PREFIX}${alias}`,
       JSON.stringify(keyData),
-      {
-        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      }
+      secureStoreOptions
     );
 
     const ids = await getKeyIndex();
@@ -117,6 +158,8 @@ export class SecurePrivateKeyStore {
 
   async deleteKey({ alias }: { alias: string }): Promise<boolean> {
     validateAlias(alias);
+
+    await requireBiometricConfirmation();
 
     await SecureStore.deleteItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
