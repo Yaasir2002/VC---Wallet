@@ -59,10 +59,6 @@ export default function WalletScreen() {
     }, [])
   );
 
-  function handleAddCredential() {
-    router.push('/credential/create');
-  }
-
   function handleScanQR() {
     router.push('/wallet/scan-qr');
   }
@@ -175,22 +171,13 @@ export default function WalletScreen() {
         </View>
 
         <View style={styles.actionCard}>
-          <Text style={styles.sectionTitle}>Tambah Credential</Text>
+          <Text style={styles.sectionTitle}>Terima Credential</Text>
 
           <Text style={styles.actionDescription}>
-            Tambahkan credential digital seperti KTP atau KTM dengan mengisi data
-            dokumen secara manual. Credential akan dibuat sebagai dokumen parent
-            yang berisi beberapa atribut identitas.
+            Terima credential dari QR issuer atau credential offer. Credential
+            yang diterima akan ditampilkan sebagai dokumen di wallet setelah
+            kamu menyetujuinya.
           </Text>
-
-          <AnimatedButton
-            style={styles.addCredentialButton}
-            onPress={handleAddCredential}
-            disabled={loading}
-          >
-            <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>Tambah Credential</Text>
-          </AnimatedButton>
 
           <AnimatedButton
             style={styles.scanQRButton}
@@ -235,9 +222,8 @@ export default function WalletScreen() {
             <Text style={styles.emptyTitle}>Belum Ada Dokumen</Text>
 
             <Text style={styles.emptyText}>
-              Tambahkan credential KTP, KTM, atau scan QR credential terlebih
-              dahulu. Satu credential parent dapat berisi beberapa atribut
-              identitas modular.
+              Wallet belum memiliki credential. Gunakan Scan QR Credential untuk
+              menerima credential dari issuer.
             </Text>
           </View>
         ) : (
@@ -367,9 +353,9 @@ export default function WalletScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
           <Text style={styles.noteText}>
-            Credential parent membungkus beberapa atribut seperti nama, NIK, NIM,
-            tanggal lahir, alamat, kampus, dan data identitas lainnya. Saat
-            detail dibuka, atribut akan tampil sebagai tabel sederhana.
+            Dalam prinsip SSI, credential idealnya diterbitkan oleh issuer resmi.
+            Wallet berperan untuk menerima, menyimpan, menampilkan, dan
+            membuktikan credential, bukan menerbitkan identitas akademik manual.
           </Text>
         </View>
       </ScrollView>
@@ -487,24 +473,9 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 8,
   },
-  addCredentialButton: {
-    backgroundColor: '#2563EB',
-    marginTop: 16,
-    borderRadius: 16,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 13,
-  },
   scanQRButton: {
     backgroundColor: '#EFF6FF',
-    marginTop: 12,
+    marginTop: 16,
     borderRadius: 16,
     paddingVertical: 14,
     flexDirection: 'row',

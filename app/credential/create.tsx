@@ -37,21 +37,14 @@ export default function CreateCredentialScreen() {
           badge="KTP"
           onPress={() => router.push('/credential/create-ktp')}
         />
-
-        <CredentialOptionCard
-          icon="school-outline"
-          title="KTM Digital"
-          description="Credential identitas mahasiswa seperti NIM, kampus, program studi, dan status mahasiswa."
-          badge="KTM"
-          onPress={() => router.push('/credential/create-ktm')}
-        />
       </View>
 
       <View style={styles.noteCard}>
         <Ionicons name="information-circle-outline" size={22} color="#2563EB" />
         <Text style={styles.noteText}>
-          Credential akan disimpan secara lokal di wallet dan tampil sebagai
-          dokumen parent yang membungkus beberapa atribut identitas.
+          Fitur tambah KTM Digital manual telah dinonaktifkan. Credential
+          akademik sebaiknya diterima dari issuer resmi melalui scan QR atau
+          credential offer.
         </Text>
       </View>
     </ScrollView>

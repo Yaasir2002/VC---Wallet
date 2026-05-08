@@ -29,19 +29,6 @@ export type KtpCredentialInput = {
   validUntil?: string;
 };
 
-export type KtmCredentialInput = {
-  fullName: string;
-  studentId: string;
-  universityName: string;
-  faculty: string;
-  studyProgram: string;
-  degree: string;
-  enrollmentYear: string;
-  studentStatus: string;
-  campusEmail?: string;
-  validUntil?: string;
-};
-
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
   documentName: string;
@@ -140,33 +127,6 @@ export async function createKtpCredential(input: KtpCredentialInput) {
   return await createDocumentCredentials({
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    attributes,
-  });
-}
-
-export async function createKtmCredential(input: KtmCredentialInput) {
-  const attributes: DocumentAttributeInput[] = [
-    { attributeType: 'legalName', attributeName: 'Nama Lengkap', attributeValue: input.fullName },
-    { attributeType: 'studentId', attributeName: 'NIM', attributeValue: input.studentId },
-    { attributeType: 'universityName', attributeName: 'Nama Kampus', attributeValue: input.universityName },
-    { attributeType: 'faculty', attributeName: 'Fakultas', attributeValue: input.faculty },
-    { attributeType: 'studyProgram', attributeName: 'Program Studi', attributeValue: input.studyProgram },
-    { attributeType: 'degree', attributeName: 'Jenjang', attributeValue: input.degree },
-    { attributeType: 'enrollmentYear', attributeName: 'Tahun Masuk', attributeValue: input.enrollmentYear },
-    { attributeType: 'studentStatus', attributeName: 'Status Mahasiswa', attributeValue: input.studentStatus },
-  ];
-
-  if (input.campusEmail) {
-    attributes.push({ attributeType: 'campusEmail', attributeName: 'Email Kampus', attributeValue: input.campusEmail });
-  }
-
-  if (input.validUntil) {
-    attributes.push({ attributeType: 'validUntil', attributeName: 'Berlaku Hingga', attributeValue: input.validUntil });
-  }
-
-  return await createDocumentCredentials({
-    documentType: 'KTM',
-    documentName: 'KTM Digital',
     attributes,
   });
 }
