@@ -1,15 +1,41 @@
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ModularCredential } from '../types/vc';
 import { safeLogger } from '../utils/safeLogger';
 
 const SECURE_VC_INDEX_KEY = 'SECURE_USER_VERIFIABLE_CREDENTIAL_INDEX';
-const SECURE_VC_ITEM_PREFIX = 'SECURE_USER_VERIFIABLE_CREDENTIAL_ITEM_';
-const MIGRATION_FLAG_KEY = 'SECURE_VC_STORAGE_MIGRATED_V1';
+const MIGRATION_FLAG_KEY = 'SECURE_VC_STORAGE_MIGRATED_V2';
 
 const LEGACY_VC_INDEX_KEY = 'USER_VERIFIABLE_CREDENTIAL_INDEX';
 const LEGACY_VC_ITEM_PREFIX = 'USER_VERIFIABLE_CREDENTIAL_ITEM_';
+const LEGACY_SECURE_VC_INDEX_KEY = 'SECURE_USER_VERIFIABLE_CREDENTIAL_INDEX';
+const LEGACY_SECURE_VC_ITEM_PREFIX = 'SECURE_USER_VERIFIABLE_CREDENTIAL_ITEM_';
+
+const VC_DIRECTORY = `${FileSystem.documentDirectory}secure-vc-wallet/`;
+
+type CredentialIndexItem = {
+  id: string;
+  documentId: string;
+  documentType: ModularCredential['documentType'];
+  documentName: string;
+  issuer: string;
+  issuanceDate: string;
+  expirationDate?: string;
+  verificationStatus?: ModularCredential['verificationStatus'];
+  fileName: string;
+};
+
+async function ensureDirectoryExists() {
+  const info = await FileSystem.getInfoAsync(VC_DIRECTORY);
+
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(VC_DIRECTORY, {
+      intermediates: true,
+    });
+  }
+}
 
 async function secureGet(key: string): Promise<string | null> {
   return SecureStore.getItemAsync(key);
@@ -25,30 +51,37 @@ async function secureDelete(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(key);
 }
 
-function safeParseArray(value: string | null): string[] {
-  if (!value) return [];
+function safeParseJSON<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
 
   try {
-    const parsed = JSON.parse(value);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter((item) => typeof item === 'string' && item.trim());
+    return JSON.parse(value) as T;
   } catch {
-    safeLogger.warn('Failed to parse credential index');
-    return [];
+    safeLogger.warn('Failed to parse stored JSON');
+    return fallback;
   }
 }
 
-async function getCredentialIds(): Promise<string[]> {
-  return safeParseArray(await secureGet(SECURE_VC_INDEX_KEY));
+function safeParseArray(value: string | null): string[] {
+  const parsed = safeParseJSON<unknown>(value, []);
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.filter((item) => typeof item === 'string' && item.trim());
 }
 
-async function saveCredentialIds(ids: string[]): Promise<void> {
-  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-  await secureSet(SECURE_VC_INDEX_KEY, JSON.stringify(uniqueIds));
+function sanitizeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 120);
+}
+
+function getCredentialFileName(id: string): string {
+  return `${sanitizeFileName(id)}.json`;
+}
+
+function getCredentialFileUri(fileName: string): string {
+  return `${VC_DIRECTORY}${fileName}`;
 }
 
 function normalizeVC(vc: any): ModularCredential {
@@ -113,27 +146,102 @@ function normalizeVC(vc: any): ModularCredential {
   };
 }
 
-export async function migrateCredentialsFromAsyncStorageToEncryptedStorage(): Promise<void> {
-  const migrated = await secureGet(MIGRATION_FLAG_KEY);
+function toIndexItem(credential: ModularCredential): CredentialIndexItem {
+  return {
+    id: credential.id,
+    documentId: credential.documentId,
+    documentType: credential.documentType,
+    documentName: credential.documentName,
+    issuer: credential.issuer,
+    issuanceDate: credential.issuanceDate,
+    expirationDate: credential.expirationDate,
+    verificationStatus: credential.verificationStatus,
+    fileName: getCredentialFileName(credential.id),
+  };
+}
 
-  if (migrated === 'true') {
-    return;
+async function getIndex(): Promise<CredentialIndexItem[]> {
+  const raw = await secureGet(SECURE_VC_INDEX_KEY);
+  const parsed = safeParseJSON<unknown>(raw, []);
+
+  if (!Array.isArray(parsed)) {
+    return [];
   }
 
+  return parsed.filter(
+    (item): item is CredentialIndexItem =>
+      item &&
+      typeof item === 'object' &&
+      typeof (item as any).id === 'string' &&
+      typeof (item as any).fileName === 'string'
+  );
+}
+
+async function saveIndex(index: CredentialIndexItem[]): Promise<void> {
+  const unique = Array.from(
+    new Map(index.map((item) => [item.id, item])).values()
+  );
+
+  await secureSet(SECURE_VC_INDEX_KEY, JSON.stringify(unique));
+}
+
+async function writeCredentialFile(credential: ModularCredential): Promise<void> {
+  await ensureDirectoryExists();
+
+  const fileName = getCredentialFileName(credential.id);
+  const fileUri = getCredentialFileUri(fileName);
+
+  await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(credential), {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+}
+
+async function readCredentialFile(
+  indexItem: CredentialIndexItem
+): Promise<ModularCredential | null> {
+  await ensureDirectoryExists();
+
+  const fileUri = getCredentialFileUri(indexItem.fileName);
+  const info = await FileSystem.getInfoAsync(fileUri);
+
+  if (!info.exists) {
+    return null;
+  }
+
+  try {
+    const raw = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+
+    return JSON.parse(raw) as ModularCredential;
+  } catch {
+    safeLogger.warn('Failed to read credential file', {
+      credentialId: indexItem.id,
+    });
+    return null;
+  }
+}
+
+async function deleteCredentialFile(indexItem: CredentialIndexItem): Promise<void> {
+  const fileUri = getCredentialFileUri(indexItem.fileName);
+  const info = await FileSystem.getInfoAsync(fileUri);
+
+  if (info.exists) {
+    await FileSystem.deleteAsync(fileUri, {
+      idempotent: true,
+    });
+  }
+}
+
+async function migrateLegacyAsyncStorageCredentials(): Promise<CredentialIndexItem[]> {
   const legacyIndexRaw = await AsyncStorage.getItem(LEGACY_VC_INDEX_KEY);
   const legacyIds = safeParseArray(legacyIndexRaw);
-
-  if (legacyIds.length === 0) {
-    await secureSet(MIGRATION_FLAG_KEY, 'true');
-    return;
-  }
-
-  const existingIds = await getCredentialIds();
-  const migratedIds: string[] = [];
-  const migratedCredentials: ModularCredential[] = [];
+  const migratedIndexItems: CredentialIndexItem[] = [];
 
   for (const legacyId of legacyIds) {
-    const legacyItemRaw = await AsyncStorage.getItem(`${LEGACY_VC_ITEM_PREFIX}${legacyId}`);
+    const legacyItemRaw = await AsyncStorage.getItem(
+      `${LEGACY_VC_ITEM_PREFIX}${legacyId}`
+    );
 
     if (!legacyItemRaw) {
       continue;
@@ -143,28 +251,79 @@ export async function migrateCredentialsFromAsyncStorageToEncryptedStorage(): Pr
       const parsed = JSON.parse(legacyItemRaw);
       const normalized = normalizeVC(parsed);
 
-      await secureSet(
-        `${SECURE_VC_ITEM_PREFIX}${normalized.id}`,
-        JSON.stringify(normalized)
-      );
-
-      migratedCredentials.push(normalized);
-      migratedIds.push(normalized.id);
+      await writeCredentialFile(normalized);
+      migratedIndexItems.push(toIndexItem(normalized));
     } catch {
-      safeLogger.warn('Skipped invalid legacy credential during migration', {
+      safeLogger.warn('Skipped invalid legacy AsyncStorage credential', {
         legacyId,
       });
     }
   }
 
-  if (migratedCredentials.length > 0) {
-    await saveCredentialIds([...migratedIds, ...existingIds]);
-
+  if (migratedIndexItems.length > 0) {
     for (const legacyId of legacyIds) {
       await AsyncStorage.removeItem(`${LEGACY_VC_ITEM_PREFIX}${legacyId}`);
     }
 
     await AsyncStorage.removeItem(LEGACY_VC_INDEX_KEY);
+  }
+
+  return migratedIndexItems;
+}
+
+async function migrateLegacySecureStoreCredentials(): Promise<CredentialIndexItem[]> {
+  const legacySecureIndexRaw = await secureGet(LEGACY_SECURE_VC_INDEX_KEY);
+  const legacyIds = safeParseArray(legacySecureIndexRaw);
+  const migratedIndexItems: CredentialIndexItem[] = [];
+
+  for (const legacyId of legacyIds) {
+    const legacyItemRaw = await secureGet(
+      `${LEGACY_SECURE_VC_ITEM_PREFIX}${legacyId}`
+    );
+
+    if (!legacyItemRaw) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(legacyItemRaw);
+      const normalized = normalizeVC(parsed);
+
+      await writeCredentialFile(normalized);
+      migratedIndexItems.push(toIndexItem(normalized));
+
+      await secureDelete(`${LEGACY_SECURE_VC_ITEM_PREFIX}${legacyId}`);
+    } catch {
+      safeLogger.warn('Skipped invalid legacy SecureStore credential', {
+        legacyId,
+      });
+    }
+  }
+
+  return migratedIndexItems;
+}
+
+export async function migrateCredentialsFromAsyncStorageToEncryptedStorage(): Promise<void> {
+  await ensureDirectoryExists();
+
+  const migrated = await secureGet(MIGRATION_FLAG_KEY);
+
+  if (migrated === 'true') {
+    return;
+  }
+
+  const currentIndex = await getIndex();
+  const asyncStorageItems = await migrateLegacyAsyncStorageCredentials();
+  const secureStoreItems = await migrateLegacySecureStoreCredentials();
+
+  const mergedIndex = [
+    ...asyncStorageItems,
+    ...secureStoreItems,
+    ...currentIndex,
+  ];
+
+  if (mergedIndex.length > 0) {
+    await saveIndex(mergedIndex);
   }
 
   await secureSet(MIGRATION_FLAG_KEY, 'true');
@@ -173,66 +332,61 @@ export async function migrateCredentialsFromAsyncStorageToEncryptedStorage(): Pr
 export async function getCredentials(): Promise<ModularCredential[]> {
   await migrateCredentialsFromAsyncStorageToEncryptedStorage();
 
-  const ids = await getCredentialIds();
+  const index = await getIndex();
   const credentials: ModularCredential[] = [];
-  const validIds: string[] = [];
+  const validIndexItems: CredentialIndexItem[] = [];
 
-  for (const id of ids) {
-    const raw = await secureGet(`${SECURE_VC_ITEM_PREFIX}${id}`);
+  for (const item of index) {
+    const credential = await readCredentialFile(item);
 
-    if (!raw) {
+    if (!credential) {
       continue;
     }
 
-    try {
-      credentials.push(JSON.parse(raw));
-      validIds.push(id);
-    } catch {
-      safeLogger.warn('Failed to parse encrypted credential item', { id });
-    }
+    credentials.push(credential);
+    validIndexItems.push(item);
   }
 
-  if (validIds.length !== ids.length) {
-    await saveCredentialIds(validIds);
+  if (validIndexItems.length !== index.length) {
+    await saveIndex(validIndexItems);
   }
 
   return credentials;
 }
 
-export async function getCredentialById(id: string): Promise<ModularCredential | null> {
+export async function getCredentialById(
+  id: string
+): Promise<ModularCredential | null> {
   await migrateCredentialsFromAsyncStorageToEncryptedStorage();
 
   if (!id?.trim()) {
     return null;
   }
 
-  const raw = await secureGet(`${SECURE_VC_ITEM_PREFIX}${id}`);
+  const index = await getIndex();
+  const item = index.find((credential) => credential.id === id);
 
-  if (!raw) {
+  if (!item) {
     return null;
   }
 
-  try {
-    return JSON.parse(raw);
-  } catch {
-    safeLogger.warn('Failed to parse encrypted credential by id', { id });
-    return null;
-  }
+  return await readCredentialFile(item);
 }
 
 export async function saveCredential(vc: any): Promise<ModularCredential> {
   await migrateCredentialsFromAsyncStorageToEncryptedStorage();
 
   const normalized = normalizeVC(vc);
-  const ids = await getCredentialIds();
-  const updatedIds = [normalized.id, ...ids.filter((id) => id !== normalized.id)];
 
-  await secureSet(
-    `${SECURE_VC_ITEM_PREFIX}${normalized.id}`,
-    JSON.stringify(normalized)
-  );
+  await writeCredentialFile(normalized);
 
-  await saveCredentialIds(updatedIds);
+  const index = await getIndex();
+  const updatedIndex = [
+    toIndexItem(normalized),
+    ...index.filter((item) => item.id !== normalized.id),
+  ];
+
+  await saveIndex(updatedIndex);
 
   return normalized;
 }
@@ -247,13 +401,21 @@ export async function updateCredential(
     throw new Error('Credential tidak ditemukan');
   }
 
-  const updated = {
+  const updated: ModularCredential = {
     ...existing,
     ...data,
     id: existing.id,
   };
 
-  await secureSet(`${SECURE_VC_ITEM_PREFIX}${id}`, JSON.stringify(updated));
+  await writeCredentialFile(updated);
+
+  const index = await getIndex();
+  const updatedIndex = [
+    toIndexItem(updated),
+    ...index.filter((item) => item.id !== id),
+  ];
+
+  await saveIndex(updatedIndex);
 
   return updated;
 }
@@ -265,50 +427,49 @@ export async function deleteCredentialById(id: string): Promise<boolean> {
     throw new Error('ID credential tidak valid');
   }
 
-  const ids = await getCredentialIds();
+  const index = await getIndex();
+  const item = index.find((credential) => credential.id === id);
 
-  if (!ids.includes(id)) {
+  if (!item) {
     throw new Error('Credential tidak ditemukan');
   }
 
-  await secureDelete(`${SECURE_VC_ITEM_PREFIX}${id}`);
-  await saveCredentialIds(ids.filter((itemId) => itemId !== id));
+  await deleteCredentialFile(item);
+  await saveIndex(index.filter((credential) => credential.id !== id));
 
   return true;
 }
 
-export async function deleteCredentialsByDocumentId(documentId: string): Promise<number> {
+export async function deleteCredentialsByDocumentId(
+  documentId: string
+): Promise<number> {
+  await migrateCredentialsFromAsyncStorageToEncryptedStorage();
+
   if (!documentId?.trim()) {
     throw new Error('ID dokumen credential tidak valid');
   }
 
-  const ids = await getCredentialIds();
-  const credentials = await getCredentials();
+  const index = await getIndex();
+  const targetItems = index.filter((item) => item.documentId === documentId);
 
-  const targetCredentials = credentials.filter(
-    (credential) => credential.documentId === documentId
-  );
-
-  if (targetCredentials.length === 0) {
+  if (targetItems.length === 0) {
     throw new Error('Dokumen credential tidak ditemukan');
   }
 
-  const targetIds = targetCredentials.map((credential) => credential.id);
-
-  for (const id of targetIds) {
-    await secureDelete(`${SECURE_VC_ITEM_PREFIX}${id}`);
+  for (const item of targetItems) {
+    await deleteCredentialFile(item);
   }
 
-  await saveCredentialIds(ids.filter((id) => !targetIds.includes(id)));
+  await saveIndex(index.filter((item) => item.documentId !== documentId));
 
-  return targetIds.length;
+  return targetItems.length;
 }
 
 export async function clearCredentials(): Promise<void> {
-  const ids = await getCredentialIds();
+  const index = await getIndex();
 
-  for (const id of ids) {
-    await secureDelete(`${SECURE_VC_ITEM_PREFIX}${id}`);
+  for (const item of index) {
+    await deleteCredentialFile(item);
   }
 
   await secureDelete(SECURE_VC_INDEX_KEY);
