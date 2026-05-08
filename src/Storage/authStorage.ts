@@ -6,13 +6,17 @@ const LEGACY_PIN_KEY = 'USER_PIN';
 const PIN_SALT_KEY = 'USER_PIN_SALT';
 const ONBOARDING_KEY = 'ONBOARDING_COMPLETED';
 const BIOMETRIC_KEY = 'BIOMETRIC_ENABLED';
+
 const SESSION_UNLOCKED_KEY = 'SESSION_UNLOCKED';
+const SESSION_UNLOCKED_AT_KEY = 'SESSION_UNLOCKED_AT';
 
 const PIN_FAILED_ATTEMPTS_KEY = 'PIN_FAILED_ATTEMPTS';
 const PIN_LOCK_UNTIL_KEY = 'PIN_LOCK_UNTIL';
 
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LOCK_DURATION_MS = 5 * 60 * 1000;
+
+const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 const secureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -24,6 +28,12 @@ export type PinLockStatus = {
   remainingAttempts: number;
   lockUntil: number | null;
   remainingLockTimeMs: number;
+};
+
+export type SessionStatus = {
+  isUnlocked: boolean;
+  unlockedAt: number | null;
+  remainingSessionTimeMs: number;
 };
 
 async function getOrCreatePinSalt() {
@@ -110,6 +120,31 @@ async function registerFailedPinAttempt() {
   if (nextAttempts >= MAX_PIN_ATTEMPTS) {
     await setLockUntil(Date.now() + PIN_LOCK_DURATION_MS);
   }
+}
+
+async function getSessionUnlockedAt(): Promise<number | null> {
+  const value = await SecureStore.getItemAsync(SESSION_UNLOCKED_AT_KEY);
+
+  if (!value) {
+    return null;
+  }
+
+  const unlockedAt = Number(value);
+
+  if (!Number.isFinite(unlockedAt)) {
+    await SecureStore.deleteItemAsync(SESSION_UNLOCKED_AT_KEY);
+    return null;
+  }
+
+  return unlockedAt;
+}
+
+async function setSessionUnlockedAt(value: number) {
+  await SecureStore.setItemAsync(
+    SESSION_UNLOCKED_AT_KEY,
+    String(value),
+    secureStoreOptions
+  );
 }
 
 export async function getPinLockStatus(): Promise<PinLockStatus> {
@@ -207,6 +242,7 @@ export async function deletePin() {
   await SecureStore.deleteItemAsync(LEGACY_PIN_KEY);
   await SecureStore.deleteItemAsync(PIN_SALT_KEY);
   await clearPinLockout();
+  await lockSession();
 }
 
 export async function setOnboardingCompleted(value: boolean) {
@@ -241,11 +277,76 @@ export async function setSessionUnlocked(value: boolean) {
     value ? 'true' : 'false',
     secureStoreOptions
   );
+
+  if (value) {
+    await setSessionUnlockedAt(Date.now());
+    return;
+  }
+
+  await SecureStore.deleteItemAsync(SESSION_UNLOCKED_AT_KEY);
+}
+
+export async function refreshSession() {
+  const sessionUnlocked = await isSessionUnlocked();
+
+  if (!sessionUnlocked) {
+    return;
+  }
+
+  await setSessionUnlockedAt(Date.now());
+}
+
+export async function getSessionStatus(): Promise<SessionStatus> {
+  const value = await SecureStore.getItemAsync(SESSION_UNLOCKED_KEY);
+
+  if (value !== 'true') {
+    return {
+      isUnlocked: false,
+      unlockedAt: null,
+      remainingSessionTimeMs: 0,
+    };
+  }
+
+  const unlockedAt = await getSessionUnlockedAt();
+
+  if (!unlockedAt) {
+    await lockSession();
+
+    return {
+      isUnlocked: false,
+      unlockedAt: null,
+      remainingSessionTimeMs: 0,
+    };
+  }
+
+  const remainingSessionTimeMs =
+    SESSION_TIMEOUT_MS - (Date.now() - unlockedAt);
+
+  if (remainingSessionTimeMs <= 0) {
+    await lockSession();
+
+    return {
+      isUnlocked: false,
+      unlockedAt: null,
+      remainingSessionTimeMs: 0,
+    };
+  }
+
+  return {
+    isUnlocked: true,
+    unlockedAt,
+    remainingSessionTimeMs,
+  };
+}
+
+export async function getSessionRemainingTime(): Promise<number> {
+  const sessionStatus = await getSessionStatus();
+  return sessionStatus.remainingSessionTimeMs;
 }
 
 export async function isSessionUnlocked(): Promise<boolean> {
-  const value = await SecureStore.getItemAsync(SESSION_UNLOCKED_KEY);
-  return value === 'true';
+  const sessionStatus = await getSessionStatus();
+  return sessionStatus.isUnlocked;
 }
 
 export async function lockSession() {
@@ -254,6 +355,8 @@ export async function lockSession() {
     'false',
     secureStoreOptions
   );
+
+  await SecureStore.deleteItemAsync(SESSION_UNLOCKED_AT_KEY);
 }
 
 export async function resetAuth() {
@@ -263,5 +366,6 @@ export async function resetAuth() {
   await SecureStore.deleteItemAsync(ONBOARDING_KEY);
   await SecureStore.deleteItemAsync(BIOMETRIC_KEY);
   await SecureStore.deleteItemAsync(SESSION_UNLOCKED_KEY);
+  await SecureStore.deleteItemAsync(SESSION_UNLOCKED_AT_KEY);
   await clearPinLockout();
 }

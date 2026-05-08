@@ -130,7 +130,7 @@ function AuthGate() {
 
       if (
         previousState === 'active' &&
-        nextAppState === 'background' &&
+        nextAppState.match(/inactive|background/) &&
         !isAuthRoute
       ) {
         await lockSession();
@@ -149,6 +149,9 @@ function AuthGate() {
 
   useEffect(() => {
     segmentsRef.current = segments;
+  }, [segments]);
+
+  useEffect(() => {
     checkAuth();
   }, [segments, checkAuth]);
 
