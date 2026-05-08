@@ -82,25 +82,6 @@ export default function HomeScreen() {
     });
   }
 
-  async function handleCopyPublicKey() {
-    if (!didData?.controllerKeyId) {
-      setToast({
-        visible: true,
-        message: 'Public key belum tersedia',
-        type: 'error',
-      });
-      return;
-    }
-
-    await Clipboard.setStringAsync(didData.controllerKeyId);
-
-    setToast({
-      visible: true,
-      message: 'Controller Key ID berhasil disalin',
-      type: 'success',
-    });
-  }
-
   function handleShowDIDQR() {
     if (!didData?.did) {
       setToast({
@@ -188,20 +169,20 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              <Text style={styles.didAddressLabel}>Controller Key ID</Text>
+              <Text style={styles.didAddressLabel}>DID Address</Text>
               <Text style={styles.didAddress}>
-                {didData?.controllerKeyId ??
-                  'Public key belum tersedia. Buat akun terlebih dahulu.'}
+                {didData?.did ??
+                  'DID belum tersedia. Buat akun terlebih dahulu.'}
               </Text>
 
               {didData ? (
                 <View style={styles.didActionRow}>
                   <AnimatedButton
                     style={styles.copyDidButton}
-                    onPress={handleCopyPublicKey}
+                    onPress={handleCopyDID}
                   >
-                    <Ionicons name="key-outline" size={16} color="#2563EB" />
-                    <Text style={styles.copyDidText}>Copy Key ID</Text>
+                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                    <Text style={styles.copyDidText}>Copy DID</Text>
                   </AnimatedButton>
 
                   <AnimatedButton
@@ -409,10 +390,6 @@ export default function HomeScreen() {
             </Text>
 
             <View style={styles.qrModalActionRow}>
-              <Pressable style={styles.qrCopyButton} onPress={handleCopyDID}>
-                <Ionicons name="copy-outline" size={16} color="#2563EB" />
-                <Text style={styles.qrCopyButtonText}>Copy DID Address</Text>
-              </Pressable>
 
               <Pressable
                 style={styles.qrCloseButton}
