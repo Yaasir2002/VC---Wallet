@@ -1,11 +1,18 @@
 import * as Crypto from 'expo-crypto';
 
-import { getAllVCs, saveVC } from '../Storage/vcStorage';
+import { getAllVCs } from '../Storage/vcStorage';
 import {
   AttributeType,
   DocumentType,
   ModularCredential,
 } from '../types/vc';
+import { CredentialSecurityStatus } from '../types/verification';
+import { importCredentialSecurely } from './credentialImportService';
+import {
+  assertJsonContentType,
+  readResponseTextWithLimit,
+  validateQrPayloadSize,
+} from './qrPayloadService';
 
 type RawCredential = Record<string, any>;
 
@@ -23,7 +30,7 @@ export type ParsedScannedCredential = {
       value: string;
     }>;
   };
-  verificationStatus: 'pending_verification' | 'invalid';
+  verificationStatus: CredentialSecurityStatus;
   source: 'qr_scan';
   importedAt: string;
 };
@@ -89,7 +96,7 @@ function assertSafeUrl(value: string) {
   const url = new URL(value);
 
   if (url.protocol !== 'https:') {
-    throw new Error('URL credential harus menggunakan HTTPS');
+    throw new Error('URL credential tidak aman. Gunakan HTTPS.');
   }
 
   if (
@@ -147,7 +154,9 @@ async function fetchJSONWithTimeout(url: string): Promise<any> {
       throw new Error(`Server mengembalikan status ${response.status}`);
     }
 
-    const text = await response.text();
+    assertJsonContentType(response);
+
+    const text = await readResponseTextWithLimit(response);
     const json = tryParseJSON(text);
 
     if (!json) {
@@ -180,7 +189,7 @@ function looksLikeVC(value: any): boolean {
       value.issuer &&
       type &&
       (hasVCType || typeof type === 'string') &&
-      (value.issuanceDate || value.validFrom)
+      (value.issuanceDate || value.validFrom || value.jwt || value.proof?.jwt)
   );
 }
 
@@ -310,9 +319,11 @@ async function normalizeCredential(
     rawCredential.issuanceDate || rawCredential.validFrom
   );
   const expirationDate =
-    rawCredential.expirationDate || rawCredential.validUntil;
-  const mainClaims = getMainClaims(rawCredential.credentialSubject);
+    rawCredential.expirationDate ||
+    rawCredential.validUntil ||
+    rawCredential.validTo;
 
+  const mainClaims = getMainClaims(rawCredential.credentialSubject);
   const firstClaim = mainClaims[0];
 
   const id = await createStableCredentialId(rawCredential);
@@ -332,6 +343,8 @@ async function normalizeCredential(
     issuer,
     issuanceDate,
     expirationDate,
+    validFrom: rawCredential.validFrom,
+    validUntil: rawCredential.validUntil,
     credentialSubject: {
       id: subject,
       attributeType: inferAttributeType(firstClaim?.label || 'custom'),
@@ -342,6 +355,7 @@ async function normalizeCredential(
     },
     proof: rawCredential.proof,
     jwt: rawCredential.jwt || rawCredential.proof?.jwt,
+    verificationStatus: 'pending_verification',
   };
 
   return {
@@ -410,6 +424,10 @@ async function resolveQRPayload(qrData: string): Promise<any> {
         return await fetchJSONWithTimeout(offer.credential_offer_uri);
       }
 
+      if (offer.verifiableCredential) {
+        return offer.verifiableCredential;
+      }
+
       return offer;
     }
   }
@@ -420,6 +438,8 @@ async function resolveQRPayload(qrData: string): Promise<any> {
 export async function parseCredentialFromQR(
   qrData: string
 ): Promise<ParsedScannedCredential> {
+  validateQrPayloadSize(qrData);
+
   const payload = await resolveQRPayload(qrData);
 
   if (payload?.verifiableCredential) {
@@ -462,12 +482,13 @@ export async function saveScannedCredential(
     throw new Error('Credential sudah tersimpan sebelumnya');
   }
 
-  return await saveVC({
+  const result = await importCredentialSecurely({
     ...parsedCredential.normalizedCredential,
     source: parsedCredential.source,
     importedAt: parsedCredential.importedAt,
-    verificationStatus: parsedCredential.verificationStatus,
     rawCredential: parsedCredential.rawCredential,
     parsedCredential: parsedCredential.preview,
   });
+
+  return result.credential;
 }

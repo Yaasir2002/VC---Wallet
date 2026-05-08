@@ -1,3 +1,5 @@
+import { CredentialSecurityStatus, VerificationResult } from './verification';
+
 export type AttributeType =
   | 'legalName'
   | 'birthDate'
@@ -38,6 +40,8 @@ export interface ModularCredential {
   issuer: string;
   issuanceDate: string;
   expirationDate?: string;
+  validFrom?: string;
+  validUntil?: string;
 
   credentialSubject: {
     id: string;
@@ -49,12 +53,18 @@ export interface ModularCredential {
   proof?: {
     type: string;
     jwt?: string;
+    jws?: string;
     created?: string;
     proofPurpose?: string;
     verificationMethod?: string;
   };
 
   jwt?: string;
+
+  verificationStatus?: CredentialSecurityStatus;
+  verificationResult?: VerificationResult;
+  importedAt?: string;
+  source?: string;
 }
 
 export interface CredentialDocument {
@@ -63,3 +73,5 @@ export interface CredentialDocument {
   documentName: string;
   credentials: ModularCredential[];
 }
+
+export type VerifiableCredential = Record<string, any>;

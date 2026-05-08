@@ -16,6 +16,9 @@ import { getAllVCs } from '../../src/Storage/vcStorage';
 import { getDID } from '../../src/Storage/didStorage';
 import { ModularCredential } from '../../src/types/vc';
 import { createSignedPresentationJWT } from '../../src/Services/presentationService';
+import { checkCredentialExpiration } from '../../src/Services/credentialValidityService';
+import { validatePresentationPayloadSize } from '../../src/Services/qrPayloadService';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -70,8 +73,8 @@ export default function PresentCredentialScreen() {
         setDocumentName('');
         setDocumentType('');
       }
-    } catch (error) {
-      console.log('LOAD VC ERROR:', error);
+    } catch {
+      safeLogger.error('Failed to load credentials for presentation');
 
       setToast({
         visible: true,
@@ -105,6 +108,42 @@ export default function PresentCredentialScreen() {
     setSelectedIds([]);
   }
 
+  function getCredentialStatusLabel(vc: ModularCredential): string {
+    const expiration = checkCredentialExpiration(vc);
+
+    if (expiration.isExpired) {
+      return 'Expired';
+    }
+
+    if (expiration.isNotYetValid) {
+      return 'Belum Berlaku';
+    }
+
+    if (vc.verificationStatus === 'verified') {
+      return 'Verified';
+    }
+
+    if (vc.verificationStatus === 'untrusted_issuer') {
+      return 'Untrusted Issuer';
+    }
+
+    if (vc.verificationStatus === 'invalid') {
+      return 'Invalid';
+    }
+
+    return 'Pending Verification';
+  }
+
+  function isCredentialPresentable(vc: ModularCredential): boolean {
+    const expiration = checkCredentialExpiration(vc);
+
+    if (expiration.isExpired || expiration.isNotYetValid) {
+      return false;
+    }
+
+    return vc.verificationStatus !== 'invalid';
+  }
+
   async function handleConfirmAndSign() {
     try {
       if (selectedIds.length === 0) {
@@ -133,11 +172,26 @@ export default function PresentCredentialScreen() {
         selectedIds.includes(vc.id)
       );
 
+      const blockedCredential = selectedCredentials.find(
+        (vc) => !isCredentialPresentable(vc)
+      );
+
+      if (blockedCredential) {
+        setToast({
+          visible: true,
+          message:
+            'Credential expired, belum berlaku, atau invalid tidak boleh dipresentasikan',
+          type: 'error',
+        });
+        return;
+      }
+
       const vp = await createSignedPresentationJWT({
         holderDid: didData.did,
         credentials: selectedCredentials,
       });
 
+      validatePresentationPayloadSize(vp.jwt);
       setPresentationJwt(vp.jwt);
 
       setToast({
@@ -146,11 +200,14 @@ export default function PresentCredentialScreen() {
         type: 'success',
       });
     } catch (error) {
-      console.log('CREATE VP JWT ERROR:', error);
+      safeLogger.error('Failed to create VP JWT');
 
       setToast({
         visible: true,
-        message: 'Gagal membuat presentation JWT',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Gagal membuat presentation JWT',
         type: 'error',
       });
     } finally {
@@ -257,6 +314,8 @@ export default function PresentCredentialScreen() {
           ) : (
             credentials.map((vc) => {
               const selected = selectedIds.includes(vc.id);
+              const presentable = isCredentialPresentable(vc);
+              const statusLabel = getCredentialStatusLabel(vc);
 
               return (
                 <Pressable
@@ -264,8 +323,21 @@ export default function PresentCredentialScreen() {
                   style={[
                     styles.credentialOption,
                     selected && styles.credentialOptionActive,
+                    !presentable && styles.credentialOptionDisabled,
                   ]}
-                  onPress={() => toggleCredential(vc.id)}
+                  onPress={() => {
+                    if (!presentable) {
+                      setToast({
+                        visible: true,
+                        message:
+                          'Credential ini tidak dapat dipresentasikan karena expired, belum berlaku, atau invalid',
+                        type: 'error',
+                      });
+                      return;
+                    }
+
+                    toggleCredential(vc.id);
+                  }}
                 >
                   <View
                     style={[
@@ -305,6 +377,16 @@ export default function PresentCredentialScreen() {
                     >
                       Type: {vc.credentialSubject.attributeType} • Issuer:{' '}
                       {shorten(vc.issuer)}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.statusText,
+                        selected && styles.statusTextActive,
+                        !presentable && styles.statusTextBlocked,
+                      ]}
+                    >
+                      Status: {statusLabel}
                     </Text>
                   </View>
 
@@ -579,6 +661,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
     borderColor: '#2563EB',
   },
+  credentialOptionDisabled: {
+    opacity: 0.55,
+  },
   checkCircle: {
     width: 28,
     height: 28,
@@ -617,6 +702,18 @@ const styles = StyleSheet.create({
   },
   optionMetaActive: {
     color: '#BFDBFE',
+  },
+  statusText: {
+    fontSize: 11,
+    color: '#C2410C',
+    marginTop: 5,
+    fontWeight: '900',
+  },
+  statusTextActive: {
+    color: '#FFEDD5',
+  },
+  statusTextBlocked: {
+    color: '#DC2626',
   },
   createVPButton: {
     backgroundColor: '#F97316',

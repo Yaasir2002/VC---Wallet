@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { VerifiableCredential } from '../../src/types/vc';
-import { saveVC } from '../../src/Storage/vcStorage';
+import { importCredentialSecurely } from '../../src/Services/credentialImportService';
 
 export default function ImportCredentialScreen() {
   const router = useRouter();
@@ -22,13 +22,36 @@ export default function ImportCredentialScreen() {
   function validateVC(data: any): data is VerifiableCredential {
     return (
       data &&
-      typeof data.id === 'string' &&
-      Array.isArray(data.type) &&
-      typeof data.issuer === 'string' &&
-      typeof data.issuanceDate === 'string' &&
+      typeof data === 'object' &&
       data.credentialSubject &&
-      typeof data.credentialSubject.id === 'string'
+      data.type &&
+      data.issuer &&
+      (data.issuanceDate || data.validFrom || data.jwt || data.proof?.jwt)
     );
+  }
+
+  function getStatusMessage(status?: string) {
+    if (status === 'verified') {
+      return 'Credential berhasil diverifikasi dan disimpan ke wallet.';
+    }
+
+    if (status === 'expired') {
+      return 'Credential sudah kedaluwarsa dan disimpan dengan status expired.';
+    }
+
+    if (status === 'untrusted_issuer') {
+      return 'Issuer credential belum termasuk daftar terpercaya.';
+    }
+
+    if (status === 'invalid') {
+      return 'Credential tidak valid dan tidak ditandai sebagai verified.';
+    }
+
+    if (status === 'unsupported_format') {
+      return 'Format credential belum didukung penuh untuk verifikasi.';
+    }
+
+    return 'Credential disimpan dengan status pending_verification karena belum lolos verifikasi cryptographic penuh.';
   }
 
   async function handleImportVC() {
@@ -45,21 +68,34 @@ export default function ImportCredentialScreen() {
       if (!validateVC(parsedData)) {
         Alert.alert(
           'Format Tidak Valid',
-          'Pastikan JSON memiliki id, type, issuer, issuanceDate, dan credentialSubject.id'
+          'Pastikan JSON memiliki type, issuer, credentialSubject, dan issuanceDate atau validFrom.'
         );
         return;
       }
 
-      await saveVC(parsedData);
+      const result = await importCredentialSecurely(parsedData);
+      const status = result.verification.status;
+      const reason = result.verification.reason;
 
-      Alert.alert('Berhasil', 'Credential berhasil diimport ke wallet', [
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]);
-    } catch {
-      Alert.alert('Error', 'Format JSON tidak valid');
+      Alert.alert(
+        'Credential Diproses',
+        `Status: ${status}\n\n${getStatusMessage(status)}${
+          reason ? `\n\nAlasan: ${reason}` : ''
+        }`,
+        [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        error instanceof Error
+          ? error.message
+          : 'Format JSON tidak valid atau credential gagal diproses'
+      );
     } finally {
       setLoading(false);
     }
@@ -71,6 +107,9 @@ export default function ImportCredentialScreen() {
       type: ['VerifiableCredential', 'IdentityCredential'],
       issuer: 'did:example:issuer-government',
       issuanceDate: new Date().toISOString(),
+      expirationDate: new Date(
+        Date.now() + 365 * 24 * 60 * 60 * 1000
+      ).toISOString(),
       credentialSubject: {
         id: 'did:example:user',
         name: 'Budi Santoso',
@@ -83,7 +122,7 @@ export default function ImportCredentialScreen() {
         created: new Date().toISOString(),
         proofPurpose: 'assertionMethod',
         verificationMethod: 'did:example:issuer-government#key-1',
-        jws: 'dummy-imported-signature',
+        jws: 'example-signature-not-for-production',
       },
     };
 
@@ -100,7 +139,8 @@ export default function ImportCredentialScreen() {
       <Text style={styles.title}>Import Credential</Text>
 
       <Text style={styles.subtitle}>
-        Paste Verifiable Credential dalam format JSON untuk disimpan ke wallet.
+        Paste Verifiable Credential dalam format JSON untuk diproses dan
+        disimpan ke wallet.
       </Text>
 
       <View style={styles.card}>
@@ -122,22 +162,31 @@ export default function ImportCredentialScreen() {
         </Pressable>
 
         <Pressable
-          style={styles.importButton}
+          style={[styles.importButton, loading && styles.importButtonDisabled]}
           onPress={handleImportVC}
           disabled={loading}
         >
           <Ionicons name="download-outline" size={20} color="#FFFFFF" />
           <Text style={styles.importButtonText}>
-            {loading ? 'Mengimport...' : 'Import Credential'}
+            {loading ? 'Memproses...' : 'Import Credential'}
           </Text>
         </Pressable>
       </View>
 
       <View style={styles.noteCard}>
-        <Text style={styles.noteTitle}>Format Minimal VC</Text>
+        <Text style={styles.noteTitle}>Catatan Keamanan</Text>
         <Text style={styles.noteText}>
-          JSON harus memiliki id, type, issuer, issuanceDate, dan
-          credentialSubject.id agar dapat disimpan.
+          Credential tidak otomatis dianggap verified. Sistem akan mengecek
+          struktur, masa berlaku, trusted issuer, dan verifikasi cryptographic
+          jika konfigurasi resolver sudah tersedia.
+        </Text>
+      </View>
+
+      <View style={styles.warningCard}>
+        <Ionicons name="alert-circle-outline" size={22} color="#C2410C" />
+        <Text style={styles.warningText}>
+          Contoh JSON hanya untuk pengujian UI. Signature contoh tidak boleh
+          dianggap sebagai bukti cryptographic yang valid.
         </Text>
       </View>
     </ScrollView>
@@ -221,6 +270,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  importButtonDisabled: {
+    opacity: 0.65,
+  },
   importButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
@@ -244,5 +296,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1E40AF',
     lineHeight: 21,
+  },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    marginTop: 14,
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#9A3412',
+    fontWeight: '700',
+    lineHeight: 19,
   },
 });

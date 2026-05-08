@@ -1,72 +1,153 @@
-import { VerifiableCredential } from '../types/vc';
+import { checkCredentialExpiration } from './credentialValidityService';
+import { getIssuerId, isTrustedIssuer } from './trustedIssuerService';
+import { VerificationResult } from '../types/verification';
 
-export interface VCVerificationResult {
-  isValid: boolean;
-  status: 'VERIFIED' | 'INVALID';
-  checks: {
-    structure: boolean;
-    issuer: boolean;
-    subject: boolean;
-    proof: boolean;
-  };
-  messages: string[];
+function hasValidStructure(vc: any): boolean {
+  return Boolean(
+    vc &&
+      typeof vc === 'object' &&
+      vc.credentialSubject &&
+      vc.issuer &&
+      vc.type &&
+      (vc.issuanceDate || vc.validFrom || vc.jwt || vc.proof?.jwt)
+  );
 }
 
-export function verifyVC(vc: VerifiableCredential): VCVerificationResult {
-  const messages: string[] = [];
+function hasJwtFormat(value: unknown): value is string {
+  return typeof value === 'string' && value.split('.').length === 3;
+}
 
-  const structure =
-    typeof vc.id === 'string' &&
-    Array.isArray(vc.type) &&
-    vc.type.includes('VerifiableCredential') &&
-    typeof vc.issuanceDate === 'string';
+export function extractVerificationMethod(vc: any): string | null {
+  if (typeof vc?.proof?.verificationMethod === 'string') {
+    return vc.proof.verificationMethod;
+  }
+
+  return null;
+}
+
+export async function resolveIssuerDid(issuer: string): Promise<any | null> {
+  // Placeholder aman:
+  // repository sudah memiliki dependency DID resolver/Veramo,
+  // tetapi belum terlihat konfigurasi resolver final pada file yang diaudit.
+  // Jangan mengembalikan DID Document palsu.
+  if (!issuer.startsWith('did:')) {
+    return null;
+  }
+
+  return null;
+}
+
+export async function verifyJsonLdProof(vc: any): Promise<VerificationResult> {
+  const structure = hasValidStructure(vc);
+  const expiration = checkCredentialExpiration(vc);
+  const issuerId = getIssuerId(vc);
+  const trustedIssuer = isTrustedIssuer(issuerId, vc?.type);
 
   if (!structure) {
-    messages.push('Struktur credential tidak valid.');
+    return {
+      isValid: false,
+      status: 'invalid',
+      reason: 'Struktur VC tidak valid',
+      checks: {
+        structure: false,
+        signature: false,
+        expiration: false,
+        trustedIssuer: false,
+      },
+    };
   }
 
-  const issuer = typeof vc.issuer === 'string' && vc.issuer.startsWith('did:');
-
-  if (!issuer) {
-    messages.push('Issuer tidak valid atau bukan DID.');
+  if (expiration.isExpired) {
+    return {
+      isValid: false,
+      status: 'expired',
+      reason: expiration.reason,
+      checks: {
+        structure: true,
+        signature: false,
+        expiration: false,
+        trustedIssuer: trustedIssuer.isTrusted,
+      },
+    };
   }
 
-  const subject =
-    vc.credentialSubject &&
-    typeof vc.credentialSubject.id === 'string' &&
-    vc.credentialSubject.id.startsWith('did:');
-
-  if (!subject) {
-    messages.push('Credential subject tidak valid.');
+  if (!trustedIssuer.isTrusted) {
+    return {
+      isValid: false,
+      status: 'untrusted_issuer',
+      reason: trustedIssuer.reason,
+      checks: {
+        structure: true,
+        signature: false,
+        expiration: true,
+        trustedIssuer: false,
+      },
+    };
   }
 
-  const proof =
-    !!vc.proof &&
-    typeof vc.proof.type === 'string' &&
-    typeof vc.proof.created === 'string' &&
-    typeof vc.proof.proofPurpose === 'string' &&
-    typeof vc.proof.verificationMethod === 'string' &&
-    typeof vc.proof.jws === 'string';
-
-  if (!proof) {
-    messages.push('Proof belum tersedia atau tidak lengkap.');
-  }
-
-  const isValid = structure && issuer && subject && proof;
-
-  if (isValid) {
-    messages.push('Credential lolos validasi dasar.');
+  if (!vc?.proof || (!vc.proof.jws && !vc.proof.jwt)) {
+    return {
+      isValid: false,
+      status: 'pending_verification',
+      reason: 'Proof/JWS/JWT tidak ditemukan',
+      checks: {
+        structure: true,
+        signature: false,
+        expiration: true,
+        trustedIssuer: true,
+      },
+    };
   }
 
   return {
-    isValid,
-    status: isValid ? 'VERIFIED' : 'INVALID',
+    isValid: false,
+    status: 'pending_verification',
+    reason:
+      'JSON-LD proof terdeteksi, tetapi verifikasi cryptographic belum dikonfigurasi dengan suite dan DID resolver final',
     checks: {
-      structure,
-      issuer,
-      subject,
-      proof,
+      structure: true,
+      signature: false,
+      expiration: true,
+      trustedIssuer: true,
     },
-    messages,
   };
+}
+
+export async function verifyJwtVc(jwt: string): Promise<VerificationResult> {
+  if (!hasJwtFormat(jwt)) {
+    return {
+      isValid: false,
+      status: 'invalid',
+      reason: 'Format JWT VC tidak valid',
+      checks: {
+        structure: false,
+        signature: false,
+        expiration: false,
+        trustedIssuer: false,
+      },
+    };
+  }
+
+  return {
+    isValid: false,
+    status: 'pending_verification',
+    reason:
+      'JWT VC terdeteksi, tetapi verifikasi signature belum diaktifkan. Tambahkan did-jwt-vc/jose dan DID resolver yang sesuai.',
+    checks: {
+      structure: true,
+      signature: false,
+      expiration: true,
+      trustedIssuer: false,
+    },
+  };
+}
+
+export async function verifyCredential(vc: any): Promise<VerificationResult> {
+  const jwt = typeof vc === 'string' ? vc : vc?.jwt || vc?.proof?.jwt;
+
+  if (jwt && hasJwtFormat(jwt)) {
+    return verifyJwtVc(jwt);
+  }
+
+  return verifyJsonLdProof(vc);
 }
