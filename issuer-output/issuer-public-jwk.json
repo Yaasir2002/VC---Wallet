@@ -1,0 +1,9 @@
+{
+  "kty": "EC",
+  "x": "5563Deo4H5u905YC1h5-pPVE-IoPWOOrnpO4v_-mEk0",
+  "y": "kqtqM3CS_tnF0CqB4klJWXZcUsY62A4U4AQ7KZZYIq8",
+  "crv": "P-256",
+  "alg": "ES256",
+  "use": "sig",
+  "kid": "did:web:vc-issuer.yaasir.dev#key-1"
+}

@@ -6,29 +6,17 @@ export type TrustedIssuer = {
 };
 
 export const TRUSTED_ISSUERS: TrustedIssuer[] = [
-  /**
-   * GANTI dengan issuer DID resmi project Anda.
-   *
-   * Contoh production:
-   * {
-   *   id: 'did:web:issuer.example.edu',
-   *   name: 'Example University',
-   *   allowedCredentialTypes: [
-   *     'VerifiableCredential',
-   *     'StudentCredential',
-   *     'KtmCredential',
-   *   ],
-   *   status: 'active',
-   * }
-   */
   {
-    id: 'did:web:example.edu',
-    name: 'Example University',
+    id: 'did:web:vc-issuer.yaasir.dev',
+    name: 'VC Issuer Yaasir',
     allowedCredentialTypes: [
       'VerifiableCredential',
+      'IdentityCredential',
       'StudentCredential',
+      'KtpCredential',
       'KtmCredential',
+      'CustomCredential',
     ],
-    status: 'inactive',
+    status: 'active',
   },
 ];

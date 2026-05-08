@@ -75,12 +75,125 @@ function tryDecodeBase64(value: string): string | null {
     }
 
     const base64 = normalized.replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = atob(base64);
+    const padded = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      '='
+    );
+
+    const decoded = atob(padded);
 
     return decoded || null;
   } catch {
     return null;
   }
+}
+
+function isJwtCredentialString(value: string): boolean {
+  const parts = value.trim().split('.');
+
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  return parts.every((part) => part.length > 0);
+}
+
+function decodeJwtPayload(jwt: string): any | null {
+  try {
+    const payload = jwt.split('.')[1];
+
+    if (!payload) {
+      return null;
+    }
+
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      '='
+    );
+
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtHeader(jwt: string): any | null {
+  try {
+    const header = jwt.split('.')[0];
+
+    if (!header) {
+      return null;
+    }
+
+    const base64 = header.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      '='
+    );
+
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeJwtCredentialPayload(jwt: string): RawCredential {
+  const header = decodeJwtHeader(jwt);
+  const payload = decodeJwtPayload(jwt);
+
+  if (!payload) {
+    throw new Error('JWT credential tidak dapat dibaca');
+  }
+
+  const vc = payload.vc;
+
+  if (!vc || typeof vc !== 'object' || Array.isArray(vc)) {
+    throw new Error('JWT tidak berisi Verifiable Credential');
+  }
+
+  const issuer = vc.issuer || payload.iss;
+  const issuanceDate =
+    vc.issuanceDate ||
+    (typeof payload.iat === 'number'
+      ? new Date(payload.iat * 1000).toISOString()
+      : undefined);
+
+  const expirationDate =
+    vc.expirationDate ||
+    (typeof payload.exp === 'number'
+      ? new Date(payload.exp * 1000).toISOString()
+      : undefined);
+
+  const validFrom =
+    vc.validFrom ||
+    (typeof payload.nbf === 'number'
+      ? new Date(payload.nbf * 1000).toISOString()
+      : undefined);
+
+  const verificationMethod =
+    typeof header?.kid === 'string'
+      ? header.kid
+      : issuer
+        ? `${issuer}#key-1`
+        : '-';
+
+  return {
+    ...vc,
+    id: vc.id || payload.jti || `jwt-vc-${Date.now()}`,
+    issuer,
+    issuanceDate,
+    expirationDate,
+    validFrom,
+    jwt,
+    proof: {
+      type: 'JwtProof2020',
+      jwt,
+      created: issuanceDate || new Date().toISOString(),
+      proofPurpose: 'assertionMethod',
+      verificationMethod,
+    },
+  };
 }
 
 function isHttpUrl(value: string): boolean {
@@ -208,9 +321,19 @@ function looksLikeVC(value: any): boolean {
     !Array.isArray(value.credentialSubject);
 
   const hasDate = Boolean(value.issuanceDate || value.validFrom);
-  const hasProofOrJwt = Boolean(value.jwt || value.proof?.jwt || value.proof?.jws || value.proof);
+  const hasProofOrJwt = Boolean(
+    value.jwt ||
+      value.proof?.jwt ||
+      value.proof?.jws ||
+      value.proof
+  );
 
-  return Boolean(hasVCType && hasIssuer && hasSubject && (hasDate || hasProofOrJwt));
+  return Boolean(
+    hasVCType &&
+      hasIssuer &&
+      hasSubject &&
+      (hasDate || hasProofOrJwt)
+  );
 }
 
 function getIssuerId(issuer: any): string {
@@ -402,7 +525,9 @@ async function normalizeCredential(
       issuer,
       subject,
       issuanceDate,
-      expirationDate: expirationDate ? sanitizeText(expirationDate) : undefined,
+      expirationDate: expirationDate
+        ? sanitizeText(expirationDate)
+        : undefined,
       mainClaims,
     },
     verificationStatus: 'pending_verification',
@@ -418,6 +543,10 @@ async function resolveQRPayload(qrData: string): Promise<any> {
     throw new Error('QR kosong');
   }
 
+  if (isJwtCredentialString(trimmed)) {
+    return normalizeJwtCredentialPayload(trimmed);
+  }
+
   const directJSON = tryParseJSON(trimmed);
 
   if (directJSON) {
@@ -427,6 +556,10 @@ async function resolveQRPayload(qrData: string): Promise<any> {
   const decodedBase64 = tryDecodeBase64(trimmed);
 
   if (decodedBase64) {
+    if (isJwtCredentialString(decodedBase64)) {
+      return normalizeJwtCredentialPayload(decodedBase64);
+    }
+
     const decodedJSON = tryParseJSON(decodedBase64);
 
     if (decodedJSON) {
@@ -445,11 +578,27 @@ async function resolveQRPayload(qrData: string): Promise<any> {
       throw new Error('Credential offer tidak valid');
     }
 
+    if (typeof offer === 'string' && isJwtCredentialString(offer)) {
+      return normalizeJwtCredentialPayload(offer);
+    }
+
     if (typeof offer === 'string' && isHttpUrl(offer)) {
       return await fetchJSONWithTimeout(offer);
     }
 
     if (typeof offer === 'object') {
+      if (offer.jwt && isJwtCredentialString(offer.jwt)) {
+        return normalizeJwtCredentialPayload(offer.jwt);
+      }
+
+      if (offer.rawJwt && isJwtCredentialString(offer.rawJwt)) {
+        return normalizeJwtCredentialPayload(offer.rawJwt);
+      }
+
+      if (offer.vcJwt && isJwtCredentialString(offer.vcJwt)) {
+        return normalizeJwtCredentialPayload(offer.vcJwt);
+      }
+
       if (offer.credential) {
         return offer.credential;
       }

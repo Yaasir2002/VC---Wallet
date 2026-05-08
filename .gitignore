@@ -55,3 +55,5 @@ yarn-error.log
 android
 ios
 .vscode
+
+issuer-output/issuer-private-jwk.json

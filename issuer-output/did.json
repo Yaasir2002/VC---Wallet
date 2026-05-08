@@ -1,0 +1,29 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/jwk/v1"
+  ],
+  "id": "did:web:vc-issuer.yaasir.dev",
+  "verificationMethod": [
+    {
+      "id": "did:web:vc-issuer.yaasir.dev#key-1",
+      "type": "JsonWebKey2020",
+      "controller": "did:web:vc-issuer.yaasir.dev",
+      "publicKeyJwk": {
+        "kty": "EC",
+        "x": "...",
+        "y": "...",
+        "crv": "P-256",
+        "alg": "ES256",
+        "use": "sig",
+        "kid": "did:web:vc-issuer.yaasir.dev#key-1"
+      }
+    }
+  ],
+  "assertionMethod": [
+    "did:web:vc-issuer.yaasir.dev#key-1"
+  ],
+  "authentication": [
+    "did:web:vc-issuer.yaasir.dev#key-1"
+  ]
+}
