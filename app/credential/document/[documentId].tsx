@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,18 +6,35 @@ import {
   ScrollView,
   Pressable,
   Alert,
+  Switch,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import QRCode from 'react-native-qrcode-svg';
 
 import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
 import { getCredentialDocumentById } from '../../../src/Services/documentCredentialService';
+import {
+  SelectedAttributeMap,
+  buildCredentialPresentationPayload,
+  createDefaultSelectedAttributes,
+  extractPresentationAttributes,
+  stringifyPresentationPayload,
+} from '../../../src/Services/credentialPresentationService';
 
 export default function CredentialDocumentDetailScreen() {
   const { documentId } = useLocalSearchParams<{ documentId: string }>();
   const router = useRouter();
 
   const [document, setDocument] = useState<CredentialDocument | null>(null);
+  const [selectedAttributes, setSelectedAttributes] =
+    useState<SelectedAttributeMap>({});
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrPayload, setQrPayload] = useState('');
+  const [selectedAttributeNames, setSelectedAttributeNames] = useState<string[]>(
+    []
+  );
 
   useEffect(() => {
     loadDocument();
@@ -25,7 +42,11 @@ export default function CredentialDocumentDetailScreen() {
 
   async function loadDocument() {
     try {
-      if (!documentId) return;
+      if (!documentId) {
+        Alert.alert('Error', 'ID dokumen credential tidak valid');
+        router.back();
+        return;
+      }
 
       const data = await getCredentialDocumentById(documentId);
 
@@ -35,10 +56,55 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
+      const attributes = extractPresentationAttributes(data);
+
+      if (attributes.length === 0) {
+        Alert.alert('Atribut kosong', 'Credential ini tidak memiliki atribut.');
+      }
+
       setDocument(data);
-    } catch (error) {
-      console.log('LOAD DOCUMENT DETAIL ERROR:', error);
+      setSelectedAttributes(createDefaultSelectedAttributes(attributes));
+    } catch {
       Alert.alert('Error', 'Gagal mengambil detail dokumen credential');
+    }
+  }
+
+  const presentationAttributes = useMemo(() => {
+    if (!document) return [];
+    return extractPresentationAttributes(document);
+  }, [document]);
+
+  function handleToggleAttribute(attributeId: string) {
+    setSelectedAttributes((current) => ({
+      ...current,
+      [attributeId]: !current[attributeId],
+    }));
+  }
+
+  function handleGenerateQR() {
+    if (!document) {
+      Alert.alert('Error', 'Credential tidak ditemukan');
+      return;
+    }
+
+    try {
+      const payload = buildCredentialPresentationPayload(
+        document,
+        selectedAttributes
+      );
+
+      const payloadString = stringifyPresentationPayload(payload);
+
+      setQrPayload(payloadString);
+      setSelectedAttributeNames(payload.presentationMetadata.selectedAttributes);
+      setShowQRModal(true);
+    } catch (error) {
+      Alert.alert(
+        'Tidak Bisa Membuat QR',
+        error instanceof Error
+          ? error.message
+          : 'Gagal membuat QR presentation'
+      );
     }
   }
 
@@ -54,78 +120,182 @@ export default function CredentialDocumentDetailScreen() {
   const mainCredential = getMainCredential(document);
   const status = getMainCredentialStatus(document);
   const isValid = status.status === 'VALID';
+  const selectedCount = presentationAttributes.filter(
+    (attribute) => selectedAttributes[attribute.id]
+  ).length;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <Ionicons name="arrow-back-outline" size={20} color="#111827" />
-        <Text style={styles.backText}>Kembali</Text>
-      </Pressable>
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Ionicons name="arrow-back-outline" size={20} color="#111827" />
+          <Text style={styles.backText}>Kembali</Text>
+        </Pressable>
 
-      <View style={styles.titleSection}>
-        <View style={styles.documentIcon}>
-          <Ionicons
-            name={getDocumentIcon(document.documentType)}
-            size={38}
-            color="#2563EB"
-          />
-        </View>
+        <View style={styles.titleSection}>
+          <View style={styles.documentIcon}>
+            <Ionicons
+              name={getDocumentIcon(document.documentType)}
+              size={38}
+              color="#2563EB"
+            />
+          </View>
 
-        <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
+          <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
 
-        <Text style={styles.documentSubtitle}>Credential Parent</Text>
+          <Text style={styles.documentSubtitle}>Credential Parent</Text>
 
-        <View
-          style={[
-            styles.statusBadge,
-            isValid ? styles.statusValid : styles.statusExpired,
-          ]}
-        >
-          <Text
+          <View
             style={[
-              styles.statusText,
-              isValid ? styles.statusTextValid : styles.statusTextExpired,
+              styles.statusBadge,
+              isValid ? styles.statusValid : styles.statusExpired,
             ]}
           >
-            {status.label}
+            <Text
+              style={[
+                styles.statusText,
+                isValid ? styles.statusTextValid : styles.statusTextExpired,
+              ]}
+            >
+              {status.label}
+            </Text>
+          </View>
+
+          <Text style={styles.issuerText} numberOfLines={2}>
+            Issuer: {mainCredential?.issuer ?? 'Unknown Issuer'}
           </Text>
         </View>
 
-        <Text style={styles.issuerText} numberOfLines={2}>
-          Issuer: {mainCredential?.issuer ?? 'Unknown Issuer'}
-        </Text>
-      </View>
+        <View style={styles.presentationCard}>
+          <View style={styles.presentationHeader}>
+            <View style={styles.presentationIcon}>
+              <Ionicons name="qr-code-outline" size={24} color="#2563EB" />
+            </View>
 
-      <View style={styles.tableCard}>
-        <Text style={styles.tableTitle}>Daftar Atribut</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.presentationTitle}>Presentasi QR</Text>
+              <Text style={styles.presentationSubtitle}>
+                {selectedCount} dari {presentationAttributes.length} atribut
+                akan dibagikan.
+              </Text>
+            </View>
+          </View>
 
-        <View style={styles.tableHeader}>
-          <Text style={[styles.tableHeaderText, styles.attributeColumn]}>
-            Atribut
+          <Text style={styles.presentationNote}>
+            Ini adalah UI-level attribute selection. Atribut yang dimatikan tidak
+            dimasukkan ke payload QR, tetapi ini belum cryptographic selective
+            disclosure.
           </Text>
-          <Text style={[styles.tableHeaderText, styles.valueColumn]}>
-            Nilai
-          </Text>
+
+          <Pressable
+            style={styles.generateQRButton}
+            onPress={handleGenerateQR}
+          >
+            <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.generateQRButtonText}>Tampilkan QR</Text>
+          </Pressable>
         </View>
 
-        {document.credentials.map((credential) => (
-          <AttributeRow key={credential.id} credential={credential} />
-        ))}
-      </View>
-    </ScrollView>
+        <View style={styles.tableCard}>
+          <View style={styles.tableTitleRow}>
+            <View>
+              <Text style={styles.tableTitle}>Daftar Atribut</Text>
+              <Text style={styles.tableSubtitle}>
+                Aktifkan atribut yang ingin dibagikan.
+              </Text>
+            </View>
+          </View>
+
+          {presentationAttributes.map((attribute) => (
+            <AttributeToggleRow
+              key={attribute.id}
+              attributeName={attribute.attributeName}
+              attributeValue={attribute.attributeValue}
+              enabled={!!selectedAttributes[attribute.id]}
+              onToggle={() => handleToggleAttribute(attribute.id)}
+            />
+          ))}
+        </View>
+      </ScrollView>
+
+      <Modal visible={showQRModal} transparent animationType="fade">
+        <View style={styles.qrModalOverlay}>
+          <View style={styles.qrModalBox}>
+            <View style={styles.qrModalIcon}>
+              <Ionicons name="qr-code-outline" size={34} color="#2563EB" />
+            </View>
+
+            <Text style={styles.qrModalTitle}>Credential Presentation</Text>
+
+            <Text style={styles.qrModalSubtitle}>
+              QR ini hanya berisi atribut yang kamu aktifkan.
+            </Text>
+
+            <View style={styles.qrContainer}>
+              {qrPayload ? <QRCode value={qrPayload} size={220} /> : null}
+            </View>
+
+            <View style={styles.sharedAttributeBox}>
+              <Text style={styles.sharedAttributeTitle}>
+                Atribut yang dibagikan
+              </Text>
+
+              {selectedAttributeNames.map((name) => (
+                <View key={name} style={styles.sharedAttributeChip}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={16}
+                    color="#166534"
+                  />
+                  <Text style={styles.sharedAttributeText}>{name}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.qrWarningBox}>
+              <Ionicons name="warning-outline" size={18} color="#C2410C" />
+              <Text style={styles.qrWarningText}>
+                Presentation ini belum ditandatangani secara cryptographic.
+              </Text>
+            </View>
+
+            <Pressable
+              style={styles.qrCloseButton}
+              onPress={() => setShowQRModal(false)}
+            >
+              <Text style={styles.qrCloseButtonText}>Tutup</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
-function AttributeRow({ credential }: { credential: ModularCredential }) {
+function AttributeToggleRow({
+  attributeName,
+  attributeValue,
+  enabled,
+  onToggle,
+}: {
+  attributeName: string;
+  attributeValue: string;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <View style={styles.tableRow}>
-      <Text style={[styles.attributeName, styles.attributeColumn]}>
-        {credential.credentialSubject.attributeName}
-      </Text>
+    <View style={styles.attributeToggleRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.attributeName}>{attributeName}</Text>
+        <Text style={styles.attributeValue}>{attributeValue || '-'}</Text>
+      </View>
 
-      <Text style={[styles.attributeValue, styles.valueColumn]}>
-        {credential.credentialSubject.attributeValue || '-'}
-      </Text>
+      <Switch
+        value={enabled}
+        onValueChange={onToggle}
+        trackColor={{ false: '#E5E7EB', true: '#BFDBFE' }}
+        thumbColor={enabled ? '#2563EB' : '#F9FAFB'}
+      />
     </View>
   );
 }
@@ -284,6 +454,65 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
   },
+  presentationCard: {
+    backgroundColor: '#FFFFFF',
+    marginTop: 18,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  presentationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  presentationIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presentationTitle: {
+    color: '#111827',
+    fontWeight: '900',
+    fontSize: 18,
+  },
+  presentationSubtitle: {
+    color: '#64748B',
+    fontWeight: '700',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  presentationNote: {
+    color: '#1E40AF',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 14,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  generateQRButton: {
+    backgroundColor: '#2563EB',
+    borderRadius: 16,
+    paddingVertical: 14,
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  generateQRButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   tableCard: {
     backgroundColor: '#FFFFFF',
     marginTop: 18,
@@ -292,46 +521,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  tableTitleRow: {
+    marginBottom: 14,
+  },
   tableTitle: {
     fontSize: 18,
     fontWeight: '900',
     color: '#111827',
-    marginBottom: 14,
   },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#EFF6FF',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-  },
-  tableHeaderText: {
+  tableSubtitle: {
+    color: '#64748B',
+    fontWeight: '700',
     fontSize: 13,
-    fontWeight: '900',
-    color: '#2563EB',
+    marginTop: 4,
   },
-  tableRow: {
-    flexDirection: 'row',
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
+  attributeToggleRow: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
     borderColor: '#E5E7EB',
-    paddingVertical: 13,
-    paddingHorizontal: 12,
-    backgroundColor: '#FFFFFF',
-  },
-  attributeColumn: {
-    flex: 0.45,
-    paddingRight: 10,
-  },
-  valueColumn: {
-    flex: 0.55,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   attributeName: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#111827',
     fontWeight: '900',
   },
@@ -340,5 +556,109 @@ const styles = StyleSheet.create({
     color: '#374151',
     fontWeight: '600',
     lineHeight: 18,
+    marginTop: 4,
+  },
+  qrModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  qrModalBox: {
+    width: '100%',
+    maxHeight: '92%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    padding: 22,
+    alignItems: 'center',
+  },
+  qrModalIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  qrModalTitle: {
+    fontSize: 22,
+    color: '#111827',
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  qrModalSubtitle: {
+    color: '#6B7280',
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  qrContainer: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 20,
+    padding: 14,
+  },
+  sharedAttributeBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 16,
+    maxHeight: 150,
+  },
+  sharedAttributeTitle: {
+    color: '#111827',
+    fontWeight: '900',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  sharedAttributeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  sharedAttributeText: {
+    flex: 1,
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  qrWarningBox: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 16,
+    padding: 12,
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  qrWarningText: {
+    flex: 1,
+    color: '#C2410C',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  qrCloseButton: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    marginTop: 16,
+    width: '100%',
+    alignItems: 'center',
+  },
+  qrCloseButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 14,
   },
 });
