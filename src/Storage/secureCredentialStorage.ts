@@ -27,7 +27,7 @@ type CredentialIndexItem = {
   fileName: string;
 };
 
-async function ensureDirectoryExists() {
+async function ensureDirectoryExists(): Promise<void> {
   const info = await FileSystem.getInfoAsync(VC_DIRECTORY);
 
   if (!info.exists) {
@@ -52,7 +52,9 @@ async function secureDelete(key: string): Promise<void> {
 }
 
 function safeParseJSON<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback;
+  if (!value) {
+    return fallback;
+  }
 
   try {
     return JSON.parse(value) as T;
@@ -84,6 +86,68 @@ function getCredentialFileUri(fileName: string): string {
   return `${VC_DIRECTORY}${fileName}`;
 }
 
+function createFallbackCredentialFromJwt(jwt: string): ModularCredential {
+  const now = new Date().toISOString();
+
+  return {
+    id: `vc-${Date.now()}`,
+    documentId: `LEGACY-${Date.now()}`,
+    documentType: 'CUSTOM',
+    documentName: 'Imported Credential',
+    type: ['VerifiableCredential'],
+    issuer: '-',
+    issuanceDate: now,
+    credentialSubject: {
+      id: '-',
+      attributeType: 'custom',
+      attributeName: 'Imported JWT',
+      attributeValue: '[JWT Credential]',
+    },
+    proof: {
+      type: 'JwtProof2020',
+      jwt,
+      created: now,
+      proofPurpose: 'assertionMethod',
+      verificationMethod: '-',
+    },
+    jwt,
+    verificationStatus: 'pending_verification',
+  };
+}
+
+function normalizeCredentialSubject(vc: any): ModularCredential['credentialSubject'] {
+  return {
+    id: vc?.credentialSubject?.id || '-',
+    attributeType: vc?.credentialSubject?.attributeType || 'custom',
+    attributeName: vc?.credentialSubject?.attributeName || 'Credential',
+    attributeValue: vc?.credentialSubject?.attributeValue || '',
+  };
+}
+
+function normalizeIssuer(issuer: any): string {
+  if (typeof issuer === 'string' && issuer.trim()) {
+    return issuer;
+  }
+
+  if (issuer && typeof issuer === 'object' && typeof issuer.id === 'string') {
+    return issuer.id;
+  }
+
+  return '-';
+}
+
+function normalizeType(type: any): ModularCredential['type'] {
+  if (Array.isArray(type)) {
+    return type.filter((item) => typeof item === 'string' && item.trim());
+  }
+
+  if (typeof type === 'string' && type.trim()) {
+    return [type];
+  }
+
+  return ['VerifiableCredential'];
+}
+
 function normalizeVC(vc: any): ModularCredential {
   const jwt =
     typeof vc === 'string'
@@ -91,60 +155,29 @@ function normalizeVC(vc: any): ModularCredential {
       : vc?.proof?.jwt || vc?.jwt || vc?.verifiableCredential || '';
 
   if (typeof vc === 'string') {
-    return {
-      id: `vc-${Date.now()}`,
-      documentId: `LEGACY-${Date.now()}`,
-      documentType: 'CUSTOM',
-      documentName: 'Imported Credential',
-      type: ['VerifiableCredential'],
-      issuer: '-',
-      issuanceDate: new Date().toISOString(),
-      credentialSubject: {
-        id: '-',
-        attributeType: 'custom',
-        attributeName: 'Imported JWT',
-        attributeValue: '[JWT Credential]',
-      },
-      proof: {
-        type: 'JwtProof2020',
-        jwt,
-        created: new Date().toISOString(),
-        proofPurpose: 'assertionMethod',
-        verificationMethod: '-',
-      },
-      jwt,
-      verificationStatus: 'pending_verification',
-    };
+    return createFallbackCredentialFromJwt(jwt);
   }
 
-  return {
-    verificationStatus: vc?.verificationStatus || 'pending_verification',
-    verificationResult: vc?.verificationResult,
-    verification: vc?.verification,
-    verifiedAt: vc?.verifiedAt ?? null,
-    importedAt: vc?.importedAt,
-    source: vc?.source,
+  const id = vc?.id || `vc-${Date.now()}`;
+  const documentId = vc?.documentId || `LEGACY-${vc?.id || Date.now()}`;
+  const documentType = vc?.documentType || 'CUSTOM';
+  const documentName = vc?.documentName || vc?.name || 'Credential Document';
+  const issuanceDate =
+    vc?.issuanceDate || vc?.validFrom || new Date().toISOString();
 
-    id: vc?.id || `vc-${Date.now()}`,
-    documentId: vc?.documentId || `LEGACY-${vc?.id || Date.now()}`,
-    documentType: vc?.documentType || 'CUSTOM',
-    documentName: vc?.documentName || 'Credential Document',
-    type: Array.isArray(vc?.type) ? vc.type : ['VerifiableCredential'],
-    issuer:
-      typeof vc?.issuer === 'string'
-        ? vc.issuer
-        : vc?.issuer?.id || '-',
-    issuanceDate: vc?.issuanceDate || vc?.validFrom || new Date().toISOString(),
+  return {
+    id,
+    documentId,
+    documentType,
+    documentName,
+    type: normalizeType(vc?.type),
+    issuer: normalizeIssuer(vc?.issuer),
+    issuanceDate,
     expirationDate: vc?.expirationDate || vc?.validUntil || vc?.validTo,
     validFrom: vc?.validFrom,
     validUntil: vc?.validUntil,
-    credentialSubject: {
-      id: vc?.credentialSubject?.id || '-',
-      attributeType: vc?.credentialSubject?.attributeType || 'custom',
-      attributeName: vc?.credentialSubject?.attributeName || 'Credential',
-      attributeValue: vc?.credentialSubject?.attributeValue || '',
-    },
-        proof: vc?.proof,
+    credentialSubject: normalizeCredentialSubject(vc),
+    proof: vc?.proof,
     jwt,
     verificationStatus: vc?.verificationStatus || 'pending_verification',
     verificationResult: vc?.verificationResult,
@@ -179,10 +212,13 @@ async function getIndex(): Promise<CredentialIndexItem[]> {
 
   return parsed.filter(
     (item): item is CredentialIndexItem =>
-      item &&
-      typeof item === 'object' &&
-      typeof (item as any).id === 'string' &&
-      typeof (item as any).fileName === 'string'
+      Boolean(
+        item &&
+          typeof item === 'object' &&
+          typeof (item as any).id === 'string' &&
+          typeof (item as any).documentId === 'string' &&
+          typeof (item as any).fileName === 'string'
+      )
   );
 }
 
@@ -222,16 +258,25 @@ async function readCredentialFile(
       encoding: FileSystem.EncodingType.UTF8,
     });
 
-    return JSON.parse(raw) as ModularCredential;
+    const parsed = safeParseJSON<unknown>(raw, null);
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return normalizeVC(parsed);
   } catch {
     safeLogger.warn('Failed to read credential file', {
       credentialId: indexItem.id,
     });
+
     return null;
   }
 }
 
-async function deleteCredentialFile(indexItem: CredentialIndexItem): Promise<void> {
+async function deleteCredentialFile(
+  indexItem: CredentialIndexItem
+): Promise<void> {
   const fileUri = getCredentialFileUri(indexItem.fileName);
   const info = await FileSystem.getInfoAsync(fileUri);
 
@@ -242,7 +287,9 @@ async function deleteCredentialFile(indexItem: CredentialIndexItem): Promise<voi
   }
 }
 
-async function migrateLegacyAsyncStorageCredentials(): Promise<CredentialIndexItem[]> {
+async function migrateLegacyAsyncStorageCredentials(): Promise<
+  CredentialIndexItem[]
+> {
   const legacyIndexRaw = await AsyncStorage.getItem(LEGACY_VC_INDEX_KEY);
   const legacyIds = safeParseArray(legacyIndexRaw);
   const migratedIndexItems: CredentialIndexItem[] = [];
@@ -280,7 +327,9 @@ async function migrateLegacyAsyncStorageCredentials(): Promise<CredentialIndexIt
   return migratedIndexItems;
 }
 
-async function migrateLegacySecureStoreCredentials(): Promise<CredentialIndexItem[]> {
+async function migrateLegacySecureStoreCredentials(): Promise<
+  CredentialIndexItem[]
+> {
   const legacySecureIndexRaw = await secureGet(LEGACY_SECURE_VC_INDEX_KEY);
   const legacyIds = safeParseArray(legacySecureIndexRaw);
   const migratedIndexItems: CredentialIndexItem[] = [];
@@ -353,7 +402,7 @@ export async function getCredentials(): Promise<ModularCredential[]> {
     }
 
     credentials.push(credential);
-    validIndexItems.push(item);
+    validIndexItems.push(toIndexItem(credential));
   }
 
   if (validIndexItems.length !== index.length) {
