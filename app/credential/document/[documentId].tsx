@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 
-import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
+import { CredentialDocument } from '../../../src/types/vc';
 import { getCredentialDocumentById } from '../../../src/Services/documentCredentialService';
 import {
   SelectedAttributeMap,

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
 
-type Props = {
+type AppToastProps = {
   visible: boolean;
   message: string;
   type?: 'success' | 'error' | 'info';
@@ -13,45 +13,53 @@ export default function AppToast({
   message,
   type = 'info',
   onHide,
-}: Props) {
+}: AppToastProps) {
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-20)).current;
+  const translateY = useRef(new Animated.Value(-16)).current;
 
   useEffect(() => {
-    if (visible) {
+    if (!visible) {
+      return;
+    }
+
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const timer = setTimeout(() => {
       Animated.parallel([
         Animated.timing(opacity, {
-          toValue: 1,
-          duration: 250,
+          toValue: 0,
+          duration: 180,
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
-          toValue: 0,
-          duration: 250,
+          toValue: -16,
+          duration: 180,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => {
+        onHide();
+      });
+    }, 2400);
 
-      const timer = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 0,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: -20,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-        ]).start(() => onHide());
-      }, 1800);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [visible, opacity, translateY, onHide]);
 
-      return () => clearTimeout(timer);
-    }
-  }, [visible]);
-
-  if (!visible) return null;
+  if (!visible) {
+    return null;
+  }
 
   return (
     <Animated.View
@@ -72,13 +80,13 @@ export default function AppToast({
 const styles = StyleSheet.create({
   toast: {
     position: 'absolute',
-    top: 55,
+    top: 52,
     left: 20,
     right: 20,
     zIndex: 999,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
   success: {
     backgroundColor: '#16A34A',

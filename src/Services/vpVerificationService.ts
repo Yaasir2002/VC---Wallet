@@ -1,4 +1,3 @@
-import { VerifiablePresentation } from '../types/vp';
 import {
   verifyVC,
   VCVerificationResult,

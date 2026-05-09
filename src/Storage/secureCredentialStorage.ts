@@ -4,6 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ModularCredential } from '../types/vc';
 import { safeLogger } from '../utils/safeLogger';
+import {
+  decryptCredentialPayload,
+  encryptCredentialPayload,
+} from './credentialEncryptionService';
 
 const SECURE_VC_INDEX_KEY = 'SECURE_USER_VERIFIABLE_CREDENTIAL_INDEX';
 const MIGRATION_FLAG_KEY = 'SECURE_VC_STORAGE_MIGRATED_V2';
@@ -115,7 +119,9 @@ function createFallbackCredentialFromJwt(jwt: string): ModularCredential {
   };
 }
 
-function normalizeCredentialSubject(vc: any): ModularCredential['credentialSubject'] {
+function normalizeCredentialSubject(
+  vc: any
+): ModularCredential['credentialSubject'] {
   return {
     id: vc?.credentialSubject?.id || '-',
     attributeType: vc?.credentialSubject?.attributeType || 'custom',
@@ -138,7 +144,9 @@ function normalizeIssuer(issuer: any): string {
 
 function normalizeType(type: any): ModularCredential['type'] {
   if (Array.isArray(type)) {
-    return type.filter((item) => typeof item === 'string' && item.trim());
+    const values = type.filter((item) => typeof item === 'string' && item.trim());
+
+    return values.length > 0 ? values : ['VerifiableCredential'];
   }
 
   if (typeof type === 'string' && type.trim()) {
@@ -235,8 +243,9 @@ async function writeCredentialFile(credential: ModularCredential): Promise<void>
 
   const fileName = getCredentialFileName(credential.id);
   const fileUri = getCredentialFileUri(fileName);
+  const encryptedPayload = await encryptCredentialPayload(credential);
 
-  await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(credential), {
+  await FileSystem.writeAsStringAsync(fileUri, encryptedPayload, {
     encoding: FileSystem.EncodingType.UTF8,
   });
 }
@@ -258,13 +267,15 @@ async function readCredentialFile(
       encoding: FileSystem.EncodingType.UTF8,
     });
 
-    const parsed = safeParseJSON<unknown>(raw, null);
+    const decrypted = await decryptCredentialPayload(raw);
 
-    if (!parsed || typeof parsed !== 'object') {
+    if (!decrypted || typeof decrypted !== 'object') {
       return null;
     }
 
-    return normalizeVC(parsed);
+    const normalized = normalizeVC(decrypted);
+
+    return normalized;
   } catch {
     safeLogger.warn('Failed to read credential file', {
       credentialId: indexItem.id,

@@ -10,7 +10,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-
+import { authenticateWalletAccess } from '../../src/Services/walletLockService';
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import {
@@ -113,6 +113,19 @@ export default function ScanQRScreen() {
 
   async function handleSaveCredential() {
     if (!parsedCredential) {
+      return;
+    }
+
+        const auth = await authenticateWalletAccess(
+      'Autentikasi diperlukan untuk menyimpan credential ke wallet.'
+    );
+
+    if (!auth.success) {
+      setToast({
+        visible: true,
+        message: auth.reason || 'Autentikasi gagal',
+        type: 'error',
+      });
       return;
     }
 

@@ -61,7 +61,7 @@ function extractPresentedCredentials(decodedPayload: any): PresentedCredential[]
         attributeType:
           credentialSubject?.attributeType || 'custom',
       };
-    } catch (error) {
+    } catch  {
       return {
         jwt,
         error: 'Gagal decode credential JWT',

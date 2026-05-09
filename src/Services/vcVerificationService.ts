@@ -93,3 +93,6 @@ export async function verifyCredential(
 
 export { verifyJwtVc } from './vcJwtVerificationService';
 export { verifyJsonLdVc } from './vcJsonLdVerificationService';
+
+export const verifyVC = verifyCredential;
+export type { CredentialVerificationResult as VCVerificationResult };

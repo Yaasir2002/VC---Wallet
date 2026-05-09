@@ -1,4 +1,4 @@
-import { importJWK, KeyLike } from 'jose';
+import { importJWK } from 'jose';
 import {
   DIDDocument,
   VerificationMethod,
@@ -8,7 +8,7 @@ import {
 
 export type ResolvedPublicKey = {
   verificationMethod: VerificationMethod;
-  keyLike?: KeyLike | Uint8Array;
+  keyLike?: CryptoKey | Uint8Array;
   jwk?: JsonWebKey;
   error?: string;
 };
@@ -54,8 +54,8 @@ export function extractPublicKeyFromVerificationMethod(
 export async function convertJwkToCryptoKey(
   jwk: JsonWebKey,
   alg?: string
-): Promise<KeyLike | Uint8Array> {
-  return importJWK(jwk, normalizeAlgForJwk(alg));
+): Promise<CryptoKey | Uint8Array> {
+  return importJWK(jwk, normalizeAlgForJwk(alg)) as Promise<CryptoKey>;
 }
 
 export async function resolveIssuerPublicKey(params: {

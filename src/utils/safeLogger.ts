@@ -1,50 +1,61 @@
-type SafeLogMeta = Record<string, string | number | boolean | null | undefined>;
+import { redactSensitiveData } from './redactSensitiveData';
 
-const SENSITIVE_KEYS = [
-  'vc',
-  'credential',
-  'credentialSubject',
-  'jwt',
-  'privateKey',
-  'pin',
-  'password',
-  'mnemonic',
-  'seed',
-  'token',
-  'rawCredential',
-  'qrPayload',
-  'proof',
-];
+type LogPayload = Record<string, unknown> | unknown;
 
-function sanitizeMeta(meta?: SafeLogMeta): SafeLogMeta | undefined {
-  if (!meta) return undefined;
+function isDevelopment(): boolean {
+  return typeof __DEV__ !== 'undefined' && __DEV__;
+}
 
-  return Object.fromEntries(
-    Object.entries(meta).filter(([key]) => {
-      const normalized = key.toLowerCase();
-      return !SENSITIVE_KEYS.some((sensitive) =>
-        normalized.includes(sensitive.toLowerCase())
-      );
-    })
-  );
+function safePayload(payload?: LogPayload) {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  return redactSensitiveData(payload);
 }
 
 export const safeLogger = {
-  info(message: string, meta?: SafeLogMeta) {
-    if (__DEV__) {
-      console.info(message, sanitizeMeta(meta));
+  debug(message: string, payload?: LogPayload) {
+    if (!isDevelopment()) {
+      return;
     }
+
+    if (payload !== undefined) {
+      console.debug(message, safePayload(payload));
+      return;
+    }
+
+    console.debug(message);
   },
 
-  warn(message: string, meta?: SafeLogMeta) {
-    if (__DEV__) {
-      console.warn(message, sanitizeMeta(meta));
+  info(message: string, payload?: LogPayload) {
+    if (!isDevelopment()) {
+      return;
     }
+
+    if (payload !== undefined) {
+      console.info(message, safePayload(payload));
+      return;
+    }
+
+    console.info(message);
   },
 
-  error(message: string, meta?: SafeLogMeta) {
-    if (__DEV__) {
-      console.error(message, sanitizeMeta(meta));
+  warn(message: string, payload?: LogPayload) {
+    if (payload !== undefined) {
+      console.warn(message, safePayload(payload));
+      return;
     }
+
+    console.warn(message);
+  },
+
+  error(message: string, payload?: LogPayload) {
+    if (payload !== undefined) {
+      console.error(message, safePayload(payload));
+      return;
+    }
+
+    console.error(message);
   },
 };

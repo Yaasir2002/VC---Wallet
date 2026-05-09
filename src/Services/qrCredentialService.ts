@@ -25,10 +25,10 @@ export type ParsedScannedCredential = {
     subject: string;
     issuanceDate: string;
     expirationDate?: string;
-    mainClaims: Array<{
+    mainClaims: {
       label: string;
       value: string;
-    }>;
+    }[];
   };
   verificationStatus: CredentialSecurityStatus;
   source: 'qr_scan';
@@ -370,7 +370,7 @@ function getCredentialName(vc: RawCredential): string {
   return sanitizeText(specificType, 'Imported Credential');
 }
 
-function getMainClaims(subject: any): Array<{ label: string; value: string }> {
+function getMainClaims(subject: any): { label: string; value: string }[] {
   if (!subject || typeof subject !== 'object') {
     return [];
   }

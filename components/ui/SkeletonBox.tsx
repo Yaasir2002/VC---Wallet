@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, ViewStyle } from 'react-native';
 
-type Props = {
-  width?: number | `${number}%`;
+type SkeletonBoxProps = {
+  width?: number | string;
   height?: number;
   borderRadius?: number;
   style?: ViewStyle;
@@ -10,33 +10,39 @@ type Props = {
 
 export default function SkeletonBox({
   width = '100%',
-  height = 18,
-  borderRadius = 10,
+  height = 16,
+  borderRadius = 8,
   style,
-}: Props) {
-  const opacity = useRef(new Animated.Value(0.4)).current;
+}: SkeletonBoxProps) {
+  const opacity = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    Animated.loop(
+    const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
-          toValue: 1,
+          toValue: 0.75,
           duration: 700,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
-          toValue: 0.4,
+          toValue: 0.35,
           duration: 700,
           useNativeDriver: true,
         }),
       ])
-    ).start();
-  }, []);
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+    };
+  }, [opacity]);
 
   return (
     <Animated.View
       style={[
-        styles.skeleton,
+        styles.box,
         {
           width,
           height,
@@ -50,7 +56,7 @@ export default function SkeletonBox({
 }
 
 const styles = StyleSheet.create({
-  skeleton: {
+  box: {
     backgroundColor: '#E5E7EB',
   },
 });

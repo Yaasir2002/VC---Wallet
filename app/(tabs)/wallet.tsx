@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-
+import { authenticateWalletAccess } from '../../src/Services/walletLockService';
 import { deleteVCsByDocumentId } from '../../src/Storage/vcStorage';
 import { CredentialDocument } from '../../src/types/vc';
 import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
@@ -104,58 +104,71 @@ export default function WalletScreen() {
     router.push('/wallet/scan-qr');
   }
 
-  function handleDeleteDocument(document: CredentialDocument) {
-    const documentName = document.documentName || 'Credential';
+      async function handleDeleteDocument(document: CredentialDocument) {
+          const auth = await authenticateWalletAccess(
+            'Autentikasi diperlukan untuk menghapus credential.'
+          );
 
-    Alert.alert(
-      'Hapus Credential',
-      `Apakah kamu yakin ingin menghapus credential "${documentName}" dari wallet? Credential lain tidak akan ikut terhapus.`,
-      [
-        {
-          text: 'Batal',
-          style: 'cancel',
-        },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              setDeletingDocumentId(document.documentId);
+          if (!auth.success) {
+            setToast({
+              visible: true,
+              message: auth.reason || 'Autentikasi gagal',
+              type: 'error',
+            });
+            return;
+          }
 
-              await deleteVCsByDocumentId(document.documentId);
+          const documentName = document.documentName || 'Credential';
 
-              setDocuments((currentDocuments) =>
-                currentDocuments.filter(
-                  (item) => item.documentId !== document.documentId
-                )
-              );
+          Alert.alert(
+            'Hapus Credential',
+            `Apakah kamu yakin ingin menghapus credential "${documentName}" dari wallet? Credential lain tidak akan ikut terhapus.`,
+            [
+              {
+                text: 'Batal',
+                style: 'cancel',
+              },
+              {
+                text: 'Hapus',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    setLoading(true);
+                    setDeletingDocumentId(document.documentId);
 
-              setToast({
-                visible: true,
-                message: 'Credential berhasil dihapus',
-                type: 'success',
-              });
+                    await deleteVCsByDocumentId(document.documentId);
 
-              await loadDocuments();
-            } catch (error) {
-              setToast({
-                visible: true,
-                message: getSafeErrorMessage(
-                  error,
-                  'Gagal menghapus credential'
-                ),
-                type: 'error',
-              });
-            } finally {
-              setDeletingDocumentId(null);
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  }
+                    setDocuments((currentDocuments) =>
+                      currentDocuments.filter(
+                        (item) => item.documentId !== document.documentId
+                      )
+                    );
+
+                    setToast({
+                      visible: true,
+                      message: 'Credential berhasil dihapus',
+                      type: 'success',
+                    });
+
+                    await loadDocuments();
+                  } catch (error) {
+                    setToast({
+                      visible: true,
+                      message: getSafeErrorMessage(
+                        error,
+                        'Gagal menghapus credential'
+                      ),
+                      type: 'error',
+                    });
+                  } finally {
+                    setDeletingDocumentId(null);
+                    setLoading(false);
+                  }
+                },
+              },
+            ]
+          );
+        }
 
   const totalAttributes = documents.reduce(
     (total, doc) => total + doc.credentials.length,
@@ -297,12 +310,25 @@ export default function WalletScreen() {
                       styles.documentCard,
                       pressed && styles.documentCardPressed,
                     ]}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/credential/document/[documentId]',
-                        params: { documentId: doc.documentId },
-                      })
-                    }
+                    onPress={async () => {
+                        const auth = await authenticateWalletAccess(
+                          'Autentikasi diperlukan untuk membuka detail credential.'
+                        );
+
+                        if (!auth.success) {
+                          setToast({
+                            visible: true,
+                            message: auth.reason || 'Autentikasi gagal',
+                            type: 'error',
+                          });
+                          return;
+                        }
+
+                        router.push({
+                          pathname: '/credential/document/[documentId]',
+                          params: { documentId: doc.documentId },
+                        });
+                      }}
                     disabled={isDeleting}
                   >
                     <View style={styles.cardHeader}>
@@ -339,7 +365,7 @@ export default function WalletScreen() {
                           ]}
                           onPress={(event) => {
                             event.stopPropagation();
-                            handleDeleteDocument(doc);
+                            void handleDeleteDocument(doc);
                           }}
                           disabled={loading || isDeleting}
                         >

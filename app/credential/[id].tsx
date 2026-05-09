@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -49,9 +49,13 @@ export default function CredentialDetailScreen() {
     }
   }
 
-  useEffect(() => {
+  const loadCredential = useCallback(() => {
     loadCredential();
-  }, [id]);
+  }, []);
+
+  useEffect(() => {
+  loadCredential();
+}, [loadCredential]);
 
   if (!credential) {
     return (

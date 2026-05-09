@@ -57,3 +57,8 @@ ios
 .vscode
 
 issuer-output/issuer-private-jwk.json
+issuer-output/sample-vc.jwt
+*.pem
+*.key
+.env
+.env.*

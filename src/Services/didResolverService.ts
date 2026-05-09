@@ -5,11 +5,11 @@ export type DIDDocument = {
   id: string;
   verificationMethod?: VerificationMethod[];
   publicKey?: VerificationMethod[];
-  assertionMethod?: Array<string | VerificationMethod>;
-  authentication?: Array<string | VerificationMethod>;
-  capabilityInvocation?: Array<string | VerificationMethod>;
-  capabilityDelegation?: Array<string | VerificationMethod>;
-  keyAgreement?: Array<string | VerificationMethod>;
+  assertionMethod?: (string | VerificationMethod)[];
+  authentication?: (string | VerificationMethod)[];
+  capabilityInvocation?: (string | VerificationMethod)[];
+  capabilityDelegation?: (string | VerificationMethod)[];
+  keyAgreement?: (string | VerificationMethod)[];
   [key: string]: unknown;
 };
 
@@ -116,8 +116,15 @@ async function resolveDidWeb(did: string): Promise<DIDResolutionResult> {
 async function resolveDidEthr(did: string): Promise<DIDResolutionResult> {
   try {
     const resolver = new Resolver({
-      ...getEthrResolver(),
-    });
+          ...getEthrResolver({
+            networks: [
+              {
+                name: 'mainnet',
+                rpcUrl: 'https://cloudflare-eth.com',
+              },
+            ],
+          }),
+        });
 
     const result = await resolver.resolve(did);
 

@@ -35,34 +35,25 @@ export interface ModularCredential {
   documentId: string;
   documentType: DocumentType;
   documentName: string;
-
   type: string[];
   issuer: string;
   issuanceDate: string;
   expirationDate?: string;
   validFrom?: string;
   validUntil?: string;
-
   credentialSubject: {
     id: string;
     attributeType: AttributeType;
     attributeName: string;
     attributeValue: string;
   };
-
-  proof?: {
-    type: string;
-    jwt?: string;
-    jws?: string;
-    created?: string;
-    proofPurpose?: string;
-    verificationMethod?: string;
-  };
-
+  proof?: unknown;
   jwt?: string;
-
   verificationStatus?: CredentialSecurityStatus;
-  verificationResult?: VerificationResult;
+
+  verificationResult?: unknown;
+  verification?: unknown;
+  verifiedAt?: string | null;
   importedAt?: string;
   source?: string;
 }
