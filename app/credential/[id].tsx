@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { VerifiableCredential } from '../../src/types/vc';
+import { ModularCredential } from '../../src/types/vc';
 import { getVCById } from '../../src/Storage/vcStorage';
 import {
   verifyVC,
@@ -20,13 +20,97 @@ import {
 
 import AnimatedButton from '../../components/ui/AnimatedButton';
 
+type CredentialProof = {
+  type?: string;
+  proofPurpose?: string;
+  verificationMethod?: string;
+  jws?: string;
+  jwt?: string;
+  created?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function getText(value: unknown, fallback = '-'): string {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim() || fallback;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function getProof(proof: unknown): CredentialProof | null {
+  if (!isRecord(proof)) {
+    return null;
+  }
+
+  return {
+    type: getText(proof.type, ''),
+    proofPurpose: getText(proof.proofPurpose, ''),
+    verificationMethod: getText(proof.verificationMethod, ''),
+    jws: getText(proof.jws, ''),
+    jwt: getText(proof.jwt, ''),
+    created: getText(proof.created, ''),
+  };
+}
+
+function formatDate(value?: string): string {
+  if (!value) {
+    return '-';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
+}
+
+function getCredentialDisplayTitle(credential: ModularCredential): string {
+  if (credential.documentName) {
+    return credential.documentName;
+  }
+
+  if (credential.documentType) {
+    return `${credential.documentType} Credential`;
+  }
+
+  const specificType = credential.type.find(
+    (item) => item !== 'VerifiableCredential'
+  );
+
+  return specificType || 'Verifiable Credential';
+}
+
+function getVerificationMessages(
+  verification: VCVerificationResult | null
+): string[] {
+  if (!verification) {
+    return [];
+  }
+
+  return [verification.reason].filter((message): message is string =>
+    Boolean(message)
+  );
+}
+
 export default function CredentialDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
-  const [credential, setCredential] = useState<VerifiableCredential | null>(
-    null
-  );
+  const [credential, setCredential] = useState<ModularCredential | null>(null);
   const [verification, setVerification] =
     useState<VCVerificationResult | null>(null);
 
@@ -53,6 +137,8 @@ export default function CredentialDetailScreen() {
     void loadCredential();
   }, [loadCredential]);
 
+  const proof = useMemo(() => getProof(credential?.proof), [credential?.proof]);
+
   if (!credential) {
     return (
       <View style={styles.loadingContainer}>
@@ -62,11 +148,8 @@ export default function CredentialDetailScreen() {
     );
   }
 
-  const verificationMessages = verification
-    ? [verification.reason].filter((message): message is string =>
-        Boolean(message)
-      )
-    : [];
+  const verificationMessages = getVerificationMessages(verification);
+  const credentialTitle = getCredentialDisplayTitle(credential);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -83,11 +166,7 @@ export default function CredentialDetailScreen() {
       >
         <View>
           <Text style={styles.heroLabel}>Credential Detail</Text>
-          <Text style={styles.heroTitle}>
-            {credential.type.includes('IdentityCredential')
-              ? 'Identity VC'
-              : 'Verifiable VC'}
-          </Text>
+          <Text style={styles.heroTitle}>{credentialTitle}</Text>
           <Text style={styles.heroSubtitle}>
             Review credential data, issuer, subject, and proof information.
           </Text>
@@ -188,19 +267,23 @@ export default function CredentialDetailScreen() {
         </View>
 
         <InfoItem label="Credential ID" value={credential.id} />
+        <InfoItem label="Document ID" value={credential.documentId} />
+        <InfoItem label="Document Type" value={credential.documentType} />
+        <InfoItem label="Document Name" value={credential.documentName} />
         <InfoItem label="Type" value={credential.type.join(', ')} />
         <InfoItem label="Issuer" value={credential.issuer} />
         <InfoItem
           label="Issuance Date"
-          value={new Date(credential.issuanceDate).toLocaleString()}
+          value={formatDate(credential.issuanceDate)}
         />
-
-        {credential.expirationDate && (
-          <InfoItem
-            label="Expiration Date"
-            value={new Date(credential.expirationDate).toLocaleString()}
-          />
-        )}
+        <InfoItem
+          label="Expiration Date"
+          value={formatDate(credential.expirationDate)}
+        />
+        <InfoItem
+          label="Verification Status"
+          value={credential.verificationStatus ?? 'pending_verification'}
+        />
       </View>
 
       <View style={styles.sectionCard}>
@@ -212,15 +295,17 @@ export default function CredentialDetailScreen() {
         </View>
 
         <InfoItem label="Subject DID" value={credential.credentialSubject.id} />
-        <InfoItem label="Name" value={credential.credentialSubject.name ?? '-'} />
-        <InfoItem label="NIK" value={credential.credentialSubject.nik ?? '-'} />
         <InfoItem
-          label="Birth Date"
-          value={credential.credentialSubject.birthDate ?? '-'}
+          label="Attribute Type"
+          value={credential.credentialSubject.attributeType}
         />
         <InfoItem
-          label="Address"
-          value={credential.credentialSubject.address ?? '-'}
+          label="Attribute Name"
+          value={credential.credentialSubject.attributeName}
+        />
+        <InfoItem
+          label="Attribute Value"
+          value={credential.credentialSubject.attributeValue}
         />
       </View>
 
@@ -232,20 +317,23 @@ export default function CredentialDetailScreen() {
           <Text style={styles.sectionTitle}>Proof</Text>
         </View>
 
-        {credential.proof ? (
+        {proof ? (
           <>
-            <InfoItem label="Proof Type" value={credential.proof.type} />
+            <InfoItem label="Proof Type" value={proof.type || '-'} />
+            <InfoItem label="Created" value={proof.created || '-'} />
             <InfoItem
               label="Proof Purpose"
-              value={credential.proof.proofPurpose}
+              value={proof.proofPurpose || '-'}
             />
             <InfoItem
               label="Verification Method"
-              value={credential.proof.verificationMethod}
+              value={proof.verificationMethod || '-'}
             />
 
-            <Text style={styles.label}>Signature</Text>
-            <Text style={styles.signatureText}>{credential.proof.jws}</Text>
+            <Text style={styles.label}>Signature / JWT</Text>
+            <Text style={styles.signatureText}>
+              {proof.jws || proof.jwt || '-'}
+            </Text>
           </>
         ) : (
           <View style={styles.emptyProof}>
@@ -282,7 +370,7 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoItem}>
       <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
+      <Text style={styles.value}>{value || '-'}</Text>
     </View>
   );
 }
@@ -336,6 +424,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '900',
     marginTop: 2,
+    maxWidth: 230,
   },
   heroSubtitle: {
     fontSize: 14,
