@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 import { isBiometricEnabled } from '../Storage/authStorage';
+import { markSystemUIOpen, markSystemUIClosed } from '../utils/systemUIGuard';
 
 const PRIVATE_KEY_PREFIX = 'VERAMO_PRIVATE_KEY_';
 const PRIVATE_KEY_INDEX = 'VERAMO_PRIVATE_KEY_INDEX';
@@ -114,15 +115,21 @@ async function requireBiometricConfirmation(): Promise<void> {
     throw new Error('Biometric belum terdaftar di perangkat');
   }
 
-  const result = await LocalAuthentication.authenticateAsync({
-    promptMessage: 'Verifikasi untuk mengakses private key',
-    cancelLabel: 'Batal',
-    fallbackLabel: 'Gunakan PIN perangkat',
-    disableDeviceFallback: false,
-  });
+  markSystemUIOpen();
 
-  if (!result.success) {
-    throw new Error('Autentikasi biometric gagal atau dibatalkan');
+  try {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Verifikasi untuk mengakses private key',
+      cancelLabel: 'Batal',
+      fallbackLabel: 'Gunakan PIN perangkat',
+      disableDeviceFallback: false,
+    });
+
+    if (!result.success) {
+      throw new Error('Autentikasi biometric gagal atau dibatalkan');
+    }
+  } finally {
+    markSystemUIClosed();
   }
 }
 

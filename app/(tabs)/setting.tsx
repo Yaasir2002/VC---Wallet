@@ -22,12 +22,16 @@ import {
 } from '../../src/Storage/profileStorage';
 import { getDID } from '../../src/Storage/didStorage';
 import { DIDData } from '../../src/types/did';
-import { lockSession } from '../../src/Storage/authStorage';
+import { lockSession, refreshSession } from '../../src/Storage/authStorage';
 import { safeLogger } from '../../src/utils/safeLogger';
 import {
   isValidEmail,
   isValidIndonesianPhone as isValidPhoneNumber,
 } from '../../src/utils/validators';
+import {
+  markSystemUIOpen,
+  markSystemUIClosed,
+} from '../../src/utils/systemUIGuard';
 
 import AppToast from '../../components/ui/AppToast';
 
@@ -90,6 +94,10 @@ export default function SettingsScreen() {
 
   async function handlePickProfileImage() {
     try {
+      // Mark system UI open BEFORE requesting permission (permission dialog
+      // also causes app to go 'background' on Android)
+      markSystemUIOpen();
+
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
@@ -118,6 +126,10 @@ export default function SettingsScreen() {
         message: 'Gagal memilih foto profil',
         type: 'error',
       });
+    } finally {
+      // Always release the guard and refresh session after gallery closes
+      markSystemUIClosed();
+      await refreshSession();
     }
   }
 
@@ -168,6 +180,7 @@ export default function SettingsScreen() {
       };
 
       await saveUserProfile(updatedProfile);
+      await refreshSession(); // reset session timeout on user activity
       setProfile(updatedProfile);
       setEditVisible(false);
 

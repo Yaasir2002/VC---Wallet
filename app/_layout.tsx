@@ -20,6 +20,7 @@ import {
 import { hasUserProfile } from '../src/Storage/profileStorage';
 import { getDID } from '../src/Storage/didStorage';
 import { safeLogger } from '../src/utils/safeLogger';
+import { isSystemUIOpen } from '../src/utils/systemUIGuard';
 
 export default function RootLayout() {
   return (
@@ -132,7 +133,8 @@ function AuthGate() {
       if (
         previousState === 'active' &&
         nextAppState.match(/inactive|background/) &&
-        !isAuthRoute
+        !isAuthRoute &&
+        !isSystemUIOpen() // skip lock when app is in background due to system UI (image picker, camera, etc.)
       ) {
         await lockSession();
         return;
@@ -152,9 +154,16 @@ function AuthGate() {
     segmentsRef.current = segments;
   }, [segments]);
 
+  // Only re-run checkAuth when the ROUTE GROUP changes (real navigation),
+  // not on every re-render caused by local state or modal open/close.
+  // Using segments[0] (the route group) as the stable dependency instead of
+  // the entire segments array, which changes reference on every render.
+  const currentRouteGroup = segments[0];
+
   useEffect(() => {
     checkAuth();
-  }, [segments, checkAuth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRouteGroup]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener(
