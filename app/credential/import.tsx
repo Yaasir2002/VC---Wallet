@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { VerifiableCredential } from '../../src/types/vc';
 import { importCredentialSecurely } from '../../src/Services/credentialImportService';
+import { SECURITY_LIMITS } from '../../src/config/securityLimits';
 
 export default function ImportCredentialScreen() {
   const router = useRouter();
@@ -47,8 +48,24 @@ export default function ImportCredentialScreen() {
       return 'Credential tidak valid dan tidak ditandai sebagai verified.';
     }
 
-    if (status === 'unsupported_format') {
-      return 'Format credential belum didukung penuh untuk verifikasi.';
+    if (status === 'invalid_signature') {
+      return 'Signature credential tidak valid secara kriptografis.';
+    }
+
+    if (status === 'malformed_credential') {
+      return 'Struktur credential tidak sesuai format W3C VC.';
+    }
+
+    if (status === 'did_resolution_failed') {
+      return 'Tidak dapat me-resolve DID issuer. Credential disimpan sebagai unverified.';
+    }
+
+    if (status === 'public_key_not_found') {
+      return 'Public key issuer tidak ditemukan. Verifikasi signature tidak dapat dilakukan.';
+    }
+
+    if (status === 'unsupported_proof_type') {
+      return 'Tipe proof credential belum didukung untuk verifikasi.';
     }
 
     return 'Credential disimpan dengan status pending_verification karena belum lolos verifikasi cryptographic penuh.';
@@ -60,6 +77,16 @@ export default function ImportCredentialScreen() {
 
       if (!jsonInput.trim()) {
         Alert.alert('Validasi Gagal', 'JSON credential tidak boleh kosong');
+        return;
+      }
+
+      // Size guard: reject payloads that are too large before attempting parse
+      const byteLength = new TextEncoder().encode(jsonInput.trim()).byteLength;
+      if (byteLength > SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES) {
+        Alert.alert(
+          'Payload Terlalu Besar',
+          `Credential JSON melebihi batas ${SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES / 1024}KB yang diizinkan.`
+        );
         return;
       }
 

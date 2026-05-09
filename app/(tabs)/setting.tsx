@@ -24,6 +24,10 @@ import { getDID } from '../../src/Storage/didStorage';
 import { DIDData } from '../../src/types/did';
 import { lockSession } from '../../src/Storage/authStorage';
 import { safeLogger } from '../../src/utils/safeLogger';
+import {
+  isValidEmail,
+  isValidIndonesianPhone as isValidPhoneNumber,
+} from '../../src/utils/validators';
 
 import AppToast from '../../components/ui/AppToast';
 
@@ -581,13 +585,7 @@ function formatBirthDate(date?: string) {
   }
 }
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
 
-function isValidPhoneNumber(phone: string) {
-  return /^08[0-9]{8,13}$/.test(phone);
-}
 
 const styles = StyleSheet.create({
   container: {

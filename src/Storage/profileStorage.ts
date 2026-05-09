@@ -14,13 +14,26 @@ export type UserProfile = {
   phoneNumber: string;
   address: string;
   profileImageUri?: string;
+  /** ISO string set once at account creation. Never changed on update. */
   createdAt: string;
+  /** ISO string updated on every saveUserProfile() call. */
+  updatedAt?: string;
 };
 
-export async function saveUserProfile(profile: UserProfile) {
+/**
+ * Persists the user profile securely.
+ * Automatically sets `updatedAt` to the current timestamp on every save.
+ * Never overwrites `createdAt`.
+ */
+export async function saveUserProfile(profile: UserProfile): Promise<void> {
+  const profileToSave: UserProfile = {
+    ...profile,
+    updatedAt: new Date().toISOString(),
+  };
+
   await SecureStore.setItemAsync(
     USER_PROFILE_KEY,
-    JSON.stringify(profile),
+    JSON.stringify(profileToSave),
     secureStoreOptions
   );
 }
@@ -33,7 +46,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   }
 
   try {
-    return JSON.parse(data);
+    return JSON.parse(data) as UserProfile;
   } catch {
     safeLogger.warn('Failed to parse stored user profile');
     return null;
@@ -45,6 +58,31 @@ export async function hasUserProfile(): Promise<boolean> {
   return !!profile;
 }
 
-export async function deleteUserProfile() {
+/**
+ * Updates specific fields of the stored profile.
+ * Returns the updated profile, or null if no profile exists.
+ * Does NOT change `createdAt`.
+ */
+export async function updateUserProfile(
+  patch: Partial<Omit<UserProfile, 'createdAt'>>
+): Promise<UserProfile | null> {
+  const existing = await getUserProfile();
+
+  if (!existing) {
+    return null;
+  }
+
+  const updated: UserProfile = {
+    ...existing,
+    ...patch,
+    createdAt: existing.createdAt, // never overwrite
+  };
+
+  await saveUserProfile(updated);
+
+  return updated;
+}
+
+export async function deleteUserProfile(): Promise<void> {
   await SecureStore.deleteItemAsync(USER_PROFILE_KEY);
 }
