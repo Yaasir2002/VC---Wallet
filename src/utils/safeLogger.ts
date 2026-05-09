@@ -14,48 +14,37 @@ function safePayload(payload?: LogPayload) {
   return redactSensitiveData(payload);
 }
 
+function writeConsole(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  payload?: LogPayload
+) {
+  if (!isDevelopment()) {
+    return;
+  }
+
+  if (payload !== undefined) {
+    console[level](message, safePayload(payload));
+    return;
+  }
+
+  console[level](message);
+}
+
 export const safeLogger = {
   debug(message: string, payload?: LogPayload) {
-    if (!isDevelopment()) {
-      return;
-    }
-
-    if (payload !== undefined) {
-      console.debug(message, safePayload(payload));
-      return;
-    }
-
-    console.debug(message);
+    writeConsole('debug', message, payload);
   },
 
   info(message: string, payload?: LogPayload) {
-    if (!isDevelopment()) {
-      return;
-    }
-
-    if (payload !== undefined) {
-      console.info(message, safePayload(payload));
-      return;
-    }
-
-    console.info(message);
+    writeConsole('info', message, payload);
   },
 
   warn(message: string, payload?: LogPayload) {
-    if (payload !== undefined) {
-      console.warn(message, safePayload(payload));
-      return;
-    }
-
-    console.warn(message);
+    writeConsole('warn', message, payload);
   },
 
   error(message: string, payload?: LogPayload) {
-    if (payload !== undefined) {
-      console.error(message, safePayload(payload));
-      return;
-    }
-
-    console.error(message);
+    writeConsole('error', message, payload);
   },
 };

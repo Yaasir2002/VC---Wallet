@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "vc-wallet",
+    "name": "VC Wallet",
     "slug": "vc-wallet",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,9 +9,20 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yaasir.vcwallet",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Aplikasi membutuhkan kamera untuk memindai QR Verifiable Credential dan Verifiable Presentation.",
+        "NSFaceIDUsageDescription": "Aplikasi menggunakan autentikasi biometrik untuk melindungi akses private key dan credential sensitif."
+      }
     },
     "android": {
+      "package": "com.yaasir.vcwallet",
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -19,8 +30,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.vcwallet"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -40,7 +50,19 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Aplikasi membutuhkan kamera untuk memindai QR Verifiable Credential dan Verifiable Presentation."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Aplikasi menggunakan autentikasi biometrik untuk melindungi akses private key dan credential sensitif."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,4 +1,4 @@
-import { CredentialSecurityStatus, VerificationResult } from './verification';
+import { CredentialSecurityStatus } from './verification';
 
 export type AttributeType =
   | 'legalName'
@@ -65,4 +65,4 @@ export interface CredentialDocument {
   credentials: ModularCredential[];
 }
 
-export type VerifiableCredential = Record<string, any>;
+export type VerifiableCredential = Record<string, unknown>;

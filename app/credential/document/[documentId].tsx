@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import {
   extractPresentationAttributes,
   stringifyPresentationPayload,
 } from '../../../src/Services/credentialPresentationService';
+import { validatePresentationPayloadSize } from '../../../src/Services/qrPayloadService';
 
 export default function CredentialDocumentDetailScreen() {
   const { documentId } = useLocalSearchParams<{ documentId: string }>();
@@ -36,11 +37,7 @@ export default function CredentialDocumentDetailScreen() {
     []
   );
 
-  useEffect(() => {
-    loadDocument();
-  }, [documentId]);
-
-  async function loadDocument() {
+  const loadDocument = useCallback(async () => {
     try {
       if (!documentId) {
         Alert.alert('Error', 'ID dokumen credential tidak valid');
@@ -67,7 +64,11 @@ export default function CredentialDocumentDetailScreen() {
     } catch {
       Alert.alert('Error', 'Gagal mengambil detail dokumen credential');
     }
-  }
+  }, [documentId, router]);
+
+  useEffect(() => {
+    void loadDocument();
+  }, [loadDocument]);
 
   const presentationAttributes = useMemo(() => {
     if (!document) return [];
@@ -88,12 +89,26 @@ export default function CredentialDocumentDetailScreen() {
     }
 
     try {
+      const selectedCount = presentationAttributes.filter(
+        (attribute) => selectedAttributes[attribute.id]
+      ).length;
+
+      if (selectedCount === 0) {
+        Alert.alert(
+          'Atribut belum dipilih',
+          'Pilih minimal 1 atribut sebelum membuat QR.'
+        );
+        return;
+      }
+
       const payload = buildCredentialPresentationPayload(
         document,
         selectedAttributes
       );
 
       const payloadString = stringifyPresentationPayload(payload);
+
+      validatePresentationPayloadSize(payloadString);
 
       setQrPayload(payloadString);
       setSelectedAttributeNames(payload.presentationMetadata.selectedAttributes);
@@ -184,13 +199,10 @@ export default function CredentialDocumentDetailScreen() {
           <Text style={styles.presentationNote}>
             Ini adalah UI-level attribute selection. Atribut yang dimatikan tidak
             dimasukkan ke payload QR, tetapi ini belum cryptographic selective
-            disclosure.
+            disclosure seperti BBS+ atau SD-JWT.
           </Text>
 
-          <Pressable
-            style={styles.generateQRButton}
-            onPress={handleGenerateQR}
-          >
+          <Pressable style={styles.generateQRButton} onPress={handleGenerateQR}>
             <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
             <Text style={styles.generateQRButtonText}>Tampilkan QR</Text>
           </Pressable>
@@ -256,6 +268,7 @@ export default function CredentialDocumentDetailScreen() {
               <Ionicons name="warning-outline" size={18} color="#C2410C" />
               <Text style={styles.qrWarningText}>
                 Presentation ini belum ditandatangani secara cryptographic.
+                Gunakan Signed VP JWT untuk presentation yang lebih aman.
               </Text>
             </View>
 

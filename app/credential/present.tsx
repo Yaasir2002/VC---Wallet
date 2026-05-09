@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -46,13 +46,9 @@ export default function PresentCredentialScreen() {
     type: 'info' as 'success' | 'error' | 'info',
   });
 
-  const requesterName = requester || 'Cascadia Regional Security';
+  const requesterName = requester || 'Verifier';
 
-  useEffect(() => {
-    loadCredentials();
-  }, [documentId]);
-
-  async function loadCredentials() {
+  const loadCredentials = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -84,7 +80,11 @@ export default function PresentCredentialScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [documentId]);
+
+  useEffect(() => {
+    void loadCredentials();
+  }, [loadCredentials]);
 
   function toggleCredential(id: string) {
     setPresentationJwt('');
@@ -100,7 +100,9 @@ export default function PresentCredentialScreen() {
 
   function selectAll() {
     setPresentationJwt('');
-    setSelectedIds(credentials.map((vc) => vc.id));
+    setSelectedIds(
+      credentials.filter(isCredentialPresentable).map((vc) => vc.id)
+    );
   }
 
   function clearSelection() {
@@ -131,6 +133,14 @@ export default function PresentCredentialScreen() {
       return 'Invalid';
     }
 
+    if (vc.verificationStatus === 'invalid_signature') {
+      return 'Invalid Signature';
+    }
+
+    if (vc.verificationStatus === 'unsupported_proof_type') {
+      return 'Unsupported Proof';
+    }
+
     return 'Pending Verification';
   }
 
@@ -141,7 +151,13 @@ export default function PresentCredentialScreen() {
       return false;
     }
 
-    return vc.verificationStatus !== 'invalid';
+    return ![
+      'invalid',
+      'invalid_signature',
+      'malformed_credential',
+      'expired',
+      'not_yet_valid',
+    ].includes(vc.verificationStatus ?? '');
   }
 
   async function handleConfirmAndSign() {
@@ -264,7 +280,11 @@ export default function PresentCredentialScreen() {
           </View>
 
           <View style={styles.heroIcon}>
-            <Ionicons name="shield-checkmark-outline" size={36} color="#2563EB" />
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={36}
+              color="#2563EB"
+            />
           </View>
         </LinearGradient>
 
@@ -474,7 +494,11 @@ export default function PresentCredentialScreen() {
           </>
         ) : (
           <View style={styles.noteCard}>
-            <Ionicons name="shield-checkmark-outline" size={22} color="#F97316" />
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={22}
+              color="#F97316"
+            />
             <Text style={styles.noteText}>
               Setelah memilih atribut, tekan Confirm & Sign untuk membuat paket
               bukti presentasi dalam bentuk VP JWT.

@@ -1,14 +1,23 @@
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
+
 import { isBiometricEnabled } from '../Storage/authStorage';
 
 const PRIVATE_KEY_PREFIX = 'VERAMO_PRIVATE_KEY_';
 const PRIVATE_KEY_INDEX = 'VERAMO_PRIVATE_KEY_INDEX';
+const MAX_ALIAS_LENGTH = 160;
 
 type ManagedPrivateKey = {
   alias: string;
   type: string;
   privateKeyHex: string;
+};
+
+type PrivateKeyInput = Partial<ManagedPrivateKey> & {
+  kid?: string;
+  key?: {
+    kid?: string;
+  };
 };
 
 const secureStoreOptions = {
@@ -23,50 +32,70 @@ async function getKeyIndex(): Promise<string[]> {
   }
 
   try {
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((item): item is string => typeof item === 'string');
   } catch {
     return [];
   }
 }
 
-async function saveKeyIndex(ids: string[]) {
+async function saveKeyIndex(ids: string[]): Promise<void> {
+  const uniqueIds = Array.from(new Set(ids));
+
   await SecureStore.setItemAsync(
     PRIVATE_KEY_INDEX,
-    JSON.stringify(ids),
+    JSON.stringify(uniqueIds),
     secureStoreOptions
   );
 }
 
 /**
- * Ambil alias private key hanya dari field identifier yang aman.
+ * Ambil alias private key hanya dari identifier aman.
  *
- * PENTING:
- * Jangan pernah menggunakan privateKeyHex sebagai fallback alias.
- * privateKeyHex adalah data sangat sensitif dan tidak boleh menjadi nama key,
- * index, identifier, log, atau metadata penyimpanan.
+ * Jangan pernah memakai privateKeyHex sebagai fallback alias.
+ * privateKeyHex adalah data sangat sensitif dan tidak boleh masuk ke index,
+ * nama key, log, maupun metadata penyimpanan.
  */
-function getAlias(
-  args: Partial<ManagedPrivateKey> & {
-    kid?: string;
-    key?: {
-      kid?: string;
-    };
-  }
-): string | undefined {
+function getAlias(args: PrivateKeyInput): string | undefined {
   return args.alias || args.kid || args.key?.kid;
 }
 
-function validateAlias(alias: string) {
-  if (!alias.trim()) {
+function validateAlias(alias: string): void {
+  const trimmedAlias = alias.trim();
+
+  if (!trimmedAlias) {
     throw new Error('Alias private key tidak boleh kosong');
   }
 
-  if (alias.includes('\n') || alias.includes('\r')) {
+  if (trimmedAlias.length > MAX_ALIAS_LENGTH) {
+    throw new Error('Alias private key terlalu panjang');
+  }
+
+  if (trimmedAlias.includes('\n') || trimmedAlias.includes('\r')) {
     throw new Error('Alias private key tidak valid');
   }
 }
 
-async function requireBiometricConfirmation() {
+function validatePrivateKeyHex(privateKeyHex: string): void {
+  const normalized = privateKeyHex.startsWith('0x')
+    ? privateKeyHex.slice(2)
+    : privateKeyHex;
+
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error('Private key harus berupa hexadecimal');
+  }
+
+  if (normalized.length < 64) {
+    throw new Error('Private key hexadecimal terlalu pendek');
+  }
+}
+
+async function requireBiometricConfirmation(): Promise<void> {
   const biometricEnabled = await isBiometricEnabled();
 
   if (!biometricEnabled) {
@@ -106,13 +135,19 @@ export class SecurePrivateKeyStore {
     const data = await SecureStore.getItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
     if (!data) {
-      throw new Error(`Private key tidak ditemukan untuk alias: ${alias}`);
+      throw new Error('Private key tidak ditemukan');
     }
 
     try {
-      return JSON.parse(data);
+      const parsed = JSON.parse(data) as ManagedPrivateKey;
+
+      if (!parsed.alias || !parsed.type || !parsed.privateKeyHex) {
+        throw new Error('Data private key tidak lengkap');
+      }
+
+      return parsed;
     } catch {
-      throw new Error(`Data private key rusak untuk alias: ${alias}`);
+      throw new Error('Data private key rusak');
     }
   }
 
@@ -134,6 +169,8 @@ export class SecurePrivateKeyStore {
     if (!args.privateKeyHex) {
       throw new Error('Private key tidak ditemukan');
     }
+
+    validatePrivateKeyHex(args.privateKeyHex);
 
     const keyData: ManagedPrivateKey = {
       alias,
@@ -169,7 +206,7 @@ export class SecurePrivateKeyStore {
     return true;
   }
 
-  async listKeys(): Promise<Array<{ alias: string }>> {
+  async listKeys(): Promise<{ alias: string }[]> {
     const ids = await getKeyIndex();
 
     return ids.map((id) => ({
@@ -177,20 +214,19 @@ export class SecurePrivateKeyStore {
     }));
   }
 
-  // Compatibility alias, supaya aman kalau ada bagian lain memanggil nama lama
-  async get(args: { alias: string }) {
+  async get(args: { alias: string }): Promise<ManagedPrivateKey> {
     return this.getKey(args);
   }
 
-  async import(args: ManagedPrivateKey) {
+  async import(args: ManagedPrivateKey): Promise<boolean> {
     return this.importKey(args);
   }
 
-  async delete(args: { alias: string }) {
+  async delete(args: { alias: string }): Promise<boolean> {
     return this.deleteKey(args);
   }
 
-  async list() {
+  async list(): Promise<{ alias: string }[]> {
     return this.listKeys();
   }
 }
