@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { safeLogger } from '../utils/safeLogger';
 
 const USER_PROFILE_KEY = 'USER_PROFILE';
 
@@ -34,7 +35,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   try {
     return JSON.parse(data);
   } catch {
-    console.log('PARSE USER PROFILE ERROR');
+    safeLogger.warn('Failed to parse stored user profile');
     return null;
   }
 }

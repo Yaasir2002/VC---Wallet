@@ -1,4 +1,5 @@
 import { agent } from '../veramo/agent';
+import { safeLogger } from '../utils/safeLogger';
 
 export type IdentityVCInput = {
   issuerDid: string;
@@ -22,9 +23,6 @@ export const createIdentityVC = async ({
       throw new Error('Subject DID belum tersedia');
     }
 
-    console.log('VERAMO ISSUER DID:', issuerDid);
-    console.log('SUBJECT DID:', subjectDid);
-
     const credentialPayload = {
       issuer: issuerDid,
       type: ['VerifiableCredential', 'IdentityCredential'],
@@ -38,18 +36,14 @@ export const createIdentityVC = async ({
       },
     };
 
-    console.log('VC PAYLOAD:', JSON.stringify(credentialPayload, null, 2));
-
     const vc = await agent.createVerifiableCredential({
       credential: credentialPayload,
       proofFormat: 'jwt',
     });
 
-    console.log('VC RESULT:', vc);
-
     return vc;
   } catch (error) {
-    console.log('CREATE VC ERROR:', error);
+    safeLogger.error('Failed to create identity VC');
     throw error;
   }
 };

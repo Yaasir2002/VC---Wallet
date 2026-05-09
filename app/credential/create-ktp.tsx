@@ -16,6 +16,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import { createKtpCredential } from '../../src/Services/documentCredentialService';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 export default function CreateKtpScreen() {
   const router = useRouter();
@@ -82,7 +83,7 @@ export default function CreateKtpScreen() {
         router.replace('/(tabs)/wallet');
       }, 700);
     } catch (error) {
-      console.log('CREATE KTP CREDENTIAL ERROR:', error);
+      safeLogger.error('Failed to create KTP credential');
 
       setToast({
         visible: true,

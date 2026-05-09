@@ -20,6 +20,7 @@ import {
 } from '../../src/Storage/authStorage';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import AppToast from '../../components/ui/AppToast';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 export default function UnlockScreen() {
   const router = useRouter();
@@ -68,7 +69,7 @@ export default function UnlockScreen() {
         router.replace('/(tabs)');
       }
     } catch (error) {
-      console.log('BIOMETRIC UNLOCK ERROR:', error);
+      safeLogger.error('Biometric unlock failed');
 
       setToast({
         visible: true,
@@ -109,7 +110,7 @@ export default function UnlockScreen() {
 
       setInputPin('');
     } catch (error) {
-      console.log('PIN UNLOCK ERROR:', error);
+      safeLogger.error('PIN unlock failed');
 
       setToast({
         visible: true,

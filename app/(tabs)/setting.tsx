@@ -23,6 +23,7 @@ import {
 import { getDID } from '../../src/Storage/didStorage';
 import { DIDData } from '../../src/types/did';
 import { lockSession } from '../../src/Storage/authStorage';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 import AppToast from '../../components/ui/AppToast';
 
@@ -59,7 +60,7 @@ export default function SettingsScreen() {
       setProfile(userProfile);
       setDidData(did);
     } catch (error) {
-      console.log('LOAD SETTINGS ERROR:', error);
+      safeLogger.error('Failed to load settings');
 
       setToast({
         visible: true,
@@ -106,7 +107,7 @@ export default function SettingsScreen() {
         setProfileImageUri(result.assets[0].uri);
       }
     } catch (error) {
-      console.log('PICK PROFILE IMAGE ERROR:', error);
+      safeLogger.error('Failed to pick profile image');
 
       setToast({
         visible: true,
@@ -172,7 +173,7 @@ export default function SettingsScreen() {
         type: 'success',
       });
     } catch (error) {
-      console.log('SAVE PROFILE ERROR:', error);
+      safeLogger.error('Failed to save profile');
 
       setToast({
         visible: true,

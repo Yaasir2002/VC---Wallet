@@ -1,5 +1,6 @@
 import { AttributeType, ModularCredential } from "../types/vc";
 import { agent } from "../veramo/agent";
+import { safeLogger } from "../utils/safeLogger";
 
 async function getOrCreateIssuerDID(): Promise<string> {
   const identifiers = await agent.didManagerFind();
@@ -12,7 +13,7 @@ async function getOrCreateIssuerDID(): Promise<string> {
     provider: "did:ethr:sepolia",
     alias: "main-issuer",
   });
-  console.log(identifier);
+
   return identifier.did;
 }
 
@@ -100,9 +101,6 @@ export async function createAttributeCredential(params: {
 
   const issuanceDate = new Date().toISOString();
 
-  console.log("VERAMO ISSUER DID:", issuerDid);
-  console.log("SUBJECT DID:", params.subjectDid);
-
   const credentialPayload = removeUndefinedFields({
     issuer: issuerDid,
     issuanceDate,
@@ -118,8 +116,6 @@ export async function createAttributeCredential(params: {
       attributeValue: params.attributeValue,
     },
   });
-
-  console.log("VC PAYLOAD:", JSON.stringify(credentialPayload, null, 2));
 
   let jwt = "";
 
@@ -138,11 +134,10 @@ export async function createAttributeCredential(params: {
           "";
 
     if (!jwt) {
-      console.log("VERAMO VC RESULT:", result);
       throw new Error("JWT credential tidak ditemukan dari hasil Veramo");
     }
   } catch (error) {
-    console.log("VERAMO SIGN VC ERROR, USING DEV JWT FALLBACK:", error);
+    safeLogger.warn("Veramo VC signing failed, using unsigned development fallback");
 
     jwt = createLocalDevelopmentJWT({
       iss: issuerDid,

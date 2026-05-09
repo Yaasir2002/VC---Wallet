@@ -1,5 +1,6 @@
 import { agent } from '../veramo/agent';
 import { ModularCredential } from '../types/vc';
+import { safeLogger } from '../utils/safeLogger';
 
 function extractCredentialJWT(vc: any): string {
   if (!vc) return '';
@@ -79,10 +80,7 @@ export async function createSignedPresentationJWT(params: {
     .filter((jwt): jwt is string => typeof jwt === 'string' && jwt.length > 0);
 
   if (credentialJWTs.length === 0) {
-    console.log(
-      'CREDENTIAL TANPA JWT:',
-      JSON.stringify(params.credentials, null, 2)
-    );
+    safeLogger.warn('Presentation failed: no JWT found in selected credentials');
 
     throw new Error(
       'Credential belum memiliki JWT. Hapus credential lama lalu buat/import credential baru dengan format JWT.'
@@ -94,8 +92,6 @@ export async function createSignedPresentationJWT(params: {
     type: ['VerifiablePresentation'],
     verifiableCredential: credentialJWTs,
   };
-
-  console.log('VP PAYLOAD:', JSON.stringify(presentation, null, 2));
 
   let vpJwt = '';
 
@@ -114,11 +110,10 @@ export async function createSignedPresentationJWT(params: {
           '';
 
     if (!vpJwt) {
-      console.log('VERAMO VP RESULT:', result);
       throw new Error('VP JWT tidak ditemukan dari hasil Veramo');
     }
   } catch (error) {
-    console.log('VERAMO SIGN VP ERROR, USING DEV JWT FALLBACK:', error);
+    safeLogger.warn('Veramo VP signing failed, using unsigned development fallback');
 
     vpJwt = createLocalDevelopmentJWT({
       iss: params.holderDid,

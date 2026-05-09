@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { safeLogger } from '../utils/safeLogger';
 
 const VC_KEY = 'USER_VERIFIABLE_CREDENTIALS';
 
@@ -12,7 +13,7 @@ export const saveVC = async (vc: any) => {
       : vc?.proof?.jwt || vc?.jwt || vc?.verifiableCredential || '';
 
   if (!jwt) {
-    console.log('VC YANG GAGAL DISIMPAN:', vc);
+    safeLogger.warn('Save VC failed: no JWT found in credential');
     throw new Error('JWT VC tidak ditemukan dari hasil Veramo');
   }
 

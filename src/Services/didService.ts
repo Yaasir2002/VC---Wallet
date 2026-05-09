@@ -1,4 +1,5 @@
 import { agent } from '../veramo/agent';
+import { safeLogger } from '../utils/safeLogger';
 
 export type DIDData = {
   did: string;
@@ -27,7 +28,7 @@ export const generateEthrDID = async (): Promise<DIDData> => {
       createdAt: new Date().toISOString(),
     };
   } catch (error) {
-    console.log('CREATE VERAMO DID ERROR:', error);
+    safeLogger.error('Failed to create Veramo DID');
     throw error;
   }
 };

@@ -17,6 +17,7 @@ import { saveUserProfile } from '../../src/Storage/profileStorage';
 import { setOnboardingCompleted } from '../../src/Storage/authStorage';
 import { getDID, saveDID } from '../../src/Storage/didStorage';
 import { generateEthrDID } from '../../src/Services/didService';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 export default function CreateAccountScreen() {
   const router = useRouter();
@@ -94,7 +95,7 @@ export default function CreateAccountScreen() {
 
       router.replace('/auth/create-pin');
     } catch (error) {
-      console.log('CREATE ACCOUNT ERROR:', error);
+      safeLogger.error('Failed to create account');
 
       Alert.alert(
         'Gagal Membuat Akun',

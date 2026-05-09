@@ -19,6 +19,7 @@ import {
 } from '../src/Storage/authStorage';
 import { hasUserProfile } from '../src/Storage/profileStorage';
 import { getDID } from '../src/Storage/didStorage';
+import { safeLogger } from '../src/utils/safeLogger';
 
 export default function RootLayout() {
   return (
@@ -113,7 +114,7 @@ function AuthGate() {
         router.replace('/(tabs)');
       }
     } catch (error) {
-      console.log('AUTH GATE ERROR:', error);
+      safeLogger.error('Auth gate check failed', { error: error instanceof Error ? error.message : 'unknown' });
     } finally {
       isCheckingRef.current = false;
       setChecking(false);

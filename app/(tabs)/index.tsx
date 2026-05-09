@@ -18,6 +18,7 @@ import { DIDData } from '../../src/types/did';
 import { CredentialDocument } from '../../src/types/vc';
 import { getDID } from '../../src/Storage/didStorage';
 import { getCredentialDocuments } from '../../src/Services/documentCredentialService';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
@@ -51,7 +52,7 @@ export default function HomeScreen() {
       setDidData(did);
       setDocuments(docs);
     } catch (error) {
-      console.log('LOAD DASHBOARD ERROR:', error);
+      safeLogger.error('Failed to load dashboard');
 
       setToast({
         visible: true,

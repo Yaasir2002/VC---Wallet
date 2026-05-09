@@ -19,6 +19,7 @@ import {
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
+import { safeLogger } from '../../src/utils/safeLogger';
 
 type PresentedCredential = {
   jwt: string;
@@ -138,7 +139,7 @@ export default function ScanPresentationScreen() {
         type: isValid ? 'success' : 'error',
       });
     } catch (error) {
-      console.log('VERIFY VP JWT ERROR:', error);
+      safeLogger.error('VP JWT verification failed');
 
       setVerified(false);
       setHolderDid('');

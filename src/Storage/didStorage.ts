@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { DIDData } from '../Services/didService';
+import { safeLogger } from '../utils/safeLogger';
 
 const DID_KEY = 'USER_VERAMO_DID';
 
@@ -25,7 +26,7 @@ export const getDID = async (): Promise<DIDData | null> => {
   try {
     return JSON.parse(data);
   } catch {
-    console.log('PARSE DID DATA ERROR');
+    safeLogger.warn('Failed to parse stored DID data');
     return null;
   }
 };
