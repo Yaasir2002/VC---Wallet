@@ -19,6 +19,7 @@ type RawCredential = Record<string, any>;
 export type ParsedScannedCredential = {
   rawCredential: RawCredential;
   normalizedCredential: ModularCredential;
+  normalizedCredentials: ModularCredential[];
   preview: {
     credentialName: string;
     issuer: string;
@@ -377,17 +378,24 @@ function getMainClaims(subject: any): { label: string; value: string }[] {
 
   return Object.entries(subject)
     .filter(([key]) => key !== 'id')
-    .slice(0, 8)
+    .slice(0, 20)
     .map(([key, value]) => ({
       label: sanitizeText(key),
       value: sanitizeText(value),
-    }));
+    }))
+    .filter((claim) => claim.label && claim.value);
 }
 
 function inferAttributeType(label: string): AttributeType {
   const normalized = label.toLowerCase();
 
-  if (normalized.includes('name') || normalized.includes('nama')) {
+  if (
+    normalized.includes('namalengkap') ||
+    normalized.includes('nama_lengkap') ||
+    normalized.includes('nama lengkap') ||
+    normalized.includes('name') ||
+    normalized.includes('nama')
+  ) {
     return 'legalName';
   }
 
@@ -397,6 +405,25 @@ function inferAttributeType(label: string): AttributeType {
 
   if (normalized.includes('student') || normalized.includes('nim')) {
     return 'studentId';
+  }
+
+  if (
+    normalized.includes('prodi') ||
+    normalized.includes('programstudi') ||
+    normalized.includes('program_studi') ||
+    normalized.includes('program studi') ||
+    normalized.includes('studyprogram')
+  ) {
+    return 'studyProgram';
+  }
+
+  if (
+    normalized.includes('angkatan') ||
+    normalized.includes('enrollment') ||
+    normalized.includes('tahunmasuk') ||
+    normalized.includes('tahun_masuk')
+  ) {
+    return 'enrollmentYear';
   }
 
   if (normalized.includes('birthdate') || normalized.includes('tanggal')) {
@@ -427,7 +454,9 @@ function inferDocumentType(vc: RawCredential): DocumentType {
   if (
     relevantText.includes('ktm') ||
     relevantText.includes('student') ||
-    relevantText.includes('nim')
+    relevantText.includes('nim') ||
+    relevantText.includes('prodi') ||
+    relevantText.includes('angkatan')
   ) {
     return 'KTM';
   }
@@ -464,6 +493,123 @@ async function createStableCredentialId(vc: RawCredential): Promise<string> {
   return `qr-vc-${hash.slice(0, 24)}`;
 }
 
+async function createDocumentId(
+  vc: RawCredential,
+  documentType: DocumentType,
+  baseCredentialId: string
+): Promise<string> {
+  if (typeof vc.documentId === 'string' && vc.documentId.trim()) {
+    return vc.documentId;
+  }
+
+  const source = JSON.stringify({
+    id: vc.id,
+    issuer: vc.issuer,
+    subject: vc.credentialSubject?.id,
+    issuanceDate: vc.issuanceDate || vc.validFrom,
+    type: vc.type,
+  });
+
+  const hash = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    source
+  );
+
+  return `${documentType}-QR-${baseCredentialId
+    .replace(/[^a-zA-Z0-9-_]/g, '')
+    .slice(-12)}-${hash.slice(0, 12)}`;
+}
+
+async function createAttributeCredentialId(
+  baseCredentialId: string,
+  claimLabel: string,
+  claimValue: string
+): Promise<string> {
+  const hash = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    `${baseCredentialId}:${claimLabel}:${claimValue}`
+  );
+
+  return `${baseCredentialId}-${claimLabel
+    .replace(/[^a-zA-Z0-9-_]/g, '_')
+    .slice(0, 32)}-${hash.slice(0, 8)}`;
+}
+
+async function buildModularCredentialsFromClaims(params: {
+  rawCredential: RawCredential;
+  baseCredentialId: string;
+  documentId: string;
+  documentType: DocumentType;
+  documentName: string;
+  issuer: string;
+  subject: string;
+  issuanceDate: string;
+  expirationDate?: string;
+  mainClaims: {
+    label: string;
+    value: string;
+  }[];
+}): Promise<ModularCredential[]> {
+  const {
+    rawCredential,
+    baseCredentialId,
+    documentId,
+    documentType,
+    documentName,
+    issuer,
+    subject,
+    issuanceDate,
+    expirationDate,
+    mainClaims,
+  } = params;
+
+  const claims =
+    mainClaims.length > 0
+      ? mainClaims
+      : [
+          {
+            label: 'Credential Data',
+            value: sanitizeText(rawCredential.credentialSubject, 'Credential Data'),
+          },
+        ];
+
+  const credentials: ModularCredential[] = [];
+
+  for (const claim of claims) {
+    const id = await createAttributeCredentialId(
+      baseCredentialId,
+      claim.label,
+      claim.value
+    );
+
+    credentials.push({
+      id,
+      documentId,
+      documentType,
+      documentName,
+      type: Array.isArray(rawCredential.type)
+        ? rawCredential.type
+        : [String(rawCredential.type)],
+      issuer,
+      issuanceDate,
+      expirationDate,
+      validFrom: rawCredential.validFrom,
+      validUntil: rawCredential.validUntil,
+      credentialSubject: {
+        id: subject,
+        attributeType: inferAttributeType(claim.label),
+        attributeName: claim.label,
+        attributeValue: claim.value,
+      },
+      proof: rawCredential.proof,
+      jwt: rawCredential.jwt || rawCredential.proof?.jwt,
+      verificationStatus: 'pending_verification',
+    });
+  }
+
+  return credentials;
+}
+
 async function normalizeCredential(
   rawCredential: RawCredential
 ): Promise<ParsedScannedCredential> {
@@ -483,43 +629,37 @@ async function normalizeCredential(
     rawCredential.validTo;
 
   const mainClaims = getMainClaims(rawCredential.credentialSubject);
-  const firstClaim = mainClaims[0];
-
-  const id = await createStableCredentialId(rawCredential);
+  const baseCredentialId = await createStableCredentialId(rawCredential);
   const documentType = inferDocumentType(rawCredential);
-  const documentId =
-    rawCredential.documentId ||
-    `${documentType}-QR-${id.replace(/[^a-zA-Z0-9-_]/g, '').slice(-24)}`;
+  const documentId = await createDocumentId(
+    rawCredential,
+    documentType,
+    baseCredentialId
+  );
 
-  const normalizedCredential: ModularCredential = {
-    id,
+  const normalizedCredentials = await buildModularCredentialsFromClaims({
+    rawCredential,
+    baseCredentialId,
     documentId,
     documentType,
     documentName: credentialName,
-    type: Array.isArray(rawCredential.type)
-      ? rawCredential.type
-      : [String(rawCredential.type)],
     issuer,
+    subject,
     issuanceDate,
     expirationDate,
-    validFrom: rawCredential.validFrom,
-    validUntil: rawCredential.validUntil,
-    credentialSubject: {
-      id: subject,
-      attributeType: inferAttributeType(firstClaim?.label || 'custom'),
-      attributeName: firstClaim?.label || 'Credential Data',
-      attributeValue:
-        firstClaim?.value ||
-        sanitizeText(rawCredential.credentialSubject, 'Credential Data'),
-    },
-    proof: rawCredential.proof,
-    jwt: rawCredential.jwt || rawCredential.proof?.jwt,
-    verificationStatus: 'pending_verification',
-  };
+    mainClaims,
+  });
+
+  const normalizedCredential = normalizedCredentials[0];
+
+  if (!normalizedCredential) {
+    throw new Error('Credential tidak memiliki atribut yang dapat disimpan');
+  }
 
   return {
     rawCredential,
     normalizedCredential,
+    normalizedCredentials,
     preview: {
       credentialName,
       issuer,
@@ -639,21 +779,39 @@ export async function parseCredentialFromQR(
 export async function saveScannedCredential(
   parsedCredential: ParsedScannedCredential
 ): Promise<ModularCredential> {
-  const isDuplicate = await isCredentialAlreadySaved(
-    parsedCredential.normalizedCredential
-  );
+  const credentialsToSave =
+    parsedCredential.normalizedCredentials?.length > 0
+      ? parsedCredential.normalizedCredentials
+      : [parsedCredential.normalizedCredential];
 
-  if (isDuplicate) {
-    throw new Error('Credential sudah tersimpan sebelumnya');
+  let firstSavedCredential: ModularCredential | null = null;
+  let savedCount = 0;
+
+  for (const credential of credentialsToSave) {
+    const isDuplicate = await isCredentialAlreadySaved(credential);
+
+    if (isDuplicate) {
+      continue;
+    }
+
+    const result = await importCredentialSecurely({
+      ...credential,
+      source: parsedCredential.source,
+      importedAt: parsedCredential.importedAt,
+      rawCredential: parsedCredential.rawCredential,
+      parsedCredential: parsedCredential.preview,
+    });
+
+    if (!firstSavedCredential) {
+      firstSavedCredential = result.credential;
+    }
+
+    savedCount += 1;
   }
 
-  const result = await importCredentialSecurely({
-    ...parsedCredential.normalizedCredential,
-    source: parsedCredential.source,
-    importedAt: parsedCredential.importedAt,
-    rawCredential: parsedCredential.rawCredential,
-    parsedCredential: parsedCredential.preview,
-  });
+  if (!firstSavedCredential || savedCount === 0) {
+    throw new Error('Semua atribut credential sudah tersimpan sebelumnya');
+  }
 
-  return result.credential;
+  return firstSavedCredential;
 }
