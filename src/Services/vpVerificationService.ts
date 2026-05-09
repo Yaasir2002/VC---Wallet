@@ -15,7 +15,7 @@ export interface VPVerificationResult {
   messages: string[];
 }
 
-export function verifyVP(data: any): VPVerificationResult {
+export async function verifyVP(data: any): Promise<VPVerificationResult> {
   const messages: string[] = [];
 
   const structure =
@@ -44,7 +44,7 @@ export function verifyVP(data: any): VPVerificationResult {
   let vcResult: VCVerificationResult | null = null;
 
   if (credential) {
-    vcResult = verifyVC(data.verifiableCredential);
+    vcResult = await verifyVC(data.verifiableCredential);
   }
 
   const isValid = structure && holder && credential && !!vcResult?.isValid;

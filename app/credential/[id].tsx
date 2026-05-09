@@ -30,7 +30,7 @@ export default function CredentialDetailScreen() {
   const [verification, setVerification] =
     useState<VCVerificationResult | null>(null);
 
-  async function loadCredential() {
+  const loadCredential = useCallback(async () => {
     try {
       if (!id) return;
 
@@ -43,19 +43,15 @@ export default function CredentialDetailScreen() {
       }
 
       setCredential(data);
-      setVerification(verifyVC(data));
+      setVerification(await verifyVC(data));
     } catch {
       Alert.alert('Error', 'Gagal mengambil detail credential');
     }
-  }
-
-  const loadCredential = useCallback(() => {
-    loadCredential();
-  }, []);
+  }, [id, router]);
 
   useEffect(() => {
-  loadCredential();
-}, [loadCredential]);
+    void loadCredential();
+  }, [loadCredential]);
 
   if (!credential) {
     return (
@@ -65,6 +61,12 @@ export default function CredentialDetailScreen() {
       </View>
     );
   }
+
+  const verificationMessages = verification
+    ? [verification.reason].filter((message): message is string =>
+        Boolean(message)
+      )
+    : [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -107,9 +109,7 @@ export default function CredentialDetailScreen() {
             <View
               style={[
                 styles.verificationIcon,
-                verification.isValid
-                  ? styles.verifiedIcon
-                  : styles.invalidIcon,
+                verification.isValid ? styles.verifiedIcon : styles.invalidIcon,
               ]}
             >
               <Ionicons
@@ -151,27 +151,27 @@ export default function CredentialDetailScreen() {
 
             <View style={styles.checkItem}>
               <Text style={styles.checkEmoji}>
-                {verification.checks.issuer ? '✅' : '❌'}
+                {verification.checks.trustedIssuer ? '✅' : '❌'}
               </Text>
-              <Text style={styles.checkText}>Issuer DID</Text>
+              <Text style={styles.checkText}>Trusted Issuer</Text>
             </View>
 
             <View style={styles.checkItem}>
               <Text style={styles.checkEmoji}>
-                {verification.checks.subject ? '✅' : '❌'}
+                {verification.checks.didResolution ? '✅' : '❌'}
               </Text>
-              <Text style={styles.checkText}>Subject</Text>
+              <Text style={styles.checkText}>DID Resolution</Text>
             </View>
 
             <View style={styles.checkItem}>
               <Text style={styles.checkEmoji}>
-                {verification.checks.proof ? '✅' : '❌'}
+                {verification.checks.signature ? '✅' : '❌'}
               </Text>
-              <Text style={styles.checkText}>Proof</Text>
+              <Text style={styles.checkText}>Signature</Text>
             </View>
           </View>
 
-          {verification.messages.map((msg, index) => (
+          {verificationMessages.map((msg, index) => (
             <Text key={index} style={styles.verificationMessage}>
               • {msg}
             </Text>

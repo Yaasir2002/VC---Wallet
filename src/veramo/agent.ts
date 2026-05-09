@@ -1,12 +1,13 @@
 import { createAgent } from '@veramo/core';
 import { DIDManager, MemoryDIDStore } from '@veramo/did-manager';
-import { KeyManager, MemoryKeyStore, MemoryPrivateKeyStore } from '@veramo/key-manager';
+import { KeyManager, MemoryKeyStore } from '@veramo/key-manager';
 import { KeyManagementSystem } from '@veramo/kms-local';
 import { EthrDIDProvider } from '@veramo/did-provider-ethr';
 import { DIDResolverPlugin } from '@veramo/did-resolver';
 import { CredentialPlugin } from '@veramo/credential-w3c';
 import { Resolver } from 'did-resolver';
 import { getResolver as getEthrResolver } from 'ethr-did-resolver';
+
 import { SecurePrivateKeyStore } from './securePrivateKeyStore';
 
 const networks = [
@@ -20,11 +21,11 @@ const networks = [
 export const agent = createAgent({
   plugins: [
     new KeyManager({
-        store: new MemoryKeyStore(),
-        kms: {
-            local: new KeyManagementSystem(new SecurePrivateKeyStore() as any),
-        },
-        }),
+      store: new MemoryKeyStore(),
+      kms: {
+        local: new KeyManagementSystem(new SecurePrivateKeyStore() as any),
+      },
+    }),
 
     new DIDManager({
       store: new MemoryDIDStore(),
@@ -45,6 +46,6 @@ export const agent = createAgent({
       }),
     }),
 
-    new CredentialPlugin(),
+    new CredentialPlugin([]),
   ],
 });

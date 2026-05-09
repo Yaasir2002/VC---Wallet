@@ -1,11 +1,17 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, ViewStyle } from 'react-native';
+import {
+  Animated,
+  StyleSheet,
+  ViewStyle,
+  DimensionValue,
+  StyleProp,
+} from 'react-native';
 
 type SkeletonBoxProps = {
-  width?: number | string;
+  width?: DimensionValue;
   height?: number;
   borderRadius?: number;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 };
 
 export default function SkeletonBox({
