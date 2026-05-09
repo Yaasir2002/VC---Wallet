@@ -95,7 +95,8 @@ export default function CreateAccountScreen() {
 
       router.replace('/auth/create-pin');
     } catch (error) {
-      safeLogger.error('Failed to create account');
+      const message = error instanceof Error ? error.message : String(error);
+      safeLogger.error(`Failed to create account: ${message}`);
 
       Alert.alert(
         'Gagal Membuat Akun',

@@ -86,11 +86,18 @@ async function deleteDIDData(did: string): Promise<void> {
 }
 
 /**
- * A Veramo-compatible IIdentifierStore implementation that persists
+ * A Veramo 7-compatible AbstractIdentifierStore implementation that persists
  * DID identifiers across app restarts.
+ *
+ * Veramo 7 renamed all AbstractIdentifierStore methods:
+ *   importIdentifier → importDID
+ *   getIdentifier    → getDID
+ *   deleteIdentifier → deleteDID
+ *   listIdentifiers  → listDIDs
+ *   updateIdentifier → updateDID
  */
 export class SecureDIDStore {
-  async importIdentifier(identifier: any): Promise<void> {
+  async importDID(identifier: any): Promise<void> {
     const did = identifier.did;
 
     if (!did || typeof did !== 'string') {
@@ -105,7 +112,7 @@ export class SecureDIDStore {
     }
   }
 
-  async getIdentifier({ did }: { did: string }): Promise<any> {
+  async getDID({ did }: { did: string }): Promise<any> {
     const data = await loadDIDData(did);
 
     if (!data) {
@@ -117,14 +124,14 @@ export class SecureDIDStore {
     return data;
   }
 
-  async deleteIdentifier({ did }: { did: string }): Promise<boolean> {
+  async deleteDID({ did }: { did: string }): Promise<boolean> {
     await deleteDIDData(did);
     const index = await getDIDIndex();
     await saveDIDIndex(index.filter((d) => d !== did));
     return true;
   }
 
-  async listIdentifiers(): Promise<any[]> {
+  async listDIDs(): Promise<any[]> {
     const index = await getDIDIndex();
     const identifiers: any[] = [];
 
@@ -141,9 +148,8 @@ export class SecureDIDStore {
     return identifiers;
   }
 
-  /** Not all Veramo operations use this — safe no-op for keys in identifier */
-  async updateIdentifier(identifier: any): Promise<any> {
-    await this.importIdentifier(identifier);
+  async updateDID(identifier: any): Promise<any> {
+    await this.importDID(identifier);
     return identifier;
   }
 }
