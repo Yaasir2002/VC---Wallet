@@ -1,6 +1,7 @@
 import { AttributeType, ModularCredential } from "../types/vc";
 import { agent } from "../veramo/agent";
 import { safeLogger } from "../utils/safeLogger";
+import { base64UrlEncode, createLocalDevelopmentJWT } from "../utils/jwtUtils";
 
 async function getOrCreateIssuerDID(): Promise<string> {
   const identifiers = await agent.didManagerFind();
@@ -10,8 +11,9 @@ async function getOrCreateIssuerDID(): Promise<string> {
   }
 
   const identifier = await agent.didManagerCreate({
-    provider: "did:ethr:sepolia",
+    provider: "did:key",
     alias: "main-issuer",
+    options: { keyType: "Ed25519" },
   });
 
   return identifier.did;
@@ -21,50 +23,6 @@ function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
   return Object.fromEntries(
     Object.entries(obj).filter(([, value]) => value !== undefined),
   ) as T;
-}
-
-function base64UrlEncode(value: any): string {
-  const json = typeof value === "string" ? value : JSON.stringify(value);
-
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-
-  let output = "";
-  let i = 0;
-
-  while (i < json.length) {
-    const chr1 = json.charCodeAt(i++);
-    const chr2 = json.charCodeAt(i++);
-    const chr3 = json.charCodeAt(i++);
-
-    const enc1 = chr1 >> 2;
-    const enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
-    let enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
-    let enc4 = chr3 & 63;
-
-    if (Number.isNaN(chr2)) {
-      enc3 = enc4 = 64;
-    } else if (Number.isNaN(chr3)) {
-      enc4 = 64;
-    }
-
-    output +=
-      chars.charAt(enc1) +
-      chars.charAt(enc2) +
-      chars.charAt(enc3) +
-      chars.charAt(enc4);
-  }
-
-  return output.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function createLocalDevelopmentJWT(payload: any): string {
-  const header = {
-    alg: "none",
-    typ: "JWT",
-  };
-
-  return `${base64UrlEncode(header)}.${base64UrlEncode(payload)}.development-signature`;
 }
 
 export async function createAttributeCredential(params: {
