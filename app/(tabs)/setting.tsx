@@ -67,7 +67,7 @@ export default function SettingsScreen() {
 
       setProfile(userProfile);
       setDidData(did);
-    } catch (error) {
+    } catch {
       safeLogger.error('Failed to load settings');
 
       setToast({
@@ -94,8 +94,6 @@ export default function SettingsScreen() {
 
   async function handlePickProfileImage() {
     try {
-      // Mark system UI open BEFORE requesting permission (permission dialog
-      // also causes app to go 'background' on Android)
       markSystemUIOpen();
 
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -118,7 +116,7 @@ export default function SettingsScreen() {
       if (!result.canceled && result.assets.length > 0) {
         setProfileImageUri(result.assets[0].uri);
       }
-    } catch (error) {
+    } catch {
       safeLogger.error('Failed to pick profile image');
 
       setToast({
@@ -127,7 +125,6 @@ export default function SettingsScreen() {
         type: 'error',
       });
     } finally {
-      // Always release the guard and refresh session after gallery closes
       markSystemUIClosed();
       await refreshSession();
     }
@@ -180,7 +177,7 @@ export default function SettingsScreen() {
       };
 
       await saveUserProfile(updatedProfile);
-      await refreshSession(); // reset session timeout on user activity
+      await refreshSession();
       setProfile(updatedProfile);
       setEditVisible(false);
 
@@ -189,7 +186,7 @@ export default function SettingsScreen() {
         message: 'Profil berhasil diperbarui',
         type: 'success',
       });
-    } catch (error) {
+    } catch {
       safeLogger.error('Failed to save profile');
 
       setToast({
@@ -222,6 +219,10 @@ export default function SettingsScreen() {
   async function handleLockWallet() {
     await lockSession();
     router.replace('/auth/unlock');
+  }
+
+  function handleViewRecoveryPhrase() {
+    router.push('/settings/recovery-phrase');
   }
 
   return (
@@ -297,7 +298,7 @@ export default function SettingsScreen() {
             <View>
               <Text style={styles.cardTitle}>Permanent DID</Text>
               <Text style={styles.cardSubtitle}>
-                DID dibuat otomatis saat akun dibuat.
+                DID dibuat dari recovery phrase wallet.
               </Text>
             </View>
 
@@ -324,8 +325,8 @@ export default function SettingsScreen() {
           <View style={styles.noticeBox}>
             <Ionicons name="lock-closed-outline" size={20} color="#F97316" />
             <Text style={styles.noticeText}>
-              DID bersifat permanen dan tidak dapat dihapus atau diganti melalui
-              aplikasi.
+              DID bersifat permanen. Untuk memulihkan DID yang sama, gunakan
+              recovery phrase 12 kata yang dibuat saat setup wallet.
             </Text>
           </View>
         </View>
@@ -353,9 +354,35 @@ export default function SettingsScreen() {
           <SettingItem
             icon="shield-checkmark-outline"
             title="Secure Storage"
-            description="Profil, DID, dan session disimpan secara lokal."
+            description="Profil, DID, recovery phrase, dan session disimpan secara lokal."
             status="Active"
           />
+
+          <Pressable
+            style={styles.settingActionItem}
+            onPress={handleViewRecoveryPhrase}
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons
+                name="document-lock-outline"
+                size={20}
+                color="#2563EB"
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingTitle}>View Recovery Phrase</Text>
+              <Text style={styles.settingDescription}>
+                Lihat 12 kata recovery phrase setelah konfirmasi PIN.
+              </Text>
+            </View>
+
+            <Ionicons
+              name="chevron-forward-outline"
+              size={20}
+              color="#64748B"
+            />
+          </Pressable>
 
           <Pressable style={styles.lockButton} onPress={handleLockWallet}>
             <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
@@ -598,8 +625,6 @@ function formatBirthDate(date?: string) {
   }
 }
 
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -822,6 +847,14 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   settingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  settingActionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

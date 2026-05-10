@@ -3,29 +3,29 @@
  *
  * Centralized service for managing the wallet holder's DID identity.
  *
- * Architecture:
- * 1. On first wallet setup (create-account), a did:ethr:sepolia DID is generated
- *    via Veramo and stored in didStorage (SecureStore).
- * 2. On subsequent app launches, the DID is loaded from didStorage.
- * 3. If the DID exists in didStorage but not in Veramo's agent (after a
- *    MemoryDIDStore → SecureDIDStore migration), the DID record is reconstructed.
- * 4. The DID is never regenerated if one already exists — preserving continuity.
+ * Current architecture:
+ * 1. New wallets are created from BIP39 mnemonic recovery phrase.
+ * 2. The mnemonic deterministically derives an Ed25519 did:key identity.
+ * 3. DID continuity is preserved because the same mnemonic restores the same DID.
+ * 4. Legacy wallets that already have DID in didStorage are still supported.
  *
  * Security notes:
- * - The DID (public identifier) is safe to display.
- * - The private key is managed exclusively by SecurePrivateKeyStore.
- * - This service never logs DIDs or keys in production.
+ * - DID is public and safe to display.
+ * - Mnemonic and private key seed are stored only in SecureStore.
+ * - This service never logs mnemonic or private keys.
  */
 
 import { getDID, saveDID } from '../Storage/didStorage';
 import { generateEthrDID } from './didService';
 import { safeLogger } from '../utils/safeLogger';
+import { getRecoverableWalletIdentity } from '../Storage/secureWalletStorage';
+import { createWalletWithMnemonic } from './recoverableWalletIdentityService';
 
 export type WalletIdentityStatus =
-  | 'ready'            // DID exists and is accessible
-  | 'creating'         // DID is being generated for the first time
-  | 'not_initialized'  // No DID exists yet (onboarding not complete)
-  | 'error';           // DID generation or loading failed
+  | 'ready'
+  | 'creating'
+  | 'not_initialized'
+  | 'error';
 
 export type WalletIdentity = {
   did: string;
@@ -38,12 +38,23 @@ export type WalletIdentity = {
   status: WalletIdentityStatus;
 };
 
-/**
- * Loads the current wallet identity from persistent storage.
- * Returns null if no identity exists (first launch / not onboarded).
- */
 export async function getWalletIdentity(): Promise<WalletIdentity | null> {
   try {
+    const recoverableIdentity = await getRecoverableWalletIdentity();
+
+    if (recoverableIdentity?.did) {
+      return {
+        did: recoverableIdentity.did,
+        provider: recoverableIdentity.provider,
+        method: recoverableIdentity.method,
+        network: recoverableIdentity.network,
+        alias: recoverableIdentity.alias,
+        controllerKeyId: recoverableIdentity.controllerKeyId,
+        createdAt: recoverableIdentity.createdAt,
+        status: 'ready',
+      };
+    }
+
     const didData = await getDID();
 
     if (!didData?.did) {
@@ -60,14 +71,6 @@ export async function getWalletIdentity(): Promise<WalletIdentity | null> {
   }
 }
 
-/**
- * Ensures a wallet identity exists. If not, generates a new one.
- *
- * This should be called during wallet setup (after PIN creation), NOT on every
- * app launch. Use getWalletIdentity() for read-only access.
- *
- * @throws Error if DID generation fails
- */
 export async function ensureWalletIdentity(): Promise<WalletIdentity> {
   const existing = await getWalletIdentity();
 
@@ -75,10 +78,34 @@ export async function ensureWalletIdentity(): Promise<WalletIdentity> {
     return existing;
   }
 
-  safeLogger.info('No wallet identity found, generating new DID');
+  safeLogger.info('No wallet identity found, generating mnemonic DID');
+
+  const result = await createWalletWithMnemonic();
+
+  return {
+    did: result.identity.did,
+    provider: result.identity.provider,
+    method: result.identity.method,
+    network: result.identity.network,
+    alias: result.identity.alias,
+    controllerKeyId: result.identity.controllerKeyId,
+    createdAt: result.identity.createdAt,
+    status: 'ready',
+  };
+}
+
+/**
+ * Legacy fallback only.
+ * Use this when supporting old wallets that were created before mnemonic recovery.
+ */
+export async function ensureLegacyWalletIdentity(): Promise<WalletIdentity> {
+  const existing = await getWalletIdentity();
+
+  if (existing) {
+    return existing;
+  }
 
   const newDIDData = await generateEthrDID();
-
   await saveDID(newDIDData);
 
   return {
@@ -87,19 +114,11 @@ export async function ensureWalletIdentity(): Promise<WalletIdentity> {
   };
 }
 
-/**
- * Returns the holder DID string for use in credential subjects and presentations.
- * Returns null if no identity has been created yet.
- */
 export async function getHolderDid(): Promise<string | null> {
   const identity = await getWalletIdentity();
   return identity?.did ?? null;
 }
 
-/**
- * Returns a display-safe summary of the wallet identity.
- * Safe to use in UI — does NOT expose private keys.
- */
 export async function getWalletIdentitySummary(): Promise<{
   did: string | null;
   shortDid: string | null;
@@ -122,9 +141,8 @@ export async function getWalletIdentitySummary(): Promise<{
   }
 
   const did = identity.did;
-  const shortDid = did.length > 32
-    ? `${did.slice(0, 14)}...${did.slice(-6)}`
-    : did;
+  const shortDid =
+    did.length > 32 ? `${did.slice(0, 14)}...${did.slice(-6)}` : did;
 
   return {
     did,
@@ -136,9 +154,6 @@ export async function getWalletIdentitySummary(): Promise<{
   };
 }
 
-/**
- * Checks if the wallet has a fully initialized identity (DID exists).
- */
 export async function hasWalletIdentity(): Promise<boolean> {
   const identity = await getWalletIdentity();
   return identity !== null;

@@ -42,8 +42,8 @@ export default function CreatePinScreen() {
   }
 
   async function handleSave() {
-    if (pin.length < 4) {
-      setError('PIN minimal 4 digit.');
+    if (pin.length < 6) {
+      setError('PIN minimal 6 digit.');
       return;
     }
 
@@ -57,7 +57,7 @@ export default function CreatePinScreen() {
     await setOnboardingCompleted(true);
     await setSessionUnlocked(true);
 
-router.replace('/(tabs)');
+    router.replace('/auth/backup-mnemonic');
   }
 
   return (
@@ -76,8 +76,8 @@ router.replace('/(tabs)');
 
           <Text style={styles.headerTitle}>Buat PIN Wallet</Text>
           <Text style={styles.headerSubtitle}>
-            PIN digunakan untuk membuka SSI Wallet dan melindungi credential
-            yang tersimpan di perangkat.
+            PIN digunakan untuk membuka SSI Wallet, melihat recovery phrase, dan
+            melindungi credential yang tersimpan di perangkat.
           </Text>
         </LinearGradient>
 
@@ -162,7 +162,7 @@ router.replace('/(tabs)');
           </Pressable>
 
           <Pressable style={styles.button} onPress={handleSave}>
-            <Text style={styles.buttonText}>Simpan & Masuk Wallet</Text>
+            <Text style={styles.buttonText}>Simpan & Backup Phrase</Text>
             <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -171,6 +171,7 @@ router.replace('/(tabs)');
           <Ionicons name="shield-checkmark-outline" size={22} color="#F97316" />
           <Text style={styles.noteText}>
             PIN disimpan secara lokal menggunakan secure storage perangkat.
+            Setelah PIN dibuat, kamu akan diminta menyimpan recovery phrase.
           </Text>
         </View>
       </KeyboardAvoidingView>

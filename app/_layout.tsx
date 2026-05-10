@@ -2,6 +2,7 @@ import 'react-native-get-random-values';
 import '@ethersproject/shims';
 import 'react-native-url-polyfill/auto';
 
+import { Buffer } from 'buffer';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import {
@@ -21,6 +22,10 @@ import { hasUserProfile } from '../src/Storage/profileStorage';
 import { getDID } from '../src/Storage/didStorage';
 import { safeLogger } from '../src/utils/safeLogger';
 import { isSystemUIOpen } from '../src/utils/systemUIGuard';
+
+if (!global.Buffer) {
+  global.Buffer = Buffer;
+}
 
 export default function RootLayout() {
   return (
@@ -62,8 +67,17 @@ function AuthGate() {
         isAuthRoute && currentRoute === 'create-account';
       const isCreatePinRoute = isAuthRoute && currentRoute === 'create-pin';
       const isUnlockRoute = isAuthRoute && currentRoute === 'unlock';
+      const isBackupMnemonicRoute =
+        isAuthRoute && currentRoute === 'backup-mnemonic';
+      const isRestoreWalletRoute =
+        isAuthRoute && currentRoute === 'restore-wallet';
 
-      if (!onboardingDone && !isOnboardingRoute && !isCreateAccountRoute) {
+      if (
+        !onboardingDone &&
+        !isOnboardingRoute &&
+        !isCreateAccountRoute &&
+        !isRestoreWalletRoute
+      ) {
         router.replace('/auth/onboarding');
         return;
       }
@@ -75,7 +89,8 @@ function AuthGate() {
       if (
         onboardingDone &&
         (!profileExists || !didExists) &&
-        !isCreateAccountRoute
+        !isCreateAccountRoute &&
+        !isRestoreWalletRoute
       ) {
         router.replace('/auth/create-account');
         return;
@@ -86,7 +101,8 @@ function AuthGate() {
         profileExists &&
         didExists &&
         !pinExists &&
-        !isCreatePinRoute
+        !isCreatePinRoute &&
+        !isBackupMnemonicRoute
       ) {
         router.replace('/auth/create-pin');
         return;
@@ -98,7 +114,8 @@ function AuthGate() {
         didExists &&
         pinExists &&
         !sessionUnlocked &&
-        !isUnlockRoute
+        !isUnlockRoute &&
+        !isBackupMnemonicRoute
       ) {
         router.replace('/auth/unlock');
         return;
@@ -110,12 +127,15 @@ function AuthGate() {
         didExists &&
         pinExists &&
         sessionUnlocked &&
-        isAuthRoute
+        isAuthRoute &&
+        !isBackupMnemonicRoute
       ) {
         router.replace('/(tabs)');
       }
     } catch (error) {
-      safeLogger.error('Auth gate check failed', { error: error instanceof Error ? error.message : 'unknown' });
+      safeLogger.error('Auth gate check failed', {
+        error: error instanceof Error ? error.message : 'unknown',
+      });
     } finally {
       isCheckingRef.current = false;
       setChecking(false);
@@ -134,7 +154,7 @@ function AuthGate() {
         previousState === 'active' &&
         nextAppState.match(/inactive|background/) &&
         !isAuthRoute &&
-        !isSystemUIOpen() // skip lock when app is in background due to system UI (image picker, camera, etc.)
+        !isSystemUIOpen()
       ) {
         await lockSession();
         return;
@@ -154,10 +174,6 @@ function AuthGate() {
     segmentsRef.current = segments;
   }, [segments]);
 
-  // Only re-run checkAuth when the ROUTE GROUP changes (real navigation),
-  // not on every re-render caused by local state or modal open/close.
-  // Using segments[0] (the route group) as the stable dependency instead of
-  // the entire segments array, which changes reference on every render.
   const currentRouteGroup = segments[0];
 
   useEffect(() => {

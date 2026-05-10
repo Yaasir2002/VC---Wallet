@@ -15,8 +15,8 @@ import { useRouter } from 'expo-router';
 
 import { saveUserProfile } from '../../src/Storage/profileStorage';
 import { setOnboardingCompleted } from '../../src/Storage/authStorage';
-import { getDID, saveDID } from '../../src/Storage/didStorage';
-import { generateEthrDID } from '../../src/Services/didService';
+import { getDID } from '../../src/Storage/didStorage';
+import { createWalletWithMnemonic } from '../../src/Services/recoverableWalletIdentityService';
 import { safeLogger } from '../../src/utils/safeLogger';
 
 export default function CreateAccountScreen() {
@@ -75,10 +75,9 @@ export default function CreateAccountScreen() {
       setLoading(true);
 
       const existingDID = await getDID();
-      const finalDID = existingDID ?? (await generateEthrDID());
 
       if (!existingDID) {
-        await saveDID(finalDID);
+        await createWalletWithMnemonic();
       }
 
       await saveUserProfile({
@@ -100,7 +99,7 @@ export default function CreateAccountScreen() {
 
       Alert.alert(
         'Gagal Membuat Akun',
-        'Akun gagal dibuat karena DID tidak berhasil dibuat. Silakan coba lagi.'
+        'Akun gagal dibuat karena wallet identity tidak berhasil dibuat. Silakan coba lagi.'
       );
     } finally {
       setLoading(false);
@@ -126,8 +125,8 @@ export default function CreateAccountScreen() {
 
         <Text style={styles.title}>Buat Akun Wallet</Text>
         <Text style={styles.subtitle}>
-          Lengkapi data akun. DID akan otomatis dibuat saat akun berhasil
-          disimpan.
+          Lengkapi data akun. DID dan recovery phrase akan otomatis dibuat saat
+          akun berhasil disimpan.
         </Text>
       </View>
 
@@ -204,7 +203,7 @@ export default function CreateAccountScreen() {
           disabled={loading}
         >
           <Text style={styles.primaryButtonText}>
-            {loading ? 'Membuat Akun & DID...' : 'Buat Akun'}
+            {loading ? 'Membuat Akun & Wallet...' : 'Buat Akun'}
           </Text>
           <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
         </Pressable>
@@ -213,8 +212,8 @@ export default function CreateAccountScreen() {
       <View style={styles.noteCard}>
         <Ionicons name="information-circle-outline" size={22} color="#F97316" />
         <Text style={styles.noteText}>
-          DID akan dibuat otomatis dan bersifat permanen. Setelah dibuat, DID
-          tidak dapat dihapus atau diganti melalui aplikasi.
+          DID dibuat dari recovery phrase 12 kata. Simpan phrase tersebut agar
+          wallet identity dapat dipulihkan di masa depan.
         </Text>
       </View>
     </ScrollView>

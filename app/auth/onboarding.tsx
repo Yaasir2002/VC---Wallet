@@ -16,6 +16,10 @@ export default function OnboardingScreen() {
     router.replace('/auth/create-account');
   }
 
+  function handleRestoreWallet() {
+    router.push('/auth/restore-wallet');
+  }
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -42,14 +46,18 @@ export default function OnboardingScreen() {
         <Text style={styles.infoTitle}>Mulai dengan Identitas Digital</Text>
 
         <Text style={styles.infoText}>
-          Setelah onboarding, kamu akan membuat akun wallet. Sistem akan otomatis
-          membuat DID yang bersifat permanen dan digunakan sebagai identitas
-          digital utama.
+          Setelah onboarding, kamu dapat membuat wallet baru dengan recovery
+          phrase atau memulihkan wallet lama menggunakan 12 kata recovery phrase.
         </Text>
 
         <Pressable style={styles.primaryButton} onPress={handleStart}>
           <Text style={styles.primaryButtonText}>Mulai Sekarang</Text>
           <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
+        </Pressable>
+
+        <Pressable style={styles.restoreButton} onPress={handleRestoreWallet}>
+          <Ionicons name="refresh-outline" size={20} color="#2563EB" />
+          <Text style={styles.restoreButtonText}>Restore Wallet</Text>
         </Pressable>
       </View>
     </View>
@@ -140,6 +148,24 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  restoreButton: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  restoreButtonText: {
+    color: '#2563EB',
     fontWeight: '900',
     fontSize: 15,
   },
