@@ -104,12 +104,13 @@ export default function ScanPresentationScreen() {
     if (scanned) return;
 
     setScanned(true);
-    setRawJwt(data);
 
     try {
       setLoading(true);
 
       const verificationResult = await verifyPresentationJWT(data);
+      setRawJwt(verificationResult.decoded?.raw || data);
+      
       const isValid = verificationResult.valid === true;
 
       setVerified(isValid);
@@ -139,21 +140,26 @@ export default function ScanPresentationScreen() {
         type: isValid ? 'success' : 'error',
       });
     } catch (error) {
-      safeLogger.error('VP JWT verification failed');
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'VP JWT verification failed';
 
-      setVerified(false);
-      setHolderDid('');
-      setDidDocument(null);
-      setPublicKeyInfo(null);
-      setPresentedCredentials([]);
-      setDecodedPayload(null);
+          safeLogger.error('VP JWT verification failed', { message });
 
-      setToast({
-        visible: true,
-        message: 'QR tidak valid atau DID gagal di-resolve',
-        type: 'error',
-      });
-    } finally {
+          setVerified(false);
+          setHolderDid('');
+          setDidDocument(null);
+          setPublicKeyInfo(null);
+          setPresentedCredentials([]);
+          setDecodedPayload(null);
+
+          setToast({
+            visible: true,
+            message,
+            type: 'error',
+          });
+        } finally {
       setLoading(false);
     }
   }

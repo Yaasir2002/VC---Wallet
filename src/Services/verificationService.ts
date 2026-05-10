@@ -17,35 +17,95 @@ function base64UrlDecode(input: string) {
   );
 }
 
-export function decodeJWT(jwt: string) {
-  const parts = jwt.split('.');
-
-  if (parts.length < 2) {
-    throw new Error('Format JWT tidak valid');
+function isJwtString(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
   }
+
+  const parts = value.trim().split('.');
+
+  return (
+    parts.length === 3 &&
+    parts[0].length > 0 &&
+    parts[1].length > 0 &&
+    parts[2].length > 0
+  );
+}
+
+export function decodeJWT(jwt: string) {
+  const normalizedJwt = jwt.trim();
+
+  if (!isJwtString(normalizedJwt)) {
+    throw new Error(
+      'Format QR salah. Untuk demo verifier, QR harus berisi VP JWT murni: header.payload.signature.'
+    );
+  }
+
+  const parts = normalizedJwt.split('.');
 
   return {
     header: JSON.parse(base64UrlDecode(parts[0])),
     payload: JSON.parse(base64UrlDecode(parts[1])),
     signature: parts[2],
+    raw: normalizedJwt,
   };
 }
 
 export async function verifyPresentationJWT(jwt: string) {
   const decoded = decodeJWT(jwt);
 
+  const vp = decoded.payload?.vp;
+
+  if (!vp || typeof vp !== 'object') {
+    throw new Error('Payload JWT tidak memiliki field vp.');
+  }
+
+  const vpTypes = Array.isArray(vp.type) ? vp.type : [vp.type];
+
+  if (!vpTypes.includes('VerifiablePresentation')) {
+    throw new Error('JWT bukan Verifiable Presentation.');
+  }
+
   const holderDid =
     decoded.payload?.iss ||
     decoded.payload?.sub ||
-    decoded.payload?.vp?.holder ||
+    vp?.holder ||
     decoded.payload?.holder;
 
-  if (!holderDid) {
-    throw new Error('Holder DID tidak ditemukan');
+  if (!holderDid || typeof holderDid !== 'string') {
+    throw new Error('Holder DID tidak ditemukan di VP JWT.');
+  }
+
+  if (!holderDid.startsWith('did:key:')) {
+    throw new Error(
+      `Holder DID harus did:key agar bisa di-resolve offline. DID saat ini: ${holderDid}`
+    );
   }
 
   const didResolution = await resolveDID(holderDid);
   const publicKeyInfo = extractPublicKeyInfo(didResolution);
+
+  if (!publicKeyInfo.didDocument) {
+    throw new Error(`DID Document tidak ditemukan untuk ${holderDid}`);
+  }
+
+  const hasVerificationMethod =
+    Array.isArray(publicKeyInfo.verificationMethod) &&
+    publicKeyInfo.verificationMethod.length > 0;
+
+  const hasAuthentication =
+    Array.isArray(publicKeyInfo.authentication) &&
+    publicKeyInfo.authentication.length > 0;
+
+  const hasAssertionMethod =
+    Array.isArray(publicKeyInfo.assertionMethod) &&
+    publicKeyInfo.assertionMethod.length > 0;
+
+  if (!hasVerificationMethod && !hasAuthentication && !hasAssertionMethod) {
+    throw new Error(
+      `Public key / verification method tidak ditemukan untuk ${holderDid}`
+    );
+  }
 
   return {
     valid: true,

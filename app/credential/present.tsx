@@ -24,6 +24,21 @@ import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 
+function isJwtString(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const parts = value.trim().split('.');
+
+  return (
+    parts.length === 3 &&
+    parts[0].length > 0 &&
+    parts[1].length > 0 &&
+    parts[2].length > 0
+  );
+}
+
 export default function PresentCredentialScreen() {
   const router = useRouter();
 
@@ -184,6 +199,16 @@ export default function PresentCredentialScreen() {
         return;
       }
 
+      if (!didData.did.startsWith('did:key:')) {
+        setToast({
+          visible: true,
+          message:
+            'DID holder harus did:key agar bisa di-resolve pada demo offline.',
+          type: 'error',
+        });
+        return;
+      }
+
       const selectedCredentials = credentials.filter((vc) =>
         selectedIds.includes(vc.id)
       );
@@ -207,8 +232,16 @@ export default function PresentCredentialScreen() {
         credentials: selectedCredentials,
       });
 
-      validatePresentationPayloadSize(vp.jwt);
-      setPresentationJwt(vp.jwt);
+      const vpJwt = vp.jwt.trim();
+
+      if (!isJwtString(vpJwt)) {
+        throw new Error(
+          'VP JWT tidak valid. QR presentation harus berisi JWT murni dengan format header.payload.signature.'
+        );
+      }
+
+      validatePresentationPayloadSize(vpJwt);
+      setPresentationJwt(vpJwt);
 
       setToast({
         visible: true,
@@ -216,14 +249,16 @@ export default function PresentCredentialScreen() {
         type: 'success',
       });
     } catch (error) {
-      safeLogger.error('Failed to create VP JWT');
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Gagal membuat presentation JWT';
+
+      safeLogger.error('Failed to create VP JWT', { message });
 
       setToast({
         visible: true,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Gagal membuat presentation JWT',
+        message,
         type: 'error',
       });
     } finally {
@@ -462,8 +497,7 @@ export default function PresentCredentialScreen() {
               </View>
 
               <Text style={styles.qrNote}>
-                QR ini hanya berisi atribut yang kamu setujui untuk dibagikan
-                kepada {requesterName}.
+                QR ini berisi VP JWT murni yang dapat discan oleh verifier.
               </Text>
             </View>
 
