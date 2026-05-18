@@ -6,17 +6,22 @@ import { mnemonicToSeedHex, normalizeMnemonic } from './mnemonicService';
 import { RecoverableWalletIdentity } from '../types/walletRecovery';
 
 const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
-const DERIVATION_DOMAIN = 'VC_WALLET_DID_KEY_ED25519_V1';
+const DERIVATION_DOMAIN = 'VC_WALLET_RECOVERY_ED25519_DID_KEY_V1';
 
 function hexToBytes(hex: string): Uint8Array {
-  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
+  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
+
+  if (!/^[0-9a-fA-F]+$/.test(normalized) || normalized.length % 2 !== 0) {
     throw new Error('Format hex tidak valid.');
   }
 
-  const bytes = new Uint8Array(hex.length / 2);
+  const bytes = new Uint8Array(normalized.length / 2);
 
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+    bytes[index] = Number.parseInt(
+      normalized.slice(index * 2, index * 2 + 2),
+      16
+    );
   }
 
   return bytes;
@@ -61,8 +66,8 @@ export function didKeyFromEd25519PublicKey(publicKey: Uint8Array): {
   publicKeyBase58: string;
   controllerKeyId: string;
 } {
-  const prefixedKey = concatBytes(ED25519_MULTICODEC_PREFIX, publicKey);
-  const fingerprint = `z${bs58.encode(prefixedKey)}`;
+  const prefixedPublicKey = concatBytes(ED25519_MULTICODEC_PREFIX, publicKey);
+  const fingerprint = `z${bs58.encode(prefixedPublicKey)}`;
   const did = `did:key:${fingerprint}`;
 
   return {
@@ -89,6 +94,6 @@ export async function deriveRecoverableDidKeyFromMnemonic(
     publicKeyBase58: didKey.publicKeyBase58,
     privateKeySeedHex: bytesToHex(privateKeySeed),
     createdAt: new Date().toISOString(),
-    recoveryType: 'mnemonic_bip39_ed25519',
+    recoveryType: 'bip39_ed25519_did_key',
   };
 }

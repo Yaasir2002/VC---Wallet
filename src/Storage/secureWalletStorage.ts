@@ -2,20 +2,29 @@ import * as SecureStore from 'expo-secure-store';
 
 import {
   RecoverableWalletIdentity,
-  WalletRecoveryBackupState,
+  WalletBackupState,
 } from '../types/walletRecovery';
 import { DIDData } from '../Services/didService';
 import { saveDID, deleteDID } from './didStorage';
-import { safeLogger } from '../utils/safeLogger';
 
-const WALLET_MNEMONIC_KEY = 'RECOVERABLE_WALLET_MNEMONIC_V1';
-const WALLET_PRIVATE_KEY_SEED_KEY = 'RECOVERABLE_WALLET_PRIVATE_KEY_SEED_V1';
-const WALLET_IDENTITY_KEY = 'RECOVERABLE_WALLET_IDENTITY_V1';
-const WALLET_BACKUP_STATE_KEY = 'RECOVERABLE_WALLET_BACKUP_STATE_V1';
+const WALLET_MNEMONIC_KEY = 'VC_WALLET_RECOVERY_MNEMONIC_V1';
+const WALLET_IDENTITY_KEY = 'VC_WALLET_RECOVERABLE_IDENTITY_V1';
+const WALLET_PRIVATE_KEY_SEED_KEY = 'VC_WALLET_PRIVATE_KEY_SEED_V1';
+const WALLET_BACKUP_STATE_KEY = 'VC_WALLET_BACKUP_STATE_V1';
 
 const secureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
+
+function safeParseJSON<T>(value: string | null): T | null {
+  if (!value) return null;
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
 
 function toDIDData(identity: RecoverableWalletIdentity): DIDData {
   return {
@@ -27,18 +36,6 @@ function toDIDData(identity: RecoverableWalletIdentity): DIDData {
     controllerKeyId: identity.controllerKeyId,
     createdAt: identity.createdAt,
   };
-}
-
-function safeParseJSON<T>(value: string | null): T | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
 }
 
 export async function saveEncryptedMnemonic(mnemonic: string): Promise<void> {
@@ -80,30 +77,27 @@ export async function getWalletPrivateKeySeedHex(): Promise<string | null> {
   return await SecureStore.getItemAsync(WALLET_PRIVATE_KEY_SEED_KEY);
 }
 
-export async function clearWalletIdentity(): Promise<void> {
-  await SecureStore.deleteItemAsync(WALLET_MNEMONIC_KEY);
-  await SecureStore.deleteItemAsync(WALLET_PRIVATE_KEY_SEED_KEY);
-  await SecureStore.deleteItemAsync(WALLET_IDENTITY_KEY);
-  await SecureStore.deleteItemAsync(WALLET_BACKUP_STATE_KEY);
-  await deleteDID();
+export async function hasStoredMnemonic(): Promise<boolean> {
+  const mnemonic = await getEncryptedMnemonic();
+  return Boolean(mnemonic);
 }
 
 export async function markMnemonicBackedUp(): Promise<void> {
-  const backupState: WalletRecoveryBackupState = {
+  const state: WalletBackupState = {
     isBackedUp: true,
     backedUpAt: new Date().toISOString(),
   };
 
   await SecureStore.setItemAsync(
     WALLET_BACKUP_STATE_KEY,
-    JSON.stringify(backupState),
+    JSON.stringify(state),
     secureStoreOptions
   );
 }
 
-export async function getMnemonicBackupState(): Promise<WalletRecoveryBackupState> {
+export async function getWalletBackupState(): Promise<WalletBackupState> {
   const raw = await SecureStore.getItemAsync(WALLET_BACKUP_STATE_KEY);
-  const parsed = safeParseJSON<WalletRecoveryBackupState>(raw);
+  const parsed = safeParseJSON<WalletBackupState>(raw);
 
   return {
     isBackedUp: parsed?.isBackedUp === true,
@@ -111,21 +105,10 @@ export async function getMnemonicBackupState(): Promise<WalletRecoveryBackupStat
   };
 }
 
-export async function hasStoredMnemonic(): Promise<boolean> {
-  const mnemonic = await getEncryptedMnemonic();
-  return Boolean(mnemonic);
-}
-
-export async function syncRecoverableIdentityToDidStorage(): Promise<void> {
-  const identity = await getRecoverableWalletIdentity();
-
-  if (!identity) {
-    return;
-  }
-
-  try {
-    await saveDID(toDIDData(identity));
-  } catch {
-    safeLogger.warn('Failed to sync recoverable identity to didStorage');
-  }
+export async function clearWalletIdentity(): Promise<void> {
+  await SecureStore.deleteItemAsync(WALLET_MNEMONIC_KEY);
+  await SecureStore.deleteItemAsync(WALLET_IDENTITY_KEY);
+  await SecureStore.deleteItemAsync(WALLET_PRIVATE_KEY_SEED_KEY);
+  await SecureStore.deleteItemAsync(WALLET_BACKUP_STATE_KEY);
+  await deleteDID();
 }

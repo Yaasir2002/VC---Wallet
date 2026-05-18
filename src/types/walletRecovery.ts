@@ -1,7 +1,7 @@
 export type RecoverableWalletIdentity = {
   did: string;
-  provider: string;
-  alias?: string;
+  provider: 'did:key';
+  alias: string;
   method: 'key';
   network: 'none';
   controllerKeyId: string;
@@ -9,10 +9,10 @@ export type RecoverableWalletIdentity = {
   privateKeySeedHex: string;
   createdAt: string;
   restoredAt?: string;
-  recoveryType: 'mnemonic_bip39_ed25519';
+  recoveryType: 'bip39_ed25519_did_key';
 };
 
-export type WalletRecoveryBackupState = {
+export type WalletBackupState = {
   isBackedUp: boolean;
   backedUpAt?: string;
 };

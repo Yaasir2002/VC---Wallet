@@ -1,7 +1,4 @@
-import {
-  generateMnemonic12Words,
-  validateMnemonic12Words,
-} from './mnemonicService';
+import { generateMnemonic12Words, validateMnemonic12Words } from './mnemonicService';
 import { deriveRecoverableDidKeyFromMnemonic } from './didKeyService';
 import {
   saveEncryptedMnemonic,
@@ -16,7 +13,18 @@ import {
 } from '../types/walletRecovery';
 
 export async function createWalletWithMnemonic(): Promise<CreateRecoverableWalletResult> {
-  const mnemonic = generateMnemonic12Words();
+  const existing = await getRecoverableWalletIdentity();
+
+  if (existing) {
+    const existingMnemonic = await getEncryptedMnemonic();
+
+    return {
+      mnemonic: existingMnemonic ?? '',
+      identity: existing,
+    };
+  }
+
+  const mnemonic = await generateMnemonic12Words();
   const identity = await deriveRecoverableDidKeyFromMnemonic(mnemonic);
 
   await saveEncryptedMnemonic(mnemonic);
@@ -67,6 +75,6 @@ export async function hasRecoverableWallet(): Promise<boolean> {
   return Boolean(identity?.did);
 }
 
-export async function resetRecoverableWalletIdentity(): Promise<void> {
+export async function resetRecoverableWallet(): Promise<void> {
   await clearWalletIdentity();
 }

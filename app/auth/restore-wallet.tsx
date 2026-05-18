@@ -102,7 +102,7 @@ export default function RestoreWalletScreen() {
 
           <Text style={styles.helperText}>
             Pisahkan setiap kata dengan spasi. Credential lama tidak otomatis
-            direstore karena aplikasi belum memakai cloud backup.
+            direstore karena aplikasi belum memakai cloud backup credential.
           </Text>
 
           <Pressable
@@ -140,19 +140,9 @@ export default function RestoreWalletScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  content: {
-    padding: 20,
-    paddingTop: 54,
-    paddingBottom: 40,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 22,
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  content: { padding: 20, paddingTop: 54, paddingBottom: 40 },
+  header: { alignItems: 'center', marginBottom: 22 },
   iconCircle: {
     width: 82,
     height: 82,
@@ -219,9 +209,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  disabledButton: {
-    opacity: 0.65,
-  },
+  disabledButton: { opacity: 0.65 },
   restoreButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
