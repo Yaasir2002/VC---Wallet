@@ -7,7 +7,6 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -15,6 +14,8 @@ import { useRouter } from 'expo-router';
 import { restoreWalletFromMnemonic } from '../../src/Services/recoverableWalletIdentityService';
 import { validateMnemonic12Words } from '../../src/Services/mnemonicService';
 import { setOnboardingCompleted } from '../../src/Storage/authStorage';
+import { saveUserProfile } from '../../src/Storage/profileStorage';
+import { safeLogger } from '../../src/utils/safeLogger';
 import AppToast from '../../components/ui/AppToast';
 
 export default function RestoreWalletScreen() {
@@ -43,23 +44,32 @@ export default function RestoreWalletScreen() {
     try {
       setLoading(true);
 
-      const result = await restoreWalletFromMnemonic(
-        validation.normalizedMnemonic
-      );
+      await restoreWalletFromMnemonic(validation.normalizedMnemonic);
+
+      await saveUserProfile({
+        fullName: 'Wallet User',
+        birthDate: new Date().toISOString(),
+        email: 'wallet.user@local',
+        phoneNumber: '080000000000',
+        address: 'Local Wallet Profile',
+        profileImageUri: undefined,
+        createdAt: new Date().toISOString(),
+      });
 
       await setOnboardingCompleted(true);
 
-      Alert.alert(
-        'Wallet Berhasil Direstore',
-        `DID berhasil dipulihkan:\n\n${result.identity.did}`,
-        [
-          {
-            text: 'Lanjut Buat PIN',
-            onPress: () => router.replace('/auth/create-pin'),
-          },
-        ]
-      );
-    } catch {
+      setToast({
+        visible: true,
+        message: 'Wallet berhasil direstore. Silakan buat PIN baru.',
+        type: 'success',
+      });
+
+      router.replace('/auth/create-pin');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      safeLogger.error(`Restore wallet failed: ${message}`);
+
       setToast({
         visible: true,
         message: 'Restore wallet gagal. Periksa recovery phrase dan coba lagi.',
@@ -98,11 +108,12 @@ export default function RestoreWalletScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             textAlignVertical="top"
+            editable={!loading}
           />
 
           <Text style={styles.helperText}>
-            Pisahkan setiap kata dengan spasi. Credential lama tidak otomatis
-            direstore karena aplikasi belum memakai cloud backup credential.
+            Pisahkan setiap kata dengan spasi. Setelah wallet berhasil
+            direstore, kamu akan langsung diminta membuat PIN baru.
           </Text>
 
           <Pressable
@@ -115,6 +126,7 @@ export default function RestoreWalletScreen() {
             ) : (
               <Ionicons name="refresh-outline" size={20} color="#FFFFFF" />
             )}
+
             <Text style={styles.restoreButtonText}>
               {loading ? 'Memulihkan Wallet...' : 'Restore Wallet'}
             </Text>
@@ -124,6 +136,7 @@ export default function RestoreWalletScreen() {
         <Pressable
           style={styles.backButton}
           onPress={() => router.replace('/auth/onboarding')}
+          disabled={loading}
         >
           <Text style={styles.backButtonText}>Kembali</Text>
         </Pressable>
