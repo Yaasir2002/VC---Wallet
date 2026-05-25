@@ -97,16 +97,16 @@ function AuthGate() {
       }
 
       if (
-        onboardingDone &&
-        profileExists &&
-        didExists &&
-        !pinExists &&
-        !isCreatePinRoute &&
-        !isBackupMnemonicRoute
-      ) {
-        router.replace('/auth/create-pin');
-        return;
-      }
+          onboardingDone &&
+          profileExists &&
+          didExists &&
+          !pinExists &&
+          !isCreatePinRoute &&
+          !isBackupMnemonicRoute
+        ) {
+          router.replace('/auth/create-pin');
+          return;
+        }
 
       if (
         onboardingDone &&

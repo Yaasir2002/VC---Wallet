@@ -1,19 +1,57 @@
+import { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { createWalletWithMnemonic } from '../../src/Services/recoverableWalletIdentityService';
+import { setOnboardingCompleted } from '../../src/Storage/authStorage';
+import { saveUserProfile } from '../../src/Storage/profileStorage';
+import { safeLogger } from '../../src/utils/safeLogger';
+
 export default function OnboardingScreen() {
   const router = useRouter();
+  const [loading, setLoading] = useState(false);
 
-  function handleStart() {
-    router.replace('/auth/create-account');
+  async function handleStart() {
+    try {
+      setLoading(true);
+
+      await createWalletWithMnemonic();
+
+      await saveUserProfile({
+        fullName: 'Wallet User',
+        birthDate: new Date().toISOString(),
+        email: 'wallet.user@local',
+        phoneNumber: '080000000000',
+        address: 'Local Wallet Profile',
+        profileImageUri: undefined,
+        createdAt: new Date().toISOString(),
+      });
+
+      await setOnboardingCompleted(true);
+
+      router.replace('/auth/backup-mnemonic');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      safeLogger.error(`Failed to initialize wallet from onboarding: ${message}`);
+
+      Alert.alert(
+        'Gagal Membuat Wallet',
+        'Wallet baru gagal dibuat. Silakan coba lagi.'
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleRestoreWallet() {
@@ -37,25 +75,41 @@ export default function OnboardingScreen() {
         <Text style={styles.title}>Kelola Identitas Digitalmu</Text>
 
         <Text style={styles.subtitle}>
-          SSI Wallet membantu kamu membuat DID, menyimpan Verifiable Credential,
-          dan mempresentasikan identitas digital secara aman melalui perangkatmu.
+          Buat DID, simpan recovery phrase, dan kelola Verifiable Credential
+          secara aman langsung dari perangkatmu.
         </Text>
       </LinearGradient>
 
       <View style={styles.bottomCard}>
-        <Text style={styles.infoTitle}>Mulai dengan Identitas Digital</Text>
+        <Text style={styles.infoTitle}>Mulai dengan Wallet Baru</Text>
 
         <Text style={styles.infoText}>
-          Setelah onboarding, kamu dapat membuat wallet baru dengan recovery
-          phrase atau memulihkan wallet lama menggunakan 12 kata recovery phrase.
+          Saat tombol mulai ditekan, aplikasi akan otomatis membuat DID dan
+          recovery phrase 12 kata. Setelah itu, kamu akan diminta menyimpan
+          recovery phrase dan membuat PIN wallet.
         </Text>
 
-        <Pressable style={styles.primaryButton} onPress={handleStart}>
-          <Text style={styles.primaryButtonText}>Mulai Sekarang</Text>
-          <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
+        <Pressable
+          style={[styles.primaryButton, loading && styles.disabledButton]}
+          onPress={handleStart}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="wallet-outline" size={20} color="#FFFFFF" />
+          )}
+
+          <Text style={styles.primaryButtonText}>
+            {loading ? 'Membuat Wallet...' : 'Buat Wallet Baru'}
+          </Text>
         </Pressable>
 
-        <Pressable style={styles.restoreButton} onPress={handleRestoreWallet}>
+        <Pressable
+          style={[styles.restoreButton, loading && styles.disabledRestoreButton]}
+          onPress={handleRestoreWallet}
+          disabled={loading}
+        >
           <Ionicons name="refresh-outline" size={20} color="#2563EB" />
           <Text style={styles.restoreButtonText}>Restore Wallet</Text>
         </Pressable>
@@ -146,6 +200,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  disabledButton: {
+    opacity: 0.7,
+  },
   primaryButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
@@ -163,6 +220,9 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderColor: '#BFDBFE',
+  },
+  disabledRestoreButton: {
+    opacity: 0.6,
   },
   restoreButtonText: {
     color: '#2563EB',

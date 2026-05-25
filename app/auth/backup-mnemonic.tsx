@@ -48,7 +48,7 @@ export default function BackupMnemonicScreen() {
         [
           {
             text: 'Kembali',
-            onPress: () => router.replace('/auth/create-account'),
+            onPress: () => router.replace('/auth/onboarding'),
           },
         ]
       );
@@ -80,7 +80,7 @@ export default function BackupMnemonicScreen() {
     }
 
     await markMnemonicBackedUp();
-    router.replace('/(tabs)');
+    router.replace('/auth/create-pin');
   }
 
   if (loading) {
@@ -154,7 +154,7 @@ export default function BackupMnemonicScreen() {
           style={[styles.continueButton, !confirmed && styles.disabledButton]}
           onPress={handleContinue}
         >
-          <Text style={styles.continueButtonText}>Lanjut Masuk Wallet</Text>
+          <Text style={styles.continueButtonText}>Lanjut Buat PIN</Text>
           <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
         </Pressable>
       </ScrollView>

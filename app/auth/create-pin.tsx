@@ -57,7 +57,7 @@ export default function CreatePinScreen() {
     await setOnboardingCompleted(true);
     await setSessionUnlocked(true);
 
-    router.replace('/auth/backup-mnemonic');
+    router.replace('/(tabs)');
   }
 
   return (
@@ -76,8 +76,8 @@ export default function CreatePinScreen() {
 
           <Text style={styles.headerTitle}>Buat PIN Wallet</Text>
           <Text style={styles.headerSubtitle}>
-            PIN digunakan untuk membuka SSI Wallet, melihat recovery phrase, dan
-            melindungi credential yang tersimpan di perangkat.
+            PIN digunakan untuk membuka SSI Wallet dan melindungi credential
+            yang tersimpan di perangkat.
           </Text>
         </LinearGradient>
 
@@ -90,7 +90,7 @@ export default function CreatePinScreen() {
             maxLength={6}
             value={pin}
             onChangeText={(value) => {
-              setPin(value);
+              setPin(value.replace(/[^0-9]/g, ''));
               setError('');
             }}
             placeholder="••••••"
@@ -106,7 +106,7 @@ export default function CreatePinScreen() {
             maxLength={6}
             value={confirmPin}
             onChangeText={(value) => {
-              setConfirmPin(value);
+              setConfirmPin(value.replace(/[^0-9]/g, ''));
               setError('');
             }}
             placeholder="••••••"
@@ -146,23 +146,19 @@ export default function CreatePinScreen() {
                   biometricEnabled && styles.bioTextActive,
                 ]}
               >
-                Gunakan fingerprint/face unlock untuk membuka wallet.
+                Gunakan fingerprint/face unlock sebagai akses cepat ke wallet.
               </Text>
             </View>
 
             <Ionicons
-              name={
-                biometricEnabled
-                  ? 'checkmark-circle'
-                  : 'ellipse-outline'
-              }
+              name={biometricEnabled ? 'checkmark-circle' : 'ellipse-outline'}
               size={24}
               color={biometricEnabled ? '#FFFFFF' : '#9CA3AF'}
             />
           </Pressable>
 
           <Pressable style={styles.button} onPress={handleSave}>
-            <Text style={styles.buttonText}>Simpan & Backup Phrase</Text>
+            <Text style={styles.buttonText}>Simpan & Masuk Wallet</Text>
             <Ionicons name="arrow-forward-outline" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -171,7 +167,7 @@ export default function CreatePinScreen() {
           <Ionicons name="shield-checkmark-outline" size={22} color="#F97316" />
           <Text style={styles.noteText}>
             PIN disimpan secara lokal menggunakan secure storage perangkat.
-            Setelah PIN dibuat, kamu akan diminta menyimpan recovery phrase.
+            Setelah PIN berhasil dibuat, wallet akan langsung dibuka.
           </Text>
         </View>
       </KeyboardAvoidingView>
