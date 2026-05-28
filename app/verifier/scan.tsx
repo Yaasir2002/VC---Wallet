@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   verifyPresentationJWT,
   decodeJWT,
+  extractJwtFromQrData,
 } from '../../src/Services/verificationService';
 
 import AppToast from '../../components/ui/AppToast';
@@ -101,68 +102,93 @@ export default function ScanPresentationScreen() {
   });
 
   async function handleBarcodeScanned({ data }: { data: string }) {
-    if (scanned) return;
+      if (scanned) return;
 
-    setScanned(true);
+      setScanned(true);
 
-    try {
-      setLoading(true);
+      try {
+        setLoading(true);
 
-      const verificationResult = await verifyPresentationJWT(data);
-      setRawJwt(verificationResult.decoded?.raw || data);
-      
-      const isValid = verificationResult.valid === true;
+        const normalizedJwt = extractJwtFromQrData(data);
+        const decoded = decodeJWT(normalizedJwt);
 
-      setVerified(isValid);
-      setHolderDid(verificationResult.holderDid || '');
-      setDidDocument(verificationResult.didDocument || null);
-      setDecodedPayload(verificationResult.decoded?.payload || null);
+        setRawJwt(normalizedJwt);
+        setDecodedPayload(decoded.payload || null);
 
-      const firstVerificationMethod =
-        verificationResult.verificationMethod?.[0] ||
-        verificationResult.authentication?.[0] ||
-        verificationResult.assertionMethod?.[0] ||
-        null;
+        const credentials = extractPresentedCredentials(decoded.payload);
+        setPresentedCredentials(credentials);
 
-      setPublicKeyInfo(firstVerificationMethod);
+        const verificationResult = await verifyPresentationJWT(normalizedJwt);
 
-      const credentials = extractPresentedCredentials(
-        verificationResult.decoded?.payload
-      );
+        const isValid = verificationResult.valid === true;
 
-      setPresentedCredentials(credentials);
+        setVerified(isValid);
+        setHolderDid(verificationResult.holderDid || '');
+        setDidDocument(verificationResult.didDocument || null);
 
-      setToast({
-        visible: true,
-        message: isValid
-          ? 'QR berhasil dibaca dan DID berhasil di-resolve'
-          : 'QR terbaca tetapi belum valid',
-        type: isValid ? 'success' : 'error',
-      });
-    } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : 'VP JWT verification failed';
+        const firstVerificationMethod =
+          verificationResult.verificationMethod?.[0] ||
+          verificationResult.authentication?.[0] ||
+          verificationResult.assertionMethod?.[0] ||
+          null;
 
-          safeLogger.error('VP JWT verification failed', { message });
+        setPublicKeyInfo(firstVerificationMethod);
 
-          setVerified(false);
-          setHolderDid('');
-          setDidDocument(null);
-          setPublicKeyInfo(null);
-          setPresentedCredentials([]);
+        setToast({
+          visible: true,
+          message: isValid
+            ? 'VP JWT berhasil dibaca dan Holder DID berhasil di-resolve'
+            : 'VP JWT terbaca tetapi belum valid',
+          type: isValid ? 'success' : 'error',
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'VP JWT verification failed';
+
+        safeLogger.error('VP JWT verification failed', { message });
+
+        try {
+          const normalizedJwt = extractJwtFromQrData(data);
+          const decoded = decodeJWT(normalizedJwt);
+
+          setRawJwt(normalizedJwt);
+          setDecodedPayload(decoded.payload || null);
+
+          const holderDidFromPayload =
+            decoded.payload?.iss ||
+            decoded.payload?.sub ||
+            decoded.payload?.holder ||
+            decoded.payload?.vp?.holder ||
+            '';
+
+          setHolderDid(
+            typeof holderDidFromPayload === 'string' ? holderDidFromPayload : ''
+          );
+
+          const credentials = extractPresentedCredentials(decoded.payload);
+          setPresentedCredentials(credentials);
+        } catch {
+          setRawJwt(data);
           setDecodedPayload(null);
+          setHolderDid('');
+          setPresentedCredentials([]);
+        }
 
-          setToast({
-            visible: true,
-            message,
-            type: 'error',
-          });
-        } finally {
-      setLoading(false);
+        setVerified(false);
+        setDidDocument(null);
+        setPublicKeyInfo(null);
+
+        setToast({
+          visible: true,
+          message,
+          type: 'error',
+        });
+      } finally {
+        setLoading(false);
+      }
     }
-  }
 
   function handleScanAgain() {
     setScanned(false);
