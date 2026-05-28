@@ -1,195 +1,168 @@
-import { resolveDID, extractPublicKeyInfo } from './resolverService';
+import { decodeJWT, isJwtString } from './verificationService';
 
-function base64UrlDecode(input: string) {
-  let base64 = input.replace(/-/g, '+').replace(/_/g, '/');
+export type VCVerificationStatus =
+  | 'VALID_CREDENTIAL'
+  | 'INVALID_CREDENTIAL';
 
-  while (base64.length % 4) {
-    base64 += '=';
+export type VCVerificationResult = {
+  isValid: boolean;
+  verified: boolean;
+  status: VCVerificationStatus;
+  reason?: string;
+  issuer?: string;
+  subject?: string;
+  type?: string[];
+  issuanceDate?: string;
+  expirationDate?: string;
+  decoded?: ReturnType<typeof decodeJWT>;
+  credentialSubject?: any;
+  checks: {
+    format: boolean;
+    structure: boolean;
+    issuer: boolean;
+    subject: boolean;
+    type: boolean;
+    expiration: boolean;
+  };
+};
+
+function toArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
   }
 
-  return decodeURIComponent(
-    atob(base64)
-      .split('')
-      .map((char) => {
-        return '%' + ('00' + char.charCodeAt(0).toString(16)).slice(-2);
-      })
-      .join('')
-  );
-}
-
-export function isJwtString(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
+  if (typeof value === 'string') {
+    return [value];
   }
 
-  const normalized = value.trim();
-  const parts = normalized.split('.');
-
-  return (
-    parts.length === 3 &&
-    parts[0].length > 0 &&
-    parts[1].length > 0 &&
-    parts[2].length > 0
-  );
+  return [];
 }
 
-function tryParseJson(value: string): any | null {
+function getExpirationTimestamp(value?: string): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = Date.parse(value);
+
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+export async function verifyVC(input: unknown): Promise<VCVerificationResult> {
+  const jwt =
+    typeof input === 'string'
+      ? input.trim()
+      : typeof (input as any)?.jwt === 'string'
+        ? (input as any).jwt.trim()
+        : typeof (input as any)?.rawCredential?.jwt === 'string'
+          ? (input as any).rawCredential.jwt.trim()
+          : '';
+
+  const format = isJwtString(jwt);
+
+  if (!format) {
+    return {
+      isValid: false,
+      verified: false,
+      status: 'INVALID_CREDENTIAL',
+      reason: 'Credential bukan JWT VC valid dengan format header.payload.signature.',
+      checks: {
+        format: false,
+        structure: false,
+        issuer: false,
+        subject: false,
+        type: false,
+        expiration: false,
+      },
+    };
+  }
+
   try {
-    return JSON.parse(value);
-  } catch {
-    return null;
+    const decoded = decodeJWT(jwt);
+    const vc = decoded.payload?.vc;
+    const credentialSubject = vc?.credentialSubject;
+
+    const type = toArray(vc?.type);
+    const issuer =
+      decoded.payload?.iss ||
+      (typeof vc?.issuer === 'string' ? vc.issuer : vc?.issuer?.id);
+
+    const subject =
+      decoded.payload?.sub ||
+      credentialSubject?.id ||
+      decoded.payload?.sub_jwk?.kid;
+
+    const issuanceDate = vc?.issuanceDate;
+    const expirationDate = vc?.expirationDate || decoded.payload?.exp;
+
+    const expirationTimestamp =
+      typeof expirationDate === 'number'
+        ? expirationDate * 1000
+        : getExpirationTimestamp(expirationDate);
+
+    const expirationValid =
+      expirationTimestamp === null || expirationTimestamp > Date.now();
+
+    const structure = Boolean(vc && typeof vc === 'object');
+    const issuerValid = typeof issuer === 'string' && issuer.startsWith('did:');
+    const subjectValid = typeof subject === 'string' && subject.startsWith('did:');
+    const typeValid = type.includes('VerifiableCredential');
+
+    const isValid =
+      format &&
+      structure &&
+      issuerValid &&
+      subjectValid &&
+      typeValid &&
+      expirationValid;
+
+    return {
+      isValid,
+      verified: isValid,
+      status: isValid ? 'VALID_CREDENTIAL' : 'INVALID_CREDENTIAL',
+      reason: isValid
+        ? undefined
+        : 'Credential gagal validasi dasar struktur, issuer, subject, type, atau expiration.',
+      issuer,
+      subject,
+      type,
+      issuanceDate,
+      expirationDate:
+        typeof expirationDate === 'string' ? expirationDate : undefined,
+      decoded,
+      credentialSubject,
+      checks: {
+        format,
+        structure,
+        issuer: issuerValid,
+        subject: subjectValid,
+        type: typeValid,
+        expiration: expirationValid,
+      },
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      verified: false,
+      status: 'INVALID_CREDENTIAL',
+      reason:
+        error instanceof Error
+          ? error.message
+          : 'Credential gagal didecode.',
+      checks: {
+        format,
+        structure: false,
+        issuer: false,
+        subject: false,
+        type: false,
+        expiration: false,
+      },
+    };
   }
 }
 
-function findJwtInObject(value: any): string | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const candidates = [
-    value.jwt,
-    value.vpJwt,
-    value.presentationJwt,
-    value.presentation,
-    value.verifiablePresentation,
-    value.credential,
-    value.vc,
-    value.raw,
-    value.token,
-    value.data?.jwt,
-    value.data?.vpJwt,
-    value.data?.presentationJwt,
-    value.data?.presentation,
-    value.data?.verifiablePresentation,
-  ];
-
-  const found = candidates.find(isJwtString);
-
-  return found ? found.trim() : null;
-}
-
-export function extractJwtFromQrData(data: string): string {
-  const normalized = data.trim();
-
-  if (!normalized) {
-    throw new Error('QR kosong atau tidak terbaca.');
-  }
-
-  if (isJwtString(normalized)) {
-    return normalized;
-  }
-
-  const parsed = tryParseJson(normalized);
-
-  if (parsed) {
-    const jwt = findJwtInObject(parsed);
-
-    if (jwt) {
-      return jwt;
-    }
-
-    throw new Error(
-      'QR terbaca sebagai JSON, tetapi tidak ditemukan VP JWT di field jwt, vpJwt, presentationJwt, presentation, atau verifiablePresentation.'
-    );
-  }
-
-  throw new Error(
-    'Format QR tidak valid. QR harus berisi VP JWT murni dengan format header.payload.signature atau JSON wrapper yang memuat VP JWT.'
-  );
-}
-
-export function decodeJWT(jwtOrQrData: string) {
-  const normalizedJwt = extractJwtFromQrData(jwtOrQrData);
-  const parts = normalizedJwt.split('.');
-
-  return {
-    header: JSON.parse(base64UrlDecode(parts[0])),
-    payload: JSON.parse(base64UrlDecode(parts[1])),
-    signature: parts[2],
-    raw: normalizedJwt,
-  };
-}
-
-function getVpTypes(vp: any): string[] {
-  if (!vp?.type) {
-    return [];
-  }
-
-  return Array.isArray(vp.type) ? vp.type : [vp.type];
-}
-
-function extractHolderDid(decodedPayload: any): string {
-  const holderDid =
-    decodedPayload?.iss ||
-    decodedPayload?.sub ||
-    decodedPayload?.holder ||
-    decodedPayload?.vp?.holder;
-
-  if (!holderDid || typeof holderDid !== 'string') {
-    throw new Error('Holder DID tidak ditemukan di VP JWT.');
-  }
-
-  return holderDid;
-}
-
-export async function verifyPresentationJWT(qrData: string) {
-  const decoded = decodeJWT(qrData);
-
-  const vp = decoded.payload?.vp;
-
-  if (!vp || typeof vp !== 'object') {
-    throw new Error(
-      'Payload JWT tidak memiliki field vp. Kemungkinan QR berisi VC JWT biasa, bukan VP JWT. Gunakan QR dari halaman Present Credential.'
-    );
-  }
-
-  const vpTypes = getVpTypes(vp);
-
-  if (!vpTypes.includes('VerifiablePresentation')) {
-    throw new Error('JWT bukan Verifiable Presentation.');
-  }
-
-  const holderDid = extractHolderDid(decoded.payload);
-
-  if (!holderDid.startsWith('did:key:')) {
-    throw new Error(
-      `Holder DID harus did:key agar bisa di-resolve offline. DID saat ini: ${holderDid}`
-    );
-  }
-
-  const didResolution = await resolveDID(holderDid);
-  const publicKeyInfo = extractPublicKeyInfo(didResolution);
-
-  if (!publicKeyInfo.didDocument) {
-    throw new Error(`DID Document tidak ditemukan untuk ${holderDid}`);
-  }
-
-  const hasVerificationMethod =
-    Array.isArray(publicKeyInfo.verificationMethod) &&
-    publicKeyInfo.verificationMethod.length > 0;
-
-  const hasAuthentication =
-    Array.isArray(publicKeyInfo.authentication) &&
-    publicKeyInfo.authentication.length > 0;
-
-  const hasAssertionMethod =
-    Array.isArray(publicKeyInfo.assertionMethod) &&
-    publicKeyInfo.assertionMethod.length > 0;
-
-  if (!hasVerificationMethod && !hasAuthentication && !hasAssertionMethod) {
-    throw new Error(
-      `Public key / verification method tidak ditemukan untuk ${holderDid}`
-    );
-  }
-
-  return {
-    valid: true,
-    holderDid,
-    decoded,
-    didResolution,
-    didDocument: publicKeyInfo.didDocument,
-    verificationMethod: publicKeyInfo.verificationMethod,
-    authentication: publicKeyInfo.authentication,
-    assertionMethod: publicKeyInfo.assertionMethod,
-  };
+export async function verifyCredential(
+  input: unknown
+): Promise<VCVerificationResult> {
+  return verifyVC(input);
 }

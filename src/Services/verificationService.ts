@@ -11,18 +11,19 @@ function base64UrlDecode(input: string) {
     atob(base64)
       .split('')
       .map((char) => {
-        return '%' + ('00' + char.charCodeAt(0).toString(16)).slice(-2);
+        return `%${('00' + char.charCodeAt(0).toString(16)).slice(-2)}`;
       })
       .join('')
   );
 }
 
-function isJwtString(value: unknown): value is string {
+export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') {
     return false;
   }
 
-  const parts = value.trim().split('.');
+  const normalized = value.trim();
+  const parts = normalized.split('.');
 
   return (
     parts.length === 3 &&
@@ -32,15 +33,73 @@ function isJwtString(value: unknown): value is string {
   );
 }
 
-export function decodeJWT(jwt: string) {
-  const normalizedJwt = jwt.trim();
+function tryParseJson(value: string): any | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
-  if (!isJwtString(normalizedJwt)) {
+function findJwtInObject(value: any): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidates = [
+    value.jwt,
+    value.vpJwt,
+    value.presentationJwt,
+    value.presentation,
+    value.verifiablePresentation,
+    value.credential,
+    value.vc,
+    value.raw,
+    value.token,
+    value.data?.jwt,
+    value.data?.vpJwt,
+    value.data?.presentationJwt,
+    value.data?.presentation,
+    value.data?.verifiablePresentation,
+  ];
+
+  const found = candidates.find(isJwtString);
+
+  return found ? found.trim() : null;
+}
+
+export function extractJwtFromQrData(data: string): string {
+  const normalized = data.trim();
+
+  if (!normalized) {
+    throw new Error('QR kosong atau tidak terbaca.');
+  }
+
+  if (isJwtString(normalized)) {
+    return normalized;
+  }
+
+  const parsed = tryParseJson(normalized);
+
+  if (parsed) {
+    const jwt = findJwtInObject(parsed);
+
+    if (jwt) {
+      return jwt;
+    }
+
     throw new Error(
-      'Format QR salah. Untuk demo verifier, QR harus berisi VP JWT murni: header.payload.signature.'
+      'QR terbaca sebagai JSON, tetapi tidak ditemukan VP JWT di field jwt, vpJwt, presentationJwt, presentation, atau verifiablePresentation.'
     );
   }
 
+  throw new Error(
+    'Format QR tidak valid. QR harus berisi VP JWT murni dengan format header.payload.signature atau JSON wrapper yang memuat VP JWT.'
+  );
+}
+
+export function decodeJWT(jwtOrQrData: string) {
+  const normalizedJwt = extractJwtFromQrData(jwtOrQrData);
   const parts = normalizedJwt.split('.');
 
   return {
@@ -51,30 +110,45 @@ export function decodeJWT(jwt: string) {
   };
 }
 
-export async function verifyPresentationJWT(jwt: string) {
-  const decoded = decodeJWT(jwt);
+function getVpTypes(vp: any): string[] {
+  if (!vp?.type) {
+    return [];
+  }
 
+  return Array.isArray(vp.type) ? vp.type : [vp.type];
+}
+
+function extractHolderDid(decodedPayload: any): string {
+  const holderDid =
+    decodedPayload?.iss ||
+    decodedPayload?.sub ||
+    decodedPayload?.holder ||
+    decodedPayload?.vp?.holder;
+
+  if (!holderDid || typeof holderDid !== 'string') {
+    throw new Error('Holder DID tidak ditemukan di VP JWT.');
+  }
+
+  return holderDid;
+}
+
+export async function verifyPresentationJWT(qrData: string) {
+  const decoded = decodeJWT(qrData);
   const vp = decoded.payload?.vp;
 
   if (!vp || typeof vp !== 'object') {
-    throw new Error('Payload JWT tidak memiliki field vp.');
+    throw new Error(
+      'Payload JWT tidak memiliki field vp. Kemungkinan QR berisi VC JWT biasa, bukan VP JWT. Gunakan QR dari halaman Present Credential.'
+    );
   }
 
-  const vpTypes = Array.isArray(vp.type) ? vp.type : [vp.type];
+  const vpTypes = getVpTypes(vp);
 
   if (!vpTypes.includes('VerifiablePresentation')) {
     throw new Error('JWT bukan Verifiable Presentation.');
   }
 
-  const holderDid =
-    decoded.payload?.iss ||
-    decoded.payload?.sub ||
-    vp?.holder ||
-    decoded.payload?.holder;
-
-  if (!holderDid || typeof holderDid !== 'string') {
-    throw new Error('Holder DID tidak ditemukan di VP JWT.');
-  }
+  const holderDid = extractHolderDid(decoded.payload);
 
   if (!holderDid.startsWith('did:key:')) {
     throw new Error(
