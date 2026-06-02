@@ -134,7 +134,13 @@ async function requireBiometricConfirmation(): Promise<void> {
 }
 
 export class SecurePrivateKeyStore {
-  async getKey({ alias }: { alias: string }): Promise<ManagedPrivateKey> {
+ async getKey(args: { alias?: string; kid?: string }): Promise<ManagedPrivateKey> {
+    const alias = args.alias || args.kid;
+
+    if (!alias) {
+      throw new Error('Alias private key tidak ditemukan');
+    }
+
     validateAlias(alias);
 
     await requireBiometricConfirmation();
@@ -142,7 +148,7 @@ export class SecurePrivateKeyStore {
     const data = await SecureStore.getItemAsync(`${PRIVATE_KEY_PREFIX}${alias}`);
 
     if (!data) {
-      throw new Error('Private key tidak ditemukan');
+      throw new Error(`Private key tidak ditemukan untuk alias ${alias}`);
     }
 
     try {
@@ -221,7 +227,7 @@ export class SecurePrivateKeyStore {
     }));
   }
 
-  async get(args: { alias: string }): Promise<ManagedPrivateKey> {
+    async get(args: { alias?: string; kid?: string }): Promise<ManagedPrivateKey> {
     return this.getKey(args);
   }
 
