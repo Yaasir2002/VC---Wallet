@@ -4,10 +4,7 @@ import { KeyManager } from '@veramo/key-manager';
 import { KeyManagementSystem } from '@veramo/kms-local';
 import { KeyDIDProvider } from '@veramo/did-provider-key';
 import { DIDResolverPlugin } from '@veramo/did-resolver';
-import {
-  CredentialPlugin,
-  W3cJwtCredentialProvider,
-} from '@veramo/credential-w3c';
+import { CredentialPlugin } from '@veramo/credential-w3c';
 import { Resolver } from 'did-resolver';
 import { getResolver as getKeyResolver } from 'key-did-resolver';
 
@@ -40,10 +37,6 @@ export const agent = createAgent({
       }),
     }),
 
-    new CredentialPlugin({
-      issuers: [
-        new W3cJwtCredentialProvider(),
-      ],
-    } as any),
+    new CredentialPlugin([]),
   ],
 });

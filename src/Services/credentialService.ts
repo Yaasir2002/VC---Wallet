@@ -1,7 +1,13 @@
 import { AttributeType, ModularCredential } from '../types/vc';
-import { agent } from '../veramo/agent';
 import { safeLogger } from '../utils/safeLogger';
-import { getOrCreateVeramoIssuerDid } from './veramoIssuerService';
+import { createSignedVcJwtWithWalletKey } from './localJwtVcSigner';
+import { getRecoverableWalletIdentity } from '../Storage/secureWalletStorage';
+
+function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, value]) => value !== undefined)
+  ) as T;
+}
 
 function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') {
@@ -16,34 +22,6 @@ function isJwtString(value: unknown): value is string {
     parts[1].length > 0 &&
     parts[2].length > 0
   );
-}
-
-function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, value]) => value !== undefined)
-  ) as T;
-}
-
-function extractJwtFromVeramoResult(result: any): string {
-  if (isJwtString(result)) {
-    return result.trim();
-  }
-
-  const candidates = [
-    result?.jwt,
-    result?.proof?.jwt,
-    result?.verifiableCredential,
-    result?.vc?.jwt,
-    result?.vc?.proof?.jwt,
-  ];
-
-  const found = candidates.find(isJwtString);
-
-  if (!found) {
-    throw new Error('JWT credential tidak ditemukan dari hasil Veramo.');
-  }
-
-  return found.trim();
 }
 
 export async function createAttributeCredential(params: {
@@ -76,12 +54,13 @@ export async function createAttributeCredential(params: {
     throw new Error('Attribute value belum tersedia');
   }
 
-  const issuerDid = await getOrCreateVeramoIssuerDid();
+  const identity = await getRecoverableWalletIdentity();
 
-  if (!issuerDid) {
-    throw new Error('Issuer DID belum tersedia');
+  if (!identity?.did) {
+    throw new Error('Issuer DID wallet belum tersedia.');
   }
 
+  const issuerDid = identity.did;
   const issuanceDate = new Date().toISOString();
 
   const credentialPayload = removeUndefinedFields({
@@ -104,22 +83,21 @@ export async function createAttributeCredential(params: {
   let jwt = '';
 
   try {
-    const result: any = await agent.createVerifiableCredential({
-      credential: credentialPayload,
-      proofFormat: 'jwt',
-    });
+    jwt = await createSignedVcJwtWithWalletKey(credentialPayload);
 
-    jwt = extractJwtFromVeramoResult(result);
+    if (!isJwtString(jwt)) {
+      throw new Error('JWT hasil signing tidak valid.');
+    }
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Gagal menandatangani VC dengan Veramo.';
+        : 'Gagal menandatangani VC JWT.';
 
-    safeLogger.error('Veramo VC signing failed', { message });
+    safeLogger.error('VC JWT signing failed', { message });
 
     throw new Error(
-      `Credential gagal ditandatangani oleh Veramo. Pastikan issuer DID dibuat dengan kms local dan private key tersimpan. Detail: ${message}`
+      `Credential gagal ditandatangani. Detail: ${message}`
     );
   }
 
