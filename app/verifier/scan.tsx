@@ -119,7 +119,6 @@ export default function ScanPresentationScreen() {
         setPresentedCredentials(credentials);
 
         const verificationResult = await verifyPresentationJWT(normalizedJwt);
-
         const isValid = verificationResult.valid === true;
 
         setVerified(isValid);

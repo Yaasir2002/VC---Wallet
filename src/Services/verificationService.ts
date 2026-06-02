@@ -41,31 +41,71 @@ function tryParseJson(value: string): any | null {
   }
 }
 
-function findJwtInObject(value: any): string | null {
+function findJwtDeep(value: unknown, depth = 0): string | null {
+  if (depth > 6) {
+    return null;
+  }
+
+  if (isJwtString(value)) {
+    return value.trim();
+  }
+
   if (!value || typeof value !== 'object') {
     return null;
   }
 
-  const candidates = [
-    value.jwt,
-    value.vpJwt,
-    value.presentationJwt,
-    value.presentation,
-    value.verifiablePresentation,
-    value.credential,
-    value.vc,
-    value.raw,
-    value.token,
-    value.data?.jwt,
-    value.data?.vpJwt,
-    value.data?.presentationJwt,
-    value.data?.presentation,
-    value.data?.verifiablePresentation,
+  const objectValue = value as Record<string, unknown>;
+
+  const priorityKeys = [
+    'jwt',
+    'vpJwt',
+    'presentationJwt',
+    'presentation',
+    'verifiablePresentation',
+    'vp',
+    'token',
+    'raw',
+    'payload',
+    'data',
+    'credential',
+    'vc',
   ];
 
-  const found = candidates.find(isJwtString);
+  for (const key of priorityKeys) {
+    const candidate = objectValue[key];
 
-  return found ? found.trim() : null;
+    if (isJwtString(candidate)) {
+      return candidate.trim();
+    }
+  }
+
+  for (const key of priorityKeys) {
+    const candidate = objectValue[key];
+
+    if (candidate && typeof candidate === 'object') {
+      const found = findJwtDeep(candidate, depth + 1);
+
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  for (const candidate of Object.values(objectValue)) {
+    if (isJwtString(candidate)) {
+      return candidate.trim();
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      const found = findJwtDeep(candidate, depth + 1);
+
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
 }
 
 export function extractJwtFromQrData(data: string): string {
@@ -82,14 +122,14 @@ export function extractJwtFromQrData(data: string): string {
   const parsed = tryParseJson(normalized);
 
   if (parsed) {
-    const jwt = findJwtInObject(parsed);
+    const jwt = findJwtDeep(parsed);
 
     if (jwt) {
       return jwt;
     }
 
     throw new Error(
-      'QR terbaca sebagai JSON, tetapi tidak ditemukan VP JWT di field jwt, vpJwt, presentationJwt, presentation, atau verifiablePresentation.'
+      'QR terbaca sebagai JSON, tetapi tidak ditemukan VP JWT. Pastikan QR berasal dari halaman Signed QR Presentation, bukan QR claim credential.'
     );
   }
 
@@ -134,6 +174,7 @@ function extractHolderDid(decodedPayload: any): string {
 
 export async function verifyPresentationJWT(qrData: string) {
   const decoded = decodeJWT(qrData);
+
   const vp = decoded.payload?.vp;
 
   if (!vp || typeof vp !== 'object') {
