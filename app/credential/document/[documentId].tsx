@@ -43,6 +43,8 @@ const INVALID_PRESENTATION_STATUSES = [
   'not_yet_valid',
 ];
 
+const QR_SAFE_MAX_LENGTH = 2200;
+
 function getCredentialJwt(credential: ModularCredential): string {
   const proof = credential.proof as any;
 
@@ -122,6 +124,8 @@ export default function CredentialDocumentDetailScreen() {
   const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
   const isPresentationJwtValid =
     Boolean(qrJwt) && isJwtString(qrJwt) && qrJwtParts === 3;
+  const canRenderQr =
+    isPresentationJwtValid && qrJwt.length <= QR_SAFE_MAX_LENGTH;
 
   const loadDocument = useCallback(async () => {
     try {
@@ -289,9 +293,9 @@ export default function CredentialDocumentDetailScreen() {
 
       validatePresentationPayloadSize(vpJwt);
 
-      if (vpJwt.length > 2500) {
+      if (vpJwt.length > QR_SAFE_MAX_LENGTH) {
         setQrWarning(
-          'VP JWT cukup panjang. Jika QR sulit discan, kurangi jumlah atribut yang dipilih.'
+          'VP JWT terlalu panjang untuk QR Code. Kurangi jumlah atribut yang dipilih, lalu klik Confirm & Sign Presentation lagi.'
         );
       }
 
@@ -524,13 +528,27 @@ export default function CredentialDocumentDetailScreen() {
                     Credential Count:{' '}
                     {presentationMeta?.credentialCount || selectedCredentials.length}
                   </Text>
+                  <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
                 </View>
 
                 <Text style={styles.verifyOnlyText}>SCAN QR INI DI TAB VERIFY</Text>
 
-                <View style={styles.qrBox}>
-                  <QRCode value={qrJwt} size={220} />
-                </View>
+                {canRenderQr ? (
+                  <View style={styles.qrBox}>
+                    <QRCode value={qrJwt} size={220} />
+                  </View>
+                ) : (
+                  <View style={styles.qrTooLargeBox}>
+                    <Ionicons name="warning-outline" size={34} color="#F97316" />
+                    <Text style={styles.qrTooLargeTitle}>
+                      VP JWT terlalu panjang untuk QR Code
+                    </Text>
+                    <Text style={styles.qrTooLargeText}>
+                      Kurangi jumlah atribut yang dipilih, lalu klik Confirm & Sign Presentation lagi.
+                      JWT tetap bisa disalin melalui tombol Copy JWT.
+                    </Text>
+                  </View>
+                )}
 
                 <Text style={styles.qrNote}>
                   QR ini berisi VP JWT murni dengan format header.payload.signature.
@@ -1052,6 +1070,29 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+  },
+  qrTooLargeBox: {
+    alignSelf: 'stretch',
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  qrTooLargeTitle: {
+    color: '#9A3412',
+    fontSize: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  qrTooLargeText: {
+    color: '#9A3412',
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 8,
   },
   qrNote: {
     color: '#6B7280',
