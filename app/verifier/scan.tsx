@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   verifyPresentationJWT,
   UniversalVerificationResult,
+  VerifiedCredentialView,
 } from '../../src/Services/verificationService';
 
 import AppToast from '../../components/ui/AppToast';
@@ -21,23 +22,10 @@ import AnimatedButton from '../../components/ui/AnimatedButton';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import { safeLogger } from '../../src/utils/safeLogger';
 
-type PresentedCredential = {
-  jwt?: string;
-  issuer?: string;
-  subject?: string;
-  type?: string[];
-  issuanceDate?: string;
-  attributeName?: string;
-  attributeValue?: string;
-  attributeType?: string;
-  credentialSubject?: any;
-  rawJson?: any;
-  error?: string;
-};
-
 function shorten(value?: string) {
   if (!value) return '-';
   if (value.length <= 24) return value;
+
   return `${value.slice(0, 14)}...${value.slice(-8)}`;
 }
 
@@ -46,7 +34,6 @@ function getResultTitle(result: UniversalVerificationResult | null) {
 
   if (result.kind === 'vp-jwt') return 'VP JWT TERBACA';
   if (result.kind === 'vc-jwt') return 'VC JWT TERBACA';
-  if (result.kind === 'json-credential') return 'JSON QR TERBACA';
 
   return 'QR TIDAK VALID';
 }
@@ -57,15 +44,11 @@ function getResultSubtitle(result: UniversalVerificationResult | null) {
   }
 
   if (result.kind === 'vp-jwt') {
-    return 'QR berisi Verifiable Presentation JWT.';
+    return 'QR berisi VP JWT signed dan credential JWT di dalamnya.';
   }
 
   if (result.kind === 'vc-jwt') {
-    return 'QR berisi Verifiable Credential JWT.';
-  }
-
-  if (result.kind === 'json-credential') {
-    return 'QR berisi JSON credential. Signature JWT tidak diverifikasi.';
+    return 'QR berisi VC JWT signed.';
   }
 
   return result.warning || 'QR tidak dapat dibaca.';
@@ -84,7 +67,7 @@ export default function ScanPresentationScreen() {
   const [didDocument, setDidDocument] = useState<any | null>(null);
   const [publicKeyInfo, setPublicKeyInfo] = useState<any | null>(null);
   const [presentedCredentials, setPresentedCredentials] = useState<
-    PresentedCredential[]
+    VerifiedCredentialView[]
   >([]);
   const [decodedPayload, setDecodedPayload] = useState<any | null>(null);
   const [verificationResult, setVerificationResult] =
@@ -106,7 +89,7 @@ export default function ScanPresentationScreen() {
 
       const result = await verifyPresentationJWT(data);
 
-      setRawQr(result.rawJwt || JSON.stringify(result.rawJson || data, null, 2));
+      setRawQr(result.rawJwt || data);
       setVerified(result.valid);
       setHolderDid(result.holderDid || '');
       setDidDocument(result.didDocument || null);
@@ -117,17 +100,12 @@ export default function ScanPresentationScreen() {
           null
       );
       setPresentedCredentials(result.credentials || []);
-      setDecodedPayload(result.decoded?.payload || result.rawJson || null);
+      setDecodedPayload(result.decoded?.payload || null);
       setVerificationResult(result);
 
       setToast({
         visible: true,
-        message:
-          result.kind === 'json-credential'
-            ? 'QR JSON berhasil dibaca'
-            : result.valid
-              ? 'QR berhasil dibaca'
-              : result.warning || 'QR belum valid',
+        message: result.valid ? 'QR JWT berhasil dibaca' : result.warning || 'QR tidak valid',
         type: result.valid ? 'success' : 'error',
       });
     } catch (error) {
@@ -188,12 +166,9 @@ export default function ScanPresentationScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="camera-outline" size={56} color="#2563EB" />
-
         <Text style={styles.centerTitle}>Izin Kamera Dibutuhkan</Text>
-
         <Text style={styles.centerText}>
-          Aplikasi membutuhkan akses kamera untuk scan QR credential atau
-          presentation.
+          Aplikasi membutuhkan akses kamera untuk scan QR VP JWT atau VC JWT.
         </Text>
 
         <AnimatedButton
@@ -227,11 +202,9 @@ export default function ScanPresentationScreen() {
           >
             <View>
               <Text style={styles.heroLabel}>Verification Result</Text>
-
               <Text style={styles.heroTitle}>
                 {getResultTitle(verificationResult)}
               </Text>
-
               <Text style={styles.heroSubtitle}>
                 {getResultSubtitle(verificationResult)}
               </Text>
@@ -279,7 +252,6 @@ export default function ScanPresentationScreen() {
                   color="#2563EB"
                 />
               </View>
-
               <Text style={styles.sectionTitle}>Holder / Subject DID</Text>
             </View>
 
@@ -291,8 +263,7 @@ export default function ScanPresentationScreen() {
               <View style={styles.sectionIconBlue}>
                 <Ionicons name="id-card-outline" size={22} color="#2563EB" />
               </View>
-
-              <Text style={styles.sectionTitle}>Data yang Dibaca</Text>
+              <Text style={styles.sectionTitle}>Data Credential</Text>
             </View>
 
             {presentedCredentials.length > 0 ? (
@@ -308,23 +279,18 @@ export default function ScanPresentationScreen() {
                       <Text style={styles.presentedLabel}>
                         {credential.attributeName || 'Credential'}
                       </Text>
-
                       <Text style={styles.presentedValue}>
                         {credential.attributeValue || '-'}
                       </Text>
-
                       <Text style={styles.presentedMeta}>
                         Type: {credential.attributeType || '-'}
                       </Text>
-
                       <Text style={styles.presentedMeta}>
                         Issuer: {shorten(credential.issuer)}
                       </Text>
-
                       <Text style={styles.presentedMeta}>
                         Subject: {shorten(credential.subject)}
                       </Text>
-
                       <Text style={styles.presentedMeta}>
                         Issued At: {String(credential.issuanceDate || '-')}
                       </Text>
@@ -348,7 +314,6 @@ export default function ScanPresentationScreen() {
                   color="#F97316"
                 />
               </View>
-
               <Text style={styles.sectionTitle}>DID Document</Text>
             </View>
 
@@ -368,7 +333,6 @@ export default function ScanPresentationScreen() {
               <View style={styles.sectionIconBlue}>
                 <Ionicons name="key-outline" size={22} color="#2563EB" />
               </View>
-
               <Text style={styles.sectionTitle}>
                 Public Key / Verification Method
               </Text>
@@ -390,8 +354,7 @@ export default function ScanPresentationScreen() {
               <View style={styles.sectionIconOrange}>
                 <Ionicons name="code-slash-outline" size={22} color="#F97316" />
               </View>
-
-              <Text style={styles.sectionTitle}>Decoded Payload / JSON</Text>
+              <Text style={styles.sectionTitle}>Decoded JWT Payload</Text>
             </View>
 
             {decodedPayload ? (
@@ -408,8 +371,7 @@ export default function ScanPresentationScreen() {
               <View style={styles.sectionIconBlue}>
                 <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
               </View>
-
-              <Text style={styles.sectionTitle}>Raw QR / JWT</Text>
+              <Text style={styles.sectionTitle}>Raw JWT</Text>
             </View>
 
             <Text style={styles.jwtText}>{rawQr || '-'}</Text>
@@ -450,9 +412,9 @@ export default function ScanPresentationScreen() {
               <Ionicons name="close-outline" size={28} color="#FFFFFF" />
             </Pressable>
 
-            <Text style={styles.scanTitle}>Scan Credential QR</Text>
+            <Text style={styles.scanTitle}>Scan VC / VP JWT</Text>
             <Text style={styles.scanSubtitle}>
-              Mendukung VP JWT, VC JWT, dan JSON credential.
+              Scan QR presentation atau credential JWT.
             </Text>
           </View>
 
@@ -464,7 +426,7 @@ export default function ScanPresentationScreen() {
           </View>
 
           <Text style={styles.scanHint}>
-            Arahkan kamera ke QR credential atau presentation
+            Arahkan kamera ke QR VP JWT atau VC JWT
           </Text>
         </LinearGradient>
       </CameraView>

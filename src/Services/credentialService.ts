@@ -1,27 +1,12 @@
 import { AttributeType, ModularCredential } from '../types/vc';
-import { safeLogger } from '../utils/safeLogger';
-import { createSignedVcJwtWithWalletKey } from './localJwtVcSigner';
 import { getRecoverableWalletIdentity } from '../Storage/secureWalletStorage';
+import { signVcJwtWithWallet, isJwtString } from './walletJwtSigner';
+import { safeLogger } from '../utils/safeLogger';
 
 function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
   return Object.fromEntries(
     Object.entries(obj).filter(([, value]) => value !== undefined)
   ) as T;
-}
-
-function isJwtString(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
-  }
-
-  const parts = value.trim().split('.');
-
-  return (
-    parts.length === 3 &&
-    parts[0].length > 0 &&
-    parts[1].length > 0 &&
-    parts[2].length > 0
-  );
 }
 
 export async function createAttributeCredential(params: {
@@ -35,70 +20,79 @@ export async function createAttributeCredential(params: {
   expirationDate?: string;
 }): Promise<ModularCredential> {
   if (!params.subjectDid) {
-    throw new Error('Subject DID belum tersedia');
+    throw new Error('Subject DID belum tersedia.');
   }
 
   if (!params.subjectDid.startsWith('did:')) {
     throw new Error(`Subject DID tidak valid: ${params.subjectDid}`);
   }
 
+  if (!params.documentId) {
+    throw new Error('Document ID belum tersedia.');
+  }
+
+  if (!params.documentType) {
+    throw new Error('Document type belum tersedia.');
+  }
+
+  if (!params.documentName) {
+    throw new Error('Document name belum tersedia.');
+  }
+
   if (!params.attributeType) {
-    throw new Error('Attribute type belum tersedia');
+    throw new Error('Attribute type belum tersedia.');
   }
 
   if (!params.attributeName) {
-    throw new Error('Attribute name belum tersedia');
+    throw new Error('Attribute name belum tersedia.');
   }
 
   if (!params.attributeValue) {
-    throw new Error('Attribute value belum tersedia');
+    throw new Error('Attribute value belum tersedia.');
   }
 
   const identity = await getRecoverableWalletIdentity();
 
   if (!identity?.did) {
-    throw new Error('Issuer DID wallet belum tersedia.');
+    throw new Error('Wallet DID belum tersedia.');
   }
 
   const issuerDid = identity.did;
+  const subjectDid = params.subjectDid;
   const issuanceDate = new Date().toISOString();
 
-  const credentialPayload = removeUndefinedFields({
-    '@context': ['https://www.w3.org/2018/credentials/v1'],
-    issuer: issuerDid,
-    issuanceDate,
-    expirationDate: params.expirationDate,
-    type: ['VerifiableCredential', 'AttributeCredential'],
-    credentialSubject: {
-      id: params.subjectDid,
-      documentId: params.documentId,
-      documentType: params.documentType,
-      documentName: params.documentName,
-      attributeType: params.attributeType,
-      attributeName: params.attributeName,
-      attributeValue: params.attributeValue,
-    },
+  const credentialSubject = removeUndefinedFields({
+    id: subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
   });
 
   let jwt = '';
 
   try {
-    jwt = await createSignedVcJwtWithWalletKey(credentialPayload);
+    jwt = await signVcJwtWithWallet({
+      issuerDid,
+      subjectDid,
+      issuanceDate,
+      expirationDate: params.expirationDate,
+      type: ['VerifiableCredential', 'AttributeCredential', `${params.documentType}Credential`],
+      credentialSubject,
+    });
 
     if (!isJwtString(jwt)) {
-      throw new Error('JWT hasil signing tidak valid.');
+      throw new Error('JWT credential hasil signing tidak valid.');
     }
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : 'Gagal menandatangani VC JWT.';
+      error instanceof Error ? error.message : 'Gagal menandatangani credential.';
 
-    safeLogger.error('VC JWT signing failed', { message });
+    safeLogger.warn('Credential VC JWT signing failed', { message });
 
-    throw new Error(
-      `Credential gagal ditandatangani. Detail: ${message}`
-    );
+    throw new Error(`Credential gagal ditandatangani. Detail: ${message}`);
   }
 
   return {
@@ -106,22 +100,23 @@ export async function createAttributeCredential(params: {
     documentId: params.documentId,
     documentType: params.documentType,
     documentName: params.documentName,
-    type: ['VerifiableCredential', 'AttributeCredential'],
+    type: ['VerifiableCredential', 'AttributeCredential', `${params.documentType}Credential`],
     issuer: issuerDid,
     issuanceDate,
     expirationDate: params.expirationDate,
+    verificationStatus: 'verified',
     credentialSubject: {
-      id: params.subjectDid,
+      id: subjectDid,
       attributeType: params.attributeType,
       attributeName: params.attributeName,
       attributeValue: params.attributeValue,
     },
     proof: {
       type: 'JwtProof2020',
-      jwt,
       created: issuanceDate,
       proofPurpose: 'assertionMethod',
       verificationMethod: issuerDid,
+      jwt,
     },
     jwt,
   };
