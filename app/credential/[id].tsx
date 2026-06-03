@@ -14,9 +14,16 @@ import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
 
 import { ModularCredential } from '../../src/types/vc';
-import { getAllVCs, getVCById, deleteVC } from '../../src/Storage/vcStorage';
+import {
+  getAllVCs,
+  getVCById,
+  deleteVCById,
+} from '../../src/Storage/vcStorage';
 import { getDID } from '../../src/Storage/didStorage';
-import { createSignedPresentationJWT } from '../../src/Services/presentationService';
+import {
+  createSignedPresentationJWT,
+  SignedPresentationJWT,
+} from '../../src/Services/presentationService';
 import { checkCredentialExpiration } from '../../src/Services/credentialValidityService';
 import { validatePresentationPayloadSize } from '../../src/Services/qrPayloadService';
 import { isJwtString } from '../../src/Services/walletJwtSigner';
@@ -86,6 +93,24 @@ function shorten(value?: string) {
   return `${value.slice(0, 14)}...${value.slice(-8)}`;
 }
 
+function getCredentialJwt(credential: ModularCredential): string {
+  const proof = credential.proof as any;
+
+  if (isJwtString(credential.jwt)) {
+    return credential.jwt.trim();
+  }
+
+  if (isJwtString(proof?.jwt)) {
+    return proof.jwt.trim();
+  }
+
+  if (isJwtString(proof?.jws)) {
+    return proof.jws.trim();
+  }
+
+  return '';
+}
+
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoItem}>
@@ -103,6 +128,9 @@ export default function CredentialDetailScreen() {
   const [documentCredentials, setDocumentCredentials] = useState<ModularCredential[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [presentationJwt, setPresentationJwt] = useState('');
+  const [presentationMeta, setPresentationMeta] =
+    useState<SignedPresentationJWT | null>(null);
+  const [qrWarning, setQrWarning] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [toast, setToast] = useState({
@@ -134,6 +162,8 @@ export default function CredentialDetailScreen() {
       setDocumentCredentials(sameDocumentCredentials);
       setSelectedIds([]);
       setPresentationJwt('');
+      setPresentationMeta(null);
+      setQrWarning('');
     } catch {
       Alert.alert('Error', 'Gagal mengambil detail credential');
     } finally {
@@ -147,15 +177,18 @@ export default function CredentialDetailScreen() {
 
   const proof = useMemo(() => getProof(credential?.proof), [credential?.proof]);
 
+  const qrJwt = presentationJwt.trim();
+  const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
+  const isPresentationJwtValid = isJwtString(qrJwt) && qrJwtParts === 3;
+
   function hasCredentialJwt(vc: ModularCredential): boolean {
-    return isJwtString(vc.jwt) || isJwtString(vc.proof?.jwt);
+    return Boolean(getCredentialJwt(vc));
   }
 
   function isCredentialPresentable(vc: ModularCredential): boolean {
     const expiration = checkCredentialExpiration(vc);
 
     if (expiration.isExpired || expiration.isNotYetValid) return false;
-
     if (!hasCredentialJwt(vc)) return false;
 
     return ![
@@ -178,8 +211,14 @@ export default function CredentialDetailScreen() {
     return vc.verificationStatus || 'Pending Verification';
   }
 
-  function toggleCredential(idValue: string) {
+  function resetPresentation() {
     setPresentationJwt('');
+    setPresentationMeta(null);
+    setQrWarning('');
+  }
+
+  function toggleCredential(idValue: string) {
+    resetPresentation();
 
     setSelectedIds((prev) => {
       if (prev.includes(idValue)) {
@@ -191,14 +230,14 @@ export default function CredentialDetailScreen() {
   }
 
   function selectAll() {
-    setPresentationJwt('');
+    resetPresentation();
     setSelectedIds(
       documentCredentials.filter(isCredentialPresentable).map((item) => item.id)
     );
   }
 
   function clearSelection() {
-    setPresentationJwt('');
+    resetPresentation();
     setSelectedIds([]);
   }
 
@@ -214,6 +253,7 @@ export default function CredentialDetailScreen() {
       }
 
       setLoading(true);
+      resetPresentation();
 
       const didData = await getDID();
 
@@ -251,13 +291,20 @@ export default function CredentialDetailScreen() {
 
       const vpJwt = vp.jwt.trim();
 
-      if (!isJwtString(vpJwt)) {
+      if (!vpJwt || !isJwtString(vpJwt) || vpJwt.split('.').length !== 3) {
         throw new Error('VP JWT hasil signing tidak valid.');
       }
 
       validatePresentationPayloadSize(vpJwt);
 
+      if (vpJwt.length > 2500) {
+        setQrWarning(
+          'VP JWT cukup panjang. Jika QR sulit discan, kurangi jumlah atribut yang dipilih.'
+        );
+      }
+
       setPresentationJwt(vpJwt);
+      setPresentationMeta(vp);
 
       setToast({
         visible: true,
@@ -270,6 +317,10 @@ export default function CredentialDetailScreen() {
           ? error.message
           : 'Gagal membuat signed VP JWT.';
 
+      setQrWarning(message);
+      setPresentationJwt('');
+      setPresentationMeta(null);
+
       setToast({
         visible: true,
         message,
@@ -281,9 +332,16 @@ export default function CredentialDetailScreen() {
   }
 
   async function handleCopyJWT() {
-    if (!presentationJwt) return;
+    if (!isPresentationJwtValid) {
+      setToast({
+        visible: true,
+        message: 'VP JWT tidak valid sehingga tidak bisa disalin.',
+        type: 'error',
+      });
+      return;
+    }
 
-    await Clipboard.setStringAsync(presentationJwt.trim());
+    await Clipboard.setStringAsync(qrJwt);
 
     setToast({
       visible: true,
@@ -308,7 +366,7 @@ export default function CredentialDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteVC(credential.id);
+              await deleteVCById(credential.id);
               router.replace('/(tabs)');
             } catch {
               Alert.alert('Error', 'Gagal menghapus credential');
@@ -494,39 +552,63 @@ export default function CredentialDetailScreen() {
           </View>
         )}
 
+        {qrWarning ? (
+          <View style={styles.warningCard}>
+            <Ionicons name="warning-outline" size={22} color="#F97316" />
+            <Text style={styles.warningText}>{qrWarning}</Text>
+          </View>
+        ) : null}
+
         {presentationJwt ? (
-          <>
-            <View style={styles.qrCard}>
-              <Text style={styles.qrTitle}>Signed QR Presentation</Text>
+          isPresentationJwtValid ? (
+            <>
+              <View style={styles.qrCard}>
+                <Text style={styles.qrTitle}>Signed QR Presentation</Text>
 
-              <View style={styles.qrBox}>
-                <QRCode value={presentationJwt.trim()} size={220} />
+                <View style={styles.qrStatusBox}>
+                  <Text style={styles.qrStatusText}>Status: VP JWT Valid</Text>
+                  <Text style={styles.qrStatusText}>JWT Parts: {qrJwtParts}</Text>
+                  <Text style={styles.qrStatusText}>
+                    Credential Count: {presentationMeta?.credentialCount || selectedCredentials.length}
+                  </Text>
+                </View>
+
+                <View style={styles.qrBox}>
+                  <QRCode value={qrJwt} size={220} />
+                </View>
+
+                <Text style={styles.qrNote}>
+                  QR ini berisi VP JWT murni dengan format header.payload.signature.
+                  Scan QR ini dari tab Verify.
+                </Text>
+
+                <Text style={styles.jwtLabel}>VP JWT</Text>
+                <Text style={styles.jwtPreview} numberOfLines={4}>
+                  {qrJwt}
+                </Text>
               </View>
 
-              <Text style={styles.qrNote}>
-                QR ini berisi VP JWT murni dengan format header.payload.signature.
-                Scan QR ini dari tab Verify.
-              </Text>
+              <View style={styles.sectionCard}>
+                <View style={styles.jwtHeader}>
+                  <Text style={styles.sectionTitle}>VP JWT Lengkap</Text>
 
-              <Text style={styles.jwtLabel}>VP JWT</Text>
-              <Text style={styles.jwtPreview} numberOfLines={4}>
-                {presentationJwt.trim()}
-              </Text>
-            </View>
+                  <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
+                    <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.copyButtonText}>Copy</Text>
+                  </AnimatedButton>
+                </View>
 
-            <View style={styles.sectionCard}>
-              <View style={styles.jwtHeader}>
-                <Text style={styles.sectionTitle}>VP JWT Lengkap</Text>
-
-                <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
-                  <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.copyButtonText}>Copy</Text>
-                </AnimatedButton>
+                <Text style={styles.jwtText}>{qrJwt}</Text>
               </View>
-
-              <Text style={styles.jwtText}>{presentationJwt.trim()}</Text>
+            </>
+          ) : (
+            <View style={styles.warningCard}>
+              <Ionicons name="close-circle-outline" size={22} color="#DC2626" />
+              <Text style={styles.warningText}>
+                VP JWT tidak valid sehingga QR tidak ditampilkan. Silakan buat ulang presentation.
+              </Text>
             </View>
-          </>
+          )
         ) : null}
 
         <View style={styles.sectionCard}>
@@ -537,23 +619,23 @@ export default function CredentialDetailScreen() {
             <Text style={styles.sectionTitle}>Proof VC JWT</Text>
           </View>
 
-          {proof ? (
+          {proof || credential.jwt ? (
             <>
-              <InfoItem label="Proof Type" value={proof.type || '-'} />
-              <InfoItem label="Created" value={proof.created || '-'} />
-              <InfoItem label="Proof Purpose" value={proof.proofPurpose || '-'} />
-              <InfoItem label="Verification Method" value={proof.verificationMethod || '-'} />
+              <InfoItem label="Proof Type" value={proof?.type || '-'} />
+              <InfoItem label="Created" value={proof?.created || '-'} />
+              <InfoItem label="Proof Purpose" value={proof?.proofPurpose || '-'} />
+              <InfoItem label="Verification Method" value={proof?.verificationMethod || '-'} />
 
               <Text style={styles.label}>VC JWT</Text>
               <Text style={styles.signatureText}>
-                {proof.jwt || credential.jwt || '-'}
+                {getCredentialJwt(credential) || '-'}
               </Text>
             </>
           ) : (
             <View style={styles.emptyProof}>
               <Ionicons name="warning-outline" size={26} color="#F97316" />
               <Text style={styles.emptyProofText}>
-                Credential belum memiliki proof.
+                Credential belum memiliki proof. Buat ulang credential sebagai VC JWT agar bisa dipresentasikan.
               </Text>
             </View>
           )}
@@ -620,39 +702,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
   },
   heroLabel: {
-    fontSize: 14,
-    color: '#FFEDD5',
+    color: '#DBEAFE',
+    fontSize: 12,
     fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   heroTitle: {
-    fontSize: 30,
     color: '#FFFFFF',
+    fontSize: 26,
     fontWeight: '900',
-    marginTop: 2,
-    maxWidth: 230,
   },
   heroSubtitle: {
+    color: '#E0F2FE',
     fontSize: 14,
-    color: '#DBEAFE',
     marginTop: 8,
-    lineHeight: 21,
-    maxWidth: 230,
+    lineHeight: 20,
+    maxWidth: 250,
   },
   heroIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 22,
     padding: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
@@ -660,31 +743,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 6,
+    marginBottom: 14,
   },
   sectionHeaderBetween: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 14,
+    gap: 10,
   },
   sectionIconBlue: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 14,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionTitle: {
-    fontSize: 18,
-    color: '#111827',
+    fontSize: 16,
     fontWeight: '900',
+    color: '#111827',
+  },
+  infoItem: {
+    marginBottom: 12,
+  },
+  label: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  value: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   smallText: {
-    fontSize: 12,
     color: '#6B7280',
+    fontSize: 13,
     fontWeight: '700',
     marginTop: 4,
   },
@@ -694,7 +793,7 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     backgroundColor: '#2563EB',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
   },
@@ -705,7 +804,7 @@ const styles = StyleSheet.create({
   },
   smallButtonLight: {
     backgroundColor: '#EFF6FF',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
   },
@@ -715,15 +814,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   credentialOption: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
     padding: 14,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 10,
+    marginBottom: 10,
   },
   credentialOptionActive: {
     backgroundColor: '#2563EB',
@@ -733,189 +832,158 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   checkCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 2,
     borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkCircleActive: {
-    backgroundColor: '#F97316',
-    borderColor: '#F97316',
+    borderColor: '#FFFFFF',
+    backgroundColor: '#1D4ED8',
   },
   optionTitle: {
-    fontSize: 15,
     color: '#111827',
     fontWeight: '900',
+    marginBottom: 4,
   },
   optionTitleActive: {
     color: '#FFFFFF',
   },
   optionValue: {
-    fontSize: 14,
     color: '#374151',
     fontWeight: '700',
-    marginTop: 3,
+    marginBottom: 4,
   },
   optionValueActive: {
-    color: '#DBEAFE',
+    color: '#E0F2FE',
   },
   optionMeta: {
-    fontSize: 11,
     color: '#6B7280',
-    marginTop: 5,
+    fontSize: 12,
     fontWeight: '700',
   },
   optionMetaActive: {
-    color: '#BFDBFE',
+    color: '#DBEAFE',
   },
   optionStatus: {
-    fontSize: 11,
-    color: '#C2410C',
-    marginTop: 5,
+    color: '#2563EB',
+    fontSize: 12,
     fontWeight: '900',
+    marginTop: 4,
   },
   optionStatusActive: {
-    color: '#FFEDD5',
+    color: '#FFFFFF',
   },
   optionStatusBlocked: {
     color: '#DC2626',
   },
+  presentButton: {
+    backgroundColor: '#2563EB',
+    borderRadius: 18,
+    paddingVertical: 16,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   disabledButton: {
     opacity: 0.5,
-  },
-  previewRow: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    marginTop: 10,
-  },
-  previewLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '900',
-  },
-  previewValue: {
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  infoItem: {
-    marginTop: 12,
-  },
-  label: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '900',
-  },
-  value: {
-    fontSize: 14,
-    color: '#111827',
-    marginTop: 5,
-    lineHeight: 20,
-    fontWeight: '600',
-  },
-  signatureText: {
-    marginTop: 6,
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 14,
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#2563EB',
-    fontWeight: '700',
-  },
-  emptyProof: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  emptyProofText: {
-    color: '#9A3412',
-    fontSize: 13,
-    fontWeight: '800',
-    flex: 1,
-  },
-  presentButton: {
-    backgroundColor: '#F97316',
-    marginTop: 14,
-    paddingVertical: 15,
-    borderRadius: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
   },
   presentButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 15,
   },
+  previewRow: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  previewLabel: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  previewValue: {
+    color: '#111827',
+    fontWeight: '800',
+  },
   qrCard: {
     backgroundColor: '#FFFFFF',
-    marginTop: 18,
     borderRadius: 24,
-    padding: 18,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    alignItems: 'center',
   },
   qrTitle: {
-    fontSize: 18,
     color: '#111827',
+    fontSize: 18,
     fontWeight: '900',
+    marginBottom: 12,
+  },
+  qrStatusBox: {
+    alignSelf: 'stretch',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 16,
+    padding: 12,
     marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  qrStatusText: {
+    color: '#166534',
+    fontWeight: '900',
+    fontSize: 13,
+    marginBottom: 2,
   },
   qrBox: {
     backgroundColor: '#FFFFFF',
-    padding: 18,
-    borderRadius: 20,
+    padding: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   qrNote: {
-    fontSize: 13,
     color: '#6B7280',
-    fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 19,
-    marginTop: 12,
+    fontWeight: '700',
+    marginTop: 14,
+    lineHeight: 20,
   },
   jwtLabel: {
-    alignSelf: 'flex-start',
-    color: '#111827',
-    fontSize: 13,
+    alignSelf: 'stretch',
+    color: '#6B7280',
+    fontSize: 12,
     fontWeight: '900',
-    marginTop: 16,
+    marginTop: 18,
+    marginBottom: 6,
   },
   jwtPreview: {
     alignSelf: 'stretch',
-    backgroundColor: '#F8FAFC',
-    color: '#2563EB',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 18,
-    padding: 12,
-    borderRadius: 14,
-    marginTop: 6,
+    color: '#374151',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 16,
   },
   jwtHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 10,
   },
   copyButton: {
     backgroundColor: '#2563EB',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -923,26 +991,58 @@ const styles = StyleSheet.create({
   copyButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
-    fontSize: 13,
+    fontSize: 12,
   },
   jwtText: {
-    marginTop: 14,
-    backgroundColor: '#F8FAFC',
-    color: '#2563EB',
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '700',
-    padding: 12,
-    borderRadius: 14,
+    color: '#374151',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  signatureText: {
+    color: '#374151',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  emptyProof: {
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#FFF7ED',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyProofText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  warningText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 20,
   },
   deleteButton: {
     backgroundColor: '#DC2626',
-    marginTop: 12,
-    paddingVertical: 15,
     borderRadius: 18,
+    paddingVertical: 16,
+    marginTop: 4,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   deleteButtonText: {
@@ -951,19 +1051,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   statusCard: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+    marginTop: 16,
     borderWidth: 1,
     borderColor: '#BBF7D0',
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
   },
   statusText: {
     color: '#166534',
     fontWeight: '900',
-    fontSize: 14,
   },
 });

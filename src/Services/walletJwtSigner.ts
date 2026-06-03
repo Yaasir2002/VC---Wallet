@@ -82,6 +82,16 @@ export async function signVcJwtWithWallet(params: {
 }) {
   const wallet = await getWalletSigner();
 
+  if (!params.subjectDid?.startsWith('did:')) {
+    throw new Error('Subject DID tidak valid.');
+  }
+
+  const issuanceTime = new Date(params.issuanceDate).getTime();
+
+  if (!params.issuanceDate || Number.isNaN(issuanceTime)) {
+    throw new Error('Issuance date tidak valid.');
+  }
+
   const credentialSubject = {
     id: params.subjectDid,
     documentId: params.documentId,
@@ -100,7 +110,7 @@ export async function signVcJwtWithWallet(params: {
 
   const vcPayload: any = {
     sub: params.subjectDid,
-    nbf: Math.floor(new Date(params.issuanceDate).getTime() / 1000),
+    nbf: Math.floor(issuanceTime / 1000),
     vc: {
       '@context': ['https://www.w3.org/2018/credentials/v1'],
       type: vcTypes,
@@ -111,6 +121,13 @@ export async function signVcJwtWithWallet(params: {
   };
 
   if (params.expirationDate) {
+    const expirationTime = new Date(params.expirationDate).getTime();
+
+    if (Number.isNaN(expirationTime)) {
+      throw new Error('Expiration date tidak valid.');
+    }
+
+    vcPayload.exp = Math.floor(expirationTime / 1000);
     vcPayload.vc.expirationDate = params.expirationDate;
   }
 
@@ -144,6 +161,10 @@ export async function signVpJwtWithWallet(params: {
     );
   }
 
+  if (!Array.isArray(params.verifiableCredential)) {
+    throw new Error('verifiableCredential harus berupa array VC JWT.');
+  }
+
   if (params.verifiableCredential.length === 0) {
     throw new Error('Minimal 1 VC JWT harus dimasukkan ke VP.');
   }
@@ -159,7 +180,9 @@ export async function signVpJwtWithWallet(params: {
       '@context': ['https://www.w3.org/2018/credentials/v1'],
       type: ['VerifiablePresentation'],
       holder: params.holderDid,
-      verifiableCredential: params.verifiableCredential,
+      verifiableCredential: params.verifiableCredential.map((jwt) =>
+        jwt.trim()
+      ),
     },
   };
 
