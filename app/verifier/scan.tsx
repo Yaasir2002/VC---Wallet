@@ -17,7 +17,6 @@ import {
   VerifiedCredentialView,
   extractJwtFromQrData,
   decodeJWT,
-  isJwtString,
 } from '../../src/Services/verificationService';
 
 import AppToast from '../../components/ui/AppToast';
@@ -30,6 +29,21 @@ function shorten(value?: string) {
   if (value.length <= 24) return value;
 
   return `${value.slice(0, 14)}...${value.slice(-8)}`;
+}
+
+function isJwtLikeString(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const parts = value.trim().split('.');
+
+  return (
+    parts.length === 3 &&
+    parts[0].length > 0 &&
+    parts[1].length > 0 &&
+    parts[2].length > 0
+  );
 }
 
 function getResultTitle(result: UniversalVerificationResult | null) {
@@ -63,7 +77,7 @@ function getResultSubtitle(result: UniversalVerificationResult | null) {
 
 function inspectQrSafely(data: string) {
   const trimmed = data?.trim?.() || '';
-  const directParts = isJwtString(trimmed) ? trimmed.split('.').length : 0;
+  const directJwtParts = isJwtLikeString(trimmed) ? trimmed.split('.').length : 0;
 
   try {
     const jwt = extractJwtFromQrData(trimmed);
@@ -72,15 +86,19 @@ function inspectQrSafely(data: string) {
     return {
       length: trimmed.length,
       jwtParts: jwt.split('.').length,
-      payloadKind: decoded.payload?.vp ? 'vp-jwt' : decoded.payload?.vc ? 'vc-jwt' : 'unknown',
-      directJwtParts: directParts,
+      payloadKind: decoded.payload?.vp
+        ? 'vp-jwt'
+        : decoded.payload?.vc
+          ? 'vc-jwt'
+          : 'unknown',
+      directJwtParts,
     };
   } catch {
     return {
       length: trimmed.length,
-      jwtParts: directParts,
+      jwtParts: directJwtParts,
       payloadKind: 'unknown',
-      directJwtParts: directParts,
+      directJwtParts,
     };
   }
 }
@@ -127,7 +145,7 @@ export default function ScanPresentationScreen() {
       const inspected = inspectQrSafely(data);
       setDebugInfo(inspected);
 
-      safeLogger.info?.('QR scanned', {
+      safeLogger.warn('QR scanned debug', {
         length: inspected.length,
         jwtParts: inspected.jwtParts,
         payloadKind: inspected.payloadKind,
@@ -457,7 +475,7 @@ export default function ScanPresentationScreen() {
         <View style={styles.scanInstruction}>
           <Text style={styles.scanTitle}>Scan QR Credential</Text>
           <Text style={styles.scanText}>
-            Arahkan kamera ke QR berisi VP JWT, VC JWT, JSON wrapper, atau deep link JWT.
+            Arahkan kamera ke QR Signed Presentation yang berisi VP JWT, atau QR VC JWT langsung.
           </Text>
         </View>
       </View>
