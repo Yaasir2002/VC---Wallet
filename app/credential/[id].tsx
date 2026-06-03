@@ -468,7 +468,8 @@ export default function CredentialDetailScreen() {
         <View style={styles.noticeCard}>
           <Ionicons name="information-circle-outline" size={24} color="#2563EB" />
           <Text style={styles.noticeText}>
-            Tab Verify hanya boleh scan QR dari section Signed QR Presentation. Halaman ini tidak menampilkan QR credential JSON biasa agar tidak salah scan.
+            Tombol Tampilkan QR diganti menjadi Confirm & Sign Presentation.
+            QR hanya muncul setelah VP JWT berhasil dibuat.
           </Text>
         </View>
 
@@ -529,10 +530,7 @@ export default function CredentialDetailScreen() {
                 ]}
                 onPress={() => {
                   if (!presentable) {
-                    showToast(
-                      getCredentialBlockedReason(item),
-                      'error'
-                    );
+                    showToast(getCredentialBlockedReason(item), 'error');
                     return;
                   }
 
@@ -635,7 +633,7 @@ export default function CredentialDetailScreen() {
 
                 <Text style={styles.qrNote}>
                   QR ini berisi VP JWT murni dengan format header.payload.signature.
-                  Jangan scan QR credential JSON biasa di tab Verify.
+                  QR ini dibuat setelah Confirm & Sign Presentation.
                 </Text>
 
                 <Text style={styles.jwtLabel}>Preview VP JWT</Text>
@@ -680,7 +678,10 @@ export default function CredentialDetailScreen() {
               <InfoItem label="Proof Type" value={proof?.type || 'JwtProof2020'} />
               <InfoItem label="Created" value={proof?.created || '-'} />
               <InfoItem label="Proof Purpose" value={proof?.proofPurpose || 'assertionMethod'} />
-              <InfoItem label="Verification Method" value={proof?.verificationMethod || credential.issuer || '-'} />
+              <InfoItem
+                label="Verification Method"
+                value={proof?.verificationMethod || credential.issuer || '-'}
+              />
 
               <Text style={styles.label}>VC JWT</Text>
               <Text style={styles.signatureText}>{currentCredentialJwt}</Text>
