@@ -41,6 +41,20 @@ type CredentialProof = {
   created?: string;
 };
 
+type ToastState = {
+  visible: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info';
+};
+
+const INVALID_PRESENTATION_STATUSES = [
+  'invalid',
+  'invalid_signature',
+  'malformed_credential',
+  'expired',
+  'not_yet_valid',
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -75,6 +89,13 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
+function shorten(value?: string) {
+  if (!value) return '-';
+  if (value.length <= 24) return value;
+
+  return `${value.slice(0, 14)}...${value.slice(-8)}`;
+}
+
 function getCredentialDisplayTitle(credential: ModularCredential): string {
   if (credential.documentName) return credential.documentName;
   if (credential.documentType) return `${credential.documentType} Credential`;
@@ -84,13 +105,6 @@ function getCredentialDisplayTitle(credential: ModularCredential): string {
   );
 
   return specificType || 'Verifiable Credential';
-}
-
-function shorten(value?: string) {
-  if (!value) return '-';
-  if (value.length <= 24) return value;
-
-  return `${value.slice(0, 14)}...${value.slice(-8)}`;
 }
 
 function getCredentialJwt(credential: ModularCredential): string {
@@ -133,11 +147,23 @@ export default function CredentialDetailScreen() {
   const [qrWarning, setQrWarning] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const [toast, setToast] = useState({
+  const [toast, setToast] = useState<ToastState>({
     visible: false,
     message: '',
-    type: 'info' as 'success' | 'error' | 'info',
+    type: 'info',
   });
+
+  const proof = useMemo(() => getProof(credential?.proof), [credential?.proof]);
+
+  const qrJwt = presentationJwt.trim();
+  const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
+  const isPresentationJwtValid =
+    Boolean(qrJwt) && isJwtString(qrJwt) && qrJwtParts === 3;
+
+  const selectedCredentials = useMemo(
+    () => documentCredentials.filter((item) => selectedIds.includes(item.id)),
+    [documentCredentials, selectedIds]
+  );
 
   const loadCredential = useCallback(async () => {
     try {
@@ -175,11 +201,19 @@ export default function CredentialDetailScreen() {
     void loadCredential();
   }, [loadCredential]);
 
-  const proof = useMemo(() => getProof(credential?.proof), [credential?.proof]);
+  function showToast(message: string, type: ToastState['type']) {
+    setToast({
+      visible: true,
+      message,
+      type,
+    });
+  }
 
-  const qrJwt = presentationJwt.trim();
-  const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
-  const isPresentationJwtValid = isJwtString(qrJwt) && qrJwtParts === 3;
+  function resetPresentation() {
+    setPresentationJwt('');
+    setPresentationMeta(null);
+    setQrWarning('');
+  }
 
   function hasCredentialJwt(vc: ModularCredential): boolean {
     return Boolean(getCredentialJwt(vc));
@@ -188,16 +222,15 @@ export default function CredentialDetailScreen() {
   function isCredentialPresentable(vc: ModularCredential): boolean {
     const expiration = checkCredentialExpiration(vc);
 
-    if (expiration.isExpired || expiration.isNotYetValid) return false;
-    if (!hasCredentialJwt(vc)) return false;
+    if (expiration.isExpired || expiration.isNotYetValid) {
+      return false;
+    }
 
-    return ![
-      'invalid',
-      'invalid_signature',
-      'malformed_credential',
-      'expired',
-      'not_yet_valid',
-    ].includes(vc.verificationStatus ?? '');
+    if (!hasCredentialJwt(vc)) {
+      return false;
+    }
+
+    return !INVALID_PRESENTATION_STATUSES.includes(vc.verificationStatus ?? '');
   }
 
   function getCredentialStatusLabel(vc: ModularCredential): string {
@@ -211,10 +244,26 @@ export default function CredentialDetailScreen() {
     return vc.verificationStatus || 'Pending Verification';
   }
 
-  function resetPresentation() {
-    setPresentationJwt('');
-    setPresentationMeta(null);
-    setQrWarning('');
+  function getCredentialBlockedReason(vc: ModularCredential): string {
+    const expiration = checkCredentialExpiration(vc);
+
+    if (!hasCredentialJwt(vc)) {
+      return 'Credential ini tidak punya VC JWT. Buat ulang credential sebagai VC JWT valid.';
+    }
+
+    if (expiration.isExpired) {
+      return 'Credential ini sudah expired.';
+    }
+
+    if (expiration.isNotYetValid) {
+      return 'Credential ini belum berlaku.';
+    }
+
+    if (INVALID_PRESENTATION_STATUSES.includes(vc.verificationStatus ?? '')) {
+      return 'Credential ini berstatus invalid dan tidak dapat dipresentasikan.';
+    }
+
+    return 'Credential ini tidak dapat dipresentasikan.';
   }
 
   function toggleCredential(idValue: string) {
@@ -231,9 +280,19 @@ export default function CredentialDetailScreen() {
 
   function selectAll() {
     resetPresentation();
-    setSelectedIds(
-      documentCredentials.filter(isCredentialPresentable).map((item) => item.id)
-    );
+
+    const presentableIds = documentCredentials
+      .filter(isCredentialPresentable)
+      .map((item) => item.id);
+
+    setSelectedIds(presentableIds);
+
+    if (presentableIds.length === 0) {
+      showToast(
+        'Tidak ada credential yang bisa dipresentasikan. Pastikan credential punya VC JWT valid.',
+        'error'
+      );
+    }
   }
 
   function clearSelection() {
@@ -244,11 +303,7 @@ export default function CredentialDetailScreen() {
   async function handleConfirmAndSignPresentation() {
     try {
       if (selectedIds.length === 0) {
-        setToast({
-          visible: true,
-          message: 'Pilih minimal 1 atribut untuk dipresentasikan.',
-          type: 'error',
-        });
+        showToast('Pilih minimal 1 atribut untuk dipresentasikan.', 'error');
         return;
       }
 
@@ -258,29 +313,31 @@ export default function CredentialDetailScreen() {
       const didData = await getDID();
 
       if (!didData?.did) {
-        setToast({
-          visible: true,
-          message: 'DID belum tersedia.',
-          type: 'error',
-        });
+        showToast('DID belum tersedia.', 'error');
         return;
       }
 
-      const selectedCredentials = documentCredentials.filter((item) =>
-        selectedIds.includes(item.id)
-      );
+      if (!didData.did.startsWith('did:key:')) {
+        showToast('DID wallet harus menggunakan did:key.', 'error');
+        return;
+      }
+
+      if (selectedCredentials.length === 0) {
+        showToast('Credential terpilih tidak ditemukan.', 'error');
+        return;
+      }
 
       const invalidCredential = selectedCredentials.find(
         (item) => !isCredentialPresentable(item)
       );
 
       if (invalidCredential) {
-        setToast({
-          visible: true,
-          message:
-            'Ada credential yang tidak punya VC JWT valid, expired, atau invalid. Hapus credential lama dan buat ulang.',
-          type: 'error',
-        });
+        showToast(
+          `Ada credential yang tidak dapat dipresentasikan. ${getCredentialBlockedReason(
+            invalidCredential
+          )}`,
+          'error'
+        );
         return;
       }
 
@@ -291,7 +348,11 @@ export default function CredentialDetailScreen() {
 
       const vpJwt = vp.jwt.trim();
 
-      if (!vpJwt || !isJwtString(vpJwt) || vpJwt.split('.').length !== 3) {
+      if (!vpJwt) {
+        throw new Error('VP JWT kosong.');
+      }
+
+      if (!isJwtString(vpJwt) || vpJwt.split('.').length !== 3) {
         throw new Error('VP JWT hasil signing tidak valid.');
       }
 
@@ -306,11 +367,10 @@ export default function CredentialDetailScreen() {
       setPresentationJwt(vpJwt);
       setPresentationMeta(vp);
 
-      setToast({
-        visible: true,
-        message: `${selectedCredentials.length} atribut berhasil ditandatangani sebagai VP JWT.`,
-        type: 'success',
-      });
+      showToast(
+        `${vp.credentialCount} atribut berhasil ditandatangani sebagai VP JWT.`,
+        'success'
+      );
     } catch (error) {
       const message =
         error instanceof Error
@@ -321,11 +381,7 @@ export default function CredentialDetailScreen() {
       setPresentationJwt('');
       setPresentationMeta(null);
 
-      setToast({
-        visible: true,
-        message,
-        type: 'error',
-      });
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -333,21 +389,13 @@ export default function CredentialDetailScreen() {
 
   async function handleCopyJWT() {
     if (!isPresentationJwtValid) {
-      setToast({
-        visible: true,
-        message: 'VP JWT tidak valid sehingga tidak bisa disalin.',
-        type: 'error',
-      });
+      showToast('VP JWT tidak valid sehingga tidak bisa disalin.', 'error');
       return;
     }
 
     await Clipboard.setStringAsync(qrJwt);
 
-    setToast({
-      visible: true,
-      message: 'VP JWT berhasil disalin.',
-      type: 'success',
-    });
+    showToast('VP JWT berhasil disalin.', 'success');
   }
 
   async function handleDeleteCredential() {
@@ -388,9 +436,7 @@ export default function CredentialDetailScreen() {
   }
 
   const credentialTitle = getCredentialDisplayTitle(credential);
-  const selectedCredentials = documentCredentials.filter((item) =>
-    selectedIds.includes(item.id)
-  );
+  const currentCredentialJwt = getCredentialJwt(credential);
 
   return (
     <View style={{ flex: 1 }}>
@@ -406,11 +452,11 @@ export default function CredentialDetailScreen() {
           end={{ x: 1, y: 1 }}
           style={styles.hero}
         >
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.heroLabel}>Credential Detail</Text>
             <Text style={styles.heroTitle}>{credentialTitle}</Text>
             <Text style={styles.heroSubtitle}>
-              Pilih atribut yang ingin dipresentasikan, lalu tanda tangani sebagai VP JWT.
+              Pilih atribut, lalu klik Confirm & Sign Presentation untuk membuat QR VP JWT.
             </Text>
           </View>
 
@@ -418,6 +464,13 @@ export default function CredentialDetailScreen() {
             <Ionicons name="shield-checkmark-outline" size={36} color="#2563EB" />
           </View>
         </LinearGradient>
+
+        <View style={styles.noticeCard}>
+          <Ionicons name="information-circle-outline" size={24} color="#2563EB" />
+          <Text style={styles.noticeText}>
+            Tab Verify hanya boleh scan QR dari section Signed QR Presentation. Halaman ini tidak menampilkan QR credential JSON biasa agar tidak salah scan.
+          </Text>
+        </View>
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
@@ -435,7 +488,10 @@ export default function CredentialDetailScreen() {
           <InfoItem label="Issuer" value={credential.issuer} />
           <InfoItem label="Issuance Date" value={formatDate(credential.issuanceDate)} />
           <InfoItem label="Expiration Date" value={formatDate(credential.expirationDate)} />
-          <InfoItem label="Verification Status" value={credential.verificationStatus ?? 'pending_verification'} />
+          <InfoItem
+            label="Verification Status"
+            value={credential.verificationStatus ?? 'pending_verification'}
+          />
         </View>
 
         <View style={styles.sectionCard}>
@@ -473,12 +529,10 @@ export default function CredentialDetailScreen() {
                 ]}
                 onPress={() => {
                   if (!presentable) {
-                    setToast({
-                      visible: true,
-                      message:
-                        'Credential ini tidak dapat dipresentasikan. Pastikan credential dibuat ulang sebagai VC JWT valid.',
-                      type: 'error',
-                    });
+                    showToast(
+                      getCredentialBlockedReason(item),
+                      'error'
+                    );
                     return;
                   }
 
@@ -573,16 +627,18 @@ export default function CredentialDetailScreen() {
                   </Text>
                 </View>
 
+                <Text style={styles.verifyOnlyText}>SCAN QR INI DI TAB VERIFY</Text>
+
                 <View style={styles.qrBox}>
                   <QRCode value={qrJwt} size={220} />
                 </View>
 
                 <Text style={styles.qrNote}>
                   QR ini berisi VP JWT murni dengan format header.payload.signature.
-                  Scan QR ini dari tab Verify.
+                  Jangan scan QR credential JSON biasa di tab Verify.
                 </Text>
 
-                <Text style={styles.jwtLabel}>VP JWT</Text>
+                <Text style={styles.jwtLabel}>Preview VP JWT</Text>
                 <Text style={styles.jwtPreview} numberOfLines={4}>
                   {qrJwt}
                 </Text>
@@ -594,7 +650,7 @@ export default function CredentialDetailScreen() {
 
                   <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
                     <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.copyButtonText}>Copy</Text>
+                    <Text style={styles.copyButtonText}>Copy JWT</Text>
                   </AnimatedButton>
                 </View>
 
@@ -619,23 +675,21 @@ export default function CredentialDetailScreen() {
             <Text style={styles.sectionTitle}>Proof VC JWT</Text>
           </View>
 
-          {proof || credential.jwt ? (
+          {currentCredentialJwt ? (
             <>
-              <InfoItem label="Proof Type" value={proof?.type || '-'} />
+              <InfoItem label="Proof Type" value={proof?.type || 'JwtProof2020'} />
               <InfoItem label="Created" value={proof?.created || '-'} />
-              <InfoItem label="Proof Purpose" value={proof?.proofPurpose || '-'} />
-              <InfoItem label="Verification Method" value={proof?.verificationMethod || '-'} />
+              <InfoItem label="Proof Purpose" value={proof?.proofPurpose || 'assertionMethod'} />
+              <InfoItem label="Verification Method" value={proof?.verificationMethod || credential.issuer || '-'} />
 
               <Text style={styles.label}>VC JWT</Text>
-              <Text style={styles.signatureText}>
-                {getCredentialJwt(credential) || '-'}
-              </Text>
+              <Text style={styles.signatureText}>{currentCredentialJwt}</Text>
             </>
           ) : (
             <View style={styles.emptyProof}>
               <Ionicons name="warning-outline" size={26} color="#F97316" />
               <Text style={styles.emptyProofText}>
-                Credential belum memiliki proof. Buat ulang credential sebagai VC JWT agar bisa dipresentasikan.
+                Credential belum memiliki VC JWT. Credential lama perlu dibuat ulang agar bisa dipresentasikan sebagai VP JWT.
               </Text>
             </View>
           )}
@@ -703,6 +757,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 16,
   },
   heroLabel: {
     color: '#DBEAFE',
@@ -721,7 +776,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     lineHeight: 20,
-    maxWidth: 250,
   },
   heroIcon: {
     width: 58,
@@ -730,6 +784,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  noticeCard: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  noticeText: {
+    color: '#1E3A8A',
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 20,
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
@@ -913,6 +984,23 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '800',
   },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  warningText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 20,
+  },
   qrCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -942,6 +1030,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
     marginBottom: 2,
+  },
+  verifyOnlyText: {
+    color: '#16A34A',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 10,
+    textAlign: 'center',
   },
   qrBox: {
     backgroundColor: '#FFFFFF',
@@ -1016,23 +1111,6 @@ const styles = StyleSheet.create({
     color: '#9A3412',
     fontWeight: '800',
     textAlign: 'center',
-    lineHeight: 20,
-  },
-  warningCard: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  warningText: {
-    color: '#9A3412',
-    fontWeight: '800',
-    flex: 1,
     lineHeight: 20,
   },
   deleteButton: {
