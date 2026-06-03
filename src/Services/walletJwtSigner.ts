@@ -1,4 +1,7 @@
-import { createVerifiableCredentialJwt, createVerifiablePresentationJwt } from 'did-jwt-vc';
+import {
+  createVerifiableCredentialJwt,
+  createVerifiablePresentationJwt,
+} from 'did-jwt-vc';
 import { EdDSASigner } from 'did-jwt';
 
 import {
@@ -6,10 +9,21 @@ import {
   getWalletPrivateKeySeedHex,
 } from '../Storage/secureWalletStorage';
 
-export type WalletSignerIdentity = {
-  did: string;
-  signer: ReturnType<typeof EdDSASigner>;
-};
+export function isJwtString(value: unknown): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const normalized = value.trim();
+  const parts = normalized.split('.');
+
+  return (
+    parts.length === 3 &&
+    parts[0].length > 0 &&
+    parts[1].length > 0 &&
+    parts[2].length > 0
+  );
+}
 
 function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -31,30 +45,15 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-export function isJwtString(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
-  }
-
-  const parts = value.trim().split('.');
-
-  return (
-    parts.length === 3 &&
-    parts[0].length > 0 &&
-    parts[1].length > 0 &&
-    parts[2].length > 0
-  );
-}
-
-export async function getWalletSignerIdentity(): Promise<WalletSignerIdentity> {
+async function getWalletSigner() {
   const identity = await getRecoverableWalletIdentity();
 
-  if (!identity) {
-    throw new Error('Wallet identity tidak ditemukan.');
+  if (!identity?.did) {
+    throw new Error('Wallet identity / DID tidak ditemukan.');
   }
 
-  if (!identity.did || !identity.did.startsWith('did:key:')) {
-    throw new Error(`Wallet DID tidak valid: ${identity.did || '-'}`);
+  if (!identity.did.startsWith('did:key:')) {
+    throw new Error(`Wallet DID harus did:key. DID saat ini: ${identity.did}`);
   }
 
   const privateKeySeedHex =
@@ -71,30 +70,43 @@ export async function getWalletSignerIdentity(): Promise<WalletSignerIdentity> {
 }
 
 export async function signVcJwtWithWallet(params: {
-  issuerDid: string;
   subjectDid: string;
-  type: string[];
+  documentId: string;
+  documentType: string;
+  documentName: string;
+  attributeType: string;
+  attributeName: string;
+  attributeValue: string;
   issuanceDate: string;
   expirationDate?: string;
-  credentialSubject: Record<string, any>;
-}): Promise<string> {
-  const wallet = await getWalletSignerIdentity();
+}) {
+  const wallet = await getWalletSigner();
 
-  if (wallet.did !== params.issuerDid) {
-    throw new Error(
-      `Issuer DID harus sama dengan DID wallet penandatangan. issuer=${params.issuerDid}, wallet=${wallet.did}`
-    );
-  }
+  const credentialSubject = {
+    id: params.subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
+  };
+
+  const vcTypes = [
+    'VerifiableCredential',
+    'AttributeCredential',
+    `${params.documentType}Credential`,
+  ];
 
   const vcPayload: any = {
     sub: params.subjectDid,
     nbf: Math.floor(new Date(params.issuanceDate).getTime() / 1000),
     vc: {
       '@context': ['https://www.w3.org/2018/credentials/v1'],
-      type: params.type,
-      issuer: params.issuerDid,
+      type: vcTypes,
+      issuer: wallet.did,
       issuanceDate: params.issuanceDate,
-      credentialSubject: params.credentialSubject,
+      credentialSubject,
     },
   };
 
@@ -109,31 +121,36 @@ export async function signVcJwtWithWallet(params: {
   } as any);
 
   if (!isJwtString(jwt)) {
-    throw new Error('Hasil signing VC bukan JWT valid.');
+    throw new Error('VC JWT hasil signing tidak valid.');
   }
 
-  return jwt.trim();
+  return {
+    jwt: jwt.trim(),
+    issuerDid: wallet.did,
+    credentialSubject,
+    type: vcTypes,
+  };
 }
 
 export async function signVpJwtWithWallet(params: {
   holderDid: string;
   verifiableCredential: string[];
-}): Promise<string> {
-  const wallet = await getWalletSignerIdentity();
+}) {
+  const wallet = await getWalletSigner();
 
-  if (wallet.did !== params.holderDid) {
+  if (params.holderDid !== wallet.did) {
     throw new Error(
-      `Holder DID harus sama dengan DID wallet penandatangan. holder=${params.holderDid}, wallet=${wallet.did}`
+      `Holder DID harus sama dengan DID wallet. holder=${params.holderDid}, wallet=${wallet.did}`
     );
   }
 
-  if (!params.verifiableCredential.length) {
-    throw new Error('VP harus memiliki minimal 1 VC JWT.');
+  if (params.verifiableCredential.length === 0) {
+    throw new Error('Minimal 1 VC JWT harus dimasukkan ke VP.');
   }
 
   for (const vcJwt of params.verifiableCredential) {
     if (!isJwtString(vcJwt)) {
-      throw new Error('Salah satu credential bukan VC JWT valid.');
+      throw new Error('Ada credential yang bukan VC JWT valid.');
     }
   }
 
@@ -153,7 +170,7 @@ export async function signVpJwtWithWallet(params: {
   } as any);
 
   if (!isJwtString(jwt)) {
-    throw new Error('Hasil signing VP bukan JWT valid.');
+    throw new Error('VP JWT hasil signing tidak valid.');
   }
 
   return jwt.trim();

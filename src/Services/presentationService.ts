@@ -1,5 +1,5 @@
 import { ModularCredential } from '../types/vc';
-import { signVpJwtWithWallet, isJwtString } from './walletJwtSigner';
+import { isJwtString, signVpJwtWithWallet } from './walletJwtSigner';
 import { safeLogger } from '../utils/safeLogger';
 
 export type SignedPresentationJWT = {
@@ -13,16 +13,18 @@ function extractCredentialJWT(credential: ModularCredential): string {
     credential.jwt,
     credential.proof?.jwt,
     credential.proof?.jws,
+    (credential as any)?.vcJwt,
     (credential as any)?.rawCredential,
     (credential as any)?.rawCredential?.jwt,
-    (credential as any)?.vcJwt,
   ];
 
   const found = candidates.find(isJwtString);
 
   if (!found) {
     throw new Error(
-      `Credential ${credential.id} tidak memiliki VC JWT valid. Buat ulang credential KTP agar tersimpan sebagai signed VC JWT.`
+      `Credential ${
+        credential.credentialSubject?.attributeName || credential.id
+      } tidak memiliki VC JWT valid. Hapus credential lama dan buat ulang.`
     );
   }
 
@@ -33,26 +35,16 @@ export async function createSignedPresentationJWT(params: {
   holderDid: string;
   credentials: ModularCredential[];
 }): Promise<SignedPresentationJWT> {
-  if (!params.holderDid) {
-    throw new Error('Holder DID belum tersedia.');
+  if (!params.holderDid?.startsWith('did:key:')) {
+    throw new Error('Holder DID harus did:key.');
   }
 
-  if (!params.holderDid.startsWith('did:key:')) {
-    throw new Error(`Holder DID harus did:key. DID saat ini: ${params.holderDid}`);
-  }
-
-  if (!params.credentials.length) {
-    throw new Error('Minimal 1 credential harus dipilih untuk presentasi.');
+  if (params.credentials.length === 0) {
+    throw new Error('Pilih minimal 1 atribut credential.');
   }
 
   try {
     const credentialJWTs = params.credentials.map(extractCredentialJWT);
-
-    for (const credentialJwt of credentialJWTs) {
-      if (!isJwtString(credentialJwt)) {
-        throw new Error('Terdapat credential yang bukan VC JWT valid.');
-      }
-    }
 
     const jwt = await signVpJwtWithWallet({
       holderDid: params.holderDid,
@@ -60,7 +52,7 @@ export async function createSignedPresentationJWT(params: {
     });
 
     if (!isJwtString(jwt)) {
-      throw new Error('VP JWT hasil signing tidak valid.');
+      throw new Error('Presentation tidak menghasilkan VP JWT valid.');
     }
 
     return {
@@ -70,10 +62,10 @@ export async function createSignedPresentationJWT(params: {
     };
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
+      error instanceof Error ? error.message : 'Gagal membuat VP JWT.';
 
     safeLogger.warn('Failed to create signed VP JWT', { message });
 
-    throw new Error(`Presentation gagal ditandatangani. Detail: ${message}`);
+    throw new Error(`Gagal membuat VP JWT signed. Detail: ${message}`);
   }
 }

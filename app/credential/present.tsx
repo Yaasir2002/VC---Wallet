@@ -18,26 +18,12 @@ import { ModularCredential } from '../../src/types/vc';
 import { createSignedPresentationJWT } from '../../src/Services/presentationService';
 import { checkCredentialExpiration } from '../../src/Services/credentialValidityService';
 import { validatePresentationPayloadSize } from '../../src/Services/qrPayloadService';
+import { isJwtString } from '../../src/Services/walletJwtSigner';
 import { safeLogger } from '../../src/utils/safeLogger';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
 import LoadingOverlay from '../../components/ui/LoadingOverlay';
-
-function isJwtString(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
-  }
-
-  const parts = value.trim().split('.');
-
-  return (
-    parts.length === 3 &&
-    parts[0].length > 0 &&
-    parts[1].length > 0 &&
-    parts[2].length > 0
-  );
-}
 
 function shorten(value?: string) {
   if (!value) return '-';
@@ -108,6 +94,10 @@ export default function PresentCredentialScreen() {
     void loadCredentials();
   }, [loadCredentials]);
 
+  function hasCredentialJwt(vc: ModularCredential): boolean {
+    return isJwtString(vc.jwt) || isJwtString(vc.proof?.jwt);
+  }
+
   function toggleCredential(id: string) {
     setPresentationJwt('');
 
@@ -118,6 +108,26 @@ export default function PresentCredentialScreen() {
 
       return [...prev, id];
     });
+  }
+
+  function isCredentialPresentable(vc: ModularCredential): boolean {
+    const expiration = checkCredentialExpiration(vc);
+
+    if (expiration.isExpired || expiration.isNotYetValid) {
+      return false;
+    }
+
+    if (!hasCredentialJwt(vc)) {
+      return false;
+    }
+
+    return ![
+      'invalid',
+      'invalid_signature',
+      'malformed_credential',
+      'expired',
+      'not_yet_valid',
+    ].includes(vc.verificationStatus ?? '');
   }
 
   function selectAll() {
@@ -135,6 +145,10 @@ export default function PresentCredentialScreen() {
   function getCredentialStatusLabel(vc: ModularCredential): string {
     const expiration = checkCredentialExpiration(vc);
 
+    if (!hasCredentialJwt(vc)) {
+      return 'Tidak punya VC JWT';
+    }
+
     if (expiration.isExpired) {
       return 'Expired';
     }
@@ -144,42 +158,10 @@ export default function PresentCredentialScreen() {
     }
 
     if (vc.verificationStatus === 'verified') {
-      return 'Verified';
+      return 'Verified JWT';
     }
 
-    if (vc.verificationStatus === 'untrusted_issuer') {
-      return 'Untrusted Issuer';
-    }
-
-    if (vc.verificationStatus === 'invalid') {
-      return 'Invalid';
-    }
-
-    if (vc.verificationStatus === 'invalid_signature') {
-      return 'Invalid Signature';
-    }
-
-    if (vc.verificationStatus === 'unsupported_proof_type') {
-      return 'Unsupported Proof';
-    }
-
-    return 'Pending Verification';
-  }
-
-  function isCredentialPresentable(vc: ModularCredential): boolean {
-    const expiration = checkCredentialExpiration(vc);
-
-    if (expiration.isExpired || expiration.isNotYetValid) {
-      return false;
-    }
-
-    return ![
-      'invalid',
-      'invalid_signature',
-      'malformed_credential',
-      'expired',
-      'not_yet_valid',
-    ].includes(vc.verificationStatus ?? '');
+    return vc.verificationStatus || 'Pending Verification';
   }
 
   async function handleConfirmAndSign() {
@@ -209,8 +191,7 @@ export default function PresentCredentialScreen() {
       if (!didData.did.startsWith('did:key:')) {
         setToast({
           visible: true,
-          message:
-            'DID holder harus did:key agar bisa di-resolve pada demo offline.',
+          message: 'DID holder harus did:key.',
           type: 'error',
         });
         return;
@@ -220,15 +201,15 @@ export default function PresentCredentialScreen() {
         selectedIds.includes(vc.id)
       );
 
-      const blockedCredential = selectedCredentials.find(
+      const invalidCredential = selectedCredentials.find(
         (vc) => !isCredentialPresentable(vc)
       );
 
-      if (blockedCredential) {
+      if (invalidCredential) {
         setToast({
           visible: true,
           message:
-            'Credential expired, belum berlaku, atau invalid tidak boleh dipresentasikan',
+            'Ada credential yang tidak memiliki VC JWT valid, expired, atau invalid. Hapus credential lama dan buat ulang.',
           type: 'error',
         });
         return;
@@ -253,7 +234,7 @@ export default function PresentCredentialScreen() {
 
       setToast({
         visible: true,
-        message: `${selectedCredentials.length} atribut berhasil ditandatangani sebagai VP JWT`,
+        message: `${selectedCredentials.length} atribut berhasil dibuat menjadi VP JWT`,
         type: 'success',
       });
     } catch (error) {
@@ -277,7 +258,7 @@ export default function PresentCredentialScreen() {
   async function handleCopyJWT() {
     if (!presentationJwt) return;
 
-    await Clipboard.setStringAsync(presentationJwt);
+    await Clipboard.setStringAsync(presentationJwt.trim());
 
     setToast({
       visible: true,
@@ -340,8 +321,7 @@ export default function PresentCredentialScreen() {
             <Text style={styles.requesterLabel}>Data diminta oleh</Text>
             <Text style={styles.requesterName}>{requesterName}</Text>
             <Text style={styles.requesterDesc}>
-              Pastikan kamu hanya membagikan atribut yang relevan. Atribut yang
-              tidak dipilih tidak akan masuk ke dalam QR presentation.
+              Pilih atribut yang akan dimasukkan ke dalam signed VP JWT.
             </Text>
           </View>
         </View>
@@ -393,7 +373,7 @@ export default function PresentCredentialScreen() {
                       setToast({
                         visible: true,
                         message:
-                          'Credential ini tidak dapat dipresentasikan karena expired, belum berlaku, atau invalid',
+                          'Credential ini tidak dapat dipresentasikan. Pastikan dibuat ulang sebagai VC JWT valid.',
                         type: 'error',
                       });
                       return;
@@ -501,7 +481,7 @@ export default function PresentCredentialScreen() {
               <Text style={styles.qrTitle}>Signed QR Presentation</Text>
 
               <View style={styles.qrBox}>
-                <QRCode value={presentationJwt} size={220} />
+                <QRCode value={presentationJwt.trim()} size={220} />
               </View>
 
               <Text style={styles.qrNote}>
@@ -511,7 +491,7 @@ export default function PresentCredentialScreen() {
 
               <Text style={styles.jwtLabel}>VP JWT</Text>
               <Text style={styles.jwtPreview} numberOfLines={4}>
-                {presentationJwt}
+                {presentationJwt.trim()}
               </Text>
             </View>
 
@@ -525,7 +505,7 @@ export default function PresentCredentialScreen() {
                 </AnimatedButton>
               </View>
 
-              <Text style={styles.jwtText}>{presentationJwt}</Text>
+              <Text style={styles.jwtText}>{presentationJwt.trim()}</Text>
             </View>
 
             <View style={styles.noteCard}>
@@ -535,8 +515,8 @@ export default function PresentCredentialScreen() {
                 color="#F97316"
               />
               <Text style={styles.noteText}>
-                Verifier hanya dapat melihat atribut yang dipilih user. Atribut
-                lain tetap tersimpan di wallet dan tidak masuk ke QR.
+                Verifier akan membaca VP JWT ini dan credential JWT yang ada di
+                dalamnya.
               </Text>
             </View>
           </>
@@ -548,8 +528,8 @@ export default function PresentCredentialScreen() {
               color="#F97316"
             />
             <Text style={styles.noteText}>
-              Setelah memilih atribut, tekan Confirm & Sign untuk membuat paket
-              bukti presentasi dalam bentuk VP JWT.
+              Setelah memilih atribut, tekan Confirm & Sign Presentation untuk
+              membuat VP JWT. QR hanya muncul jika VP JWT berhasil dibuat.
             </Text>
           </View>
         )}

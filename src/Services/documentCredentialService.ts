@@ -38,7 +38,7 @@ export async function createDocumentCredentials(params: {
   const didData = await getDID();
 
   if (!didData?.did) {
-    throw new Error('DID belum dibuat');
+    throw new Error('DID belum dibuat.');
   }
 
   if (!didData.did.startsWith('did:key:')) {
