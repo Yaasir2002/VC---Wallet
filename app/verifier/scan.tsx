@@ -13,8 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   verifyPresentationJWT,
-  decodeJWT,
-  extractJwtFromQrData,
+  UniversalVerificationResult,
 } from '../../src/Services/verificationService';
 
 import AppToast from '../../components/ui/AppToast';
@@ -23,7 +22,7 @@ import LoadingOverlay from '../../components/ui/LoadingOverlay';
 import { safeLogger } from '../../src/utils/safeLogger';
 
 type PresentedCredential = {
-  jwt: string;
+  jwt?: string;
   issuer?: string;
   subject?: string;
   type?: string[];
@@ -31,51 +30,45 @@ type PresentedCredential = {
   attributeName?: string;
   attributeValue?: string;
   attributeType?: string;
+  credentialSubject?: any;
+  rawJson?: any;
   error?: string;
 };
-
-function extractPresentedCredentials(decodedPayload: any): PresentedCredential[] {
-  const credentialJWTs = decodedPayload?.vp?.verifiableCredential || [];
-
-  if (!Array.isArray(credentialJWTs)) {
-    return [];
-  }
-
-  return credentialJWTs.map((jwt: string) => {
-    try {
-      const decodedVC = decodeJWT(jwt);
-      const vcPayload = decodedVC.payload?.vc;
-      const credentialSubject = vcPayload?.credentialSubject;
-
-      return {
-        jwt,
-        issuer: decodedVC.payload?.iss || vcPayload?.issuer || '-',
-        subject:
-          decodedVC.payload?.sub ||
-          credentialSubject?.id ||
-          '-',
-        type: vcPayload?.type || [],
-        issuanceDate: vcPayload?.issuanceDate || '-',
-        attributeName:
-          credentialSubject?.attributeName || 'Credential',
-        attributeValue:
-          credentialSubject?.attributeValue || '-',
-        attributeType:
-          credentialSubject?.attributeType || 'custom',
-      };
-    } catch  {
-      return {
-        jwt,
-        error: 'Gagal decode credential JWT',
-      };
-    }
-  });
-}
 
 function shorten(value?: string) {
   if (!value) return '-';
   if (value.length <= 24) return value;
   return `${value.slice(0, 14)}...${value.slice(-8)}`;
+}
+
+function getResultTitle(result: UniversalVerificationResult | null) {
+  if (!result) return 'SCAN RESULT';
+
+  if (result.kind === 'vp-jwt') return 'VP JWT TERBACA';
+  if (result.kind === 'vc-jwt') return 'VC JWT TERBACA';
+  if (result.kind === 'json-credential') return 'JSON QR TERBACA';
+
+  return 'QR TIDAK VALID';
+}
+
+function getResultSubtitle(result: UniversalVerificationResult | null) {
+  if (!result) {
+    return 'Hasil scan QR.';
+  }
+
+  if (result.kind === 'vp-jwt') {
+    return 'QR berisi Verifiable Presentation JWT.';
+  }
+
+  if (result.kind === 'vc-jwt') {
+    return 'QR berisi Verifiable Credential JWT.';
+  }
+
+  if (result.kind === 'json-credential') {
+    return 'QR berisi JSON credential. Signature JWT tidak diverifikasi.';
+  }
+
+  return result.warning || 'QR tidak dapat dibaca.';
 }
 
 export default function ScanPresentationScreen() {
@@ -85,7 +78,7 @@ export default function ScanPresentationScreen() {
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const [rawJwt, setRawJwt] = useState('');
+  const [rawQr, setRawQr] = useState('');
   const [verified, setVerified] = useState<boolean | null>(null);
   const [holderDid, setHolderDid] = useState('');
   const [didDocument, setDidDocument] = useState<any | null>(null);
@@ -94,6 +87,8 @@ export default function ScanPresentationScreen() {
     PresentedCredential[]
   >([]);
   const [decodedPayload, setDecodedPayload] = useState<any | null>(null);
+  const [verificationResult, setVerificationResult] =
+    useState<UniversalVerificationResult | null>(null);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -102,106 +97,81 @@ export default function ScanPresentationScreen() {
   });
 
   async function handleBarcodeScanned({ data }: { data: string }) {
-      if (scanned) return;
+    if (scanned) return;
 
-      setScanned(true);
+    setScanned(true);
 
-      try {
-        setLoading(true);
+    try {
+      setLoading(true);
 
-        const normalizedJwt = extractJwtFromQrData(data);
-        const decoded = decodeJWT(normalizedJwt);
+      const result = await verifyPresentationJWT(data);
 
-        setRawJwt(normalizedJwt);
-        setDecodedPayload(decoded.payload || null);
+      setRawQr(result.rawJwt || JSON.stringify(result.rawJson || data, null, 2));
+      setVerified(result.valid);
+      setHolderDid(result.holderDid || '');
+      setDidDocument(result.didDocument || null);
+      setPublicKeyInfo(
+        result.verificationMethod?.[0] ||
+          result.authentication?.[0] ||
+          result.assertionMethod?.[0] ||
+          null
+      );
+      setPresentedCredentials(result.credentials || []);
+      setDecodedPayload(result.decoded?.payload || result.rawJson || null);
+      setVerificationResult(result);
 
-        const credentials = extractPresentedCredentials(decoded.payload);
-        setPresentedCredentials(credentials);
+      setToast({
+        visible: true,
+        message:
+          result.kind === 'json-credential'
+            ? 'QR JSON berhasil dibaca'
+            : result.valid
+              ? 'QR berhasil dibaca'
+              : result.warning || 'QR belum valid',
+        type: result.valid ? 'success' : 'error',
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'QR gagal dibaca';
 
-        const verificationResult = await verifyPresentationJWT(normalizedJwt);
-        const isValid = verificationResult.valid === true;
+      safeLogger.warn('QR verification failed', { message });
 
-        setVerified(isValid);
-        setHolderDid(verificationResult.holderDid || '');
-        setDidDocument(verificationResult.didDocument || null);
+      setRawQr(data);
+      setVerified(false);
+      setHolderDid('');
+      setDidDocument(null);
+      setPublicKeyInfo(null);
+      setPresentedCredentials([]);
+      setDecodedPayload(null);
+      setVerificationResult({
+        valid: false,
+        kind: 'unknown',
+        holderDid: '',
+        credentials: [],
+        warning: message,
+      });
 
-        const firstVerificationMethod =
-          verificationResult.verificationMethod?.[0] ||
-          verificationResult.authentication?.[0] ||
-          verificationResult.assertionMethod?.[0] ||
-          null;
-
-        setPublicKeyInfo(firstVerificationMethod);
-
-        setToast({
-          visible: true,
-          message: isValid
-            ? 'VP JWT berhasil dibaca dan Holder DID berhasil di-resolve'
-            : 'VP JWT terbaca tetapi belum valid',
-          type: isValid ? 'success' : 'error',
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'VP JWT verification failed';
-
-        // Jangan pakai safeLogger.error di sini.
-        // QR invalid adalah input user biasa, bukan crash aplikasi.
-        // Kalau pakai console.error/safeLogger.error, React Native menampilkan red screen.
-        safeLogger.warn('VP JWT verification failed', { message });
-
-        try {
-          const normalizedJwt = extractJwtFromQrData(data);
-          const decoded = decodeJWT(normalizedJwt);
-
-          setRawJwt(normalizedJwt);
-          setDecodedPayload(decoded.payload || null);
-
-          const holderDidFromPayload =
-            decoded.payload?.iss ||
-            decoded.payload?.sub ||
-            decoded.payload?.holder ||
-            decoded.payload?.vp?.holder ||
-            '';
-
-          setHolderDid(
-            typeof holderDidFromPayload === 'string' ? holderDidFromPayload : ''
-          );
-
-          const credentials = extractPresentedCredentials(decoded.payload);
-          setPresentedCredentials(credentials);
-        } catch {
-          setRawJwt(data);
-          setDecodedPayload(null);
-          setHolderDid('');
-          setPresentedCredentials([]);
-        }
-
-        setVerified(false);
-        setDidDocument(null);
-        setPublicKeyInfo(null);
-
-        setToast({
-          visible: true,
-          message,
-          type: 'error',
-        });
-      } finally {
-        setLoading(false);
-      }
+      setToast({
+        visible: true,
+        message,
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
     }
+  }
 
   function handleScanAgain() {
     setScanned(false);
     setLoading(false);
-    setRawJwt('');
+    setRawQr('');
     setVerified(null);
     setHolderDid('');
     setDidDocument(null);
     setPublicKeyInfo(null);
     setPresentedCredentials([]);
     setDecodedPayload(null);
+    setVerificationResult(null);
   }
 
   if (!permission) {
@@ -222,8 +192,8 @@ export default function ScanPresentationScreen() {
         <Text style={styles.centerTitle}>Izin Kamera Dibutuhkan</Text>
 
         <Text style={styles.centerText}>
-          Aplikasi membutuhkan akses kamera untuk scan QR Verifiable
-          Presentation.
+          Aplikasi membutuhkan akses kamera untuk scan QR credential atau
+          presentation.
         </Text>
 
         <AnimatedButton
@@ -259,11 +229,11 @@ export default function ScanPresentationScreen() {
               <Text style={styles.heroLabel}>Verification Result</Text>
 
               <Text style={styles.heroTitle}>
-                {verified ? 'DID RESOLVED' : 'INVALID QR'}
+                {getResultTitle(verificationResult)}
               </Text>
 
               <Text style={styles.heroSubtitle}>
-                Hasil decode VP JWT dan DID resolution.
+                {getResultSubtitle(verificationResult)}
               </Text>
             </View>
 
@@ -294,8 +264,9 @@ export default function ScanPresentationScreen() {
               ]}
             >
               {verified
-                ? 'VP JWT berhasil di-decode dan Holder DID berhasil di-resolve.'
-                : 'QR gagal diverifikasi atau DID tidak dapat di-resolve.'}
+                ? getResultSubtitle(verificationResult)
+                : verificationResult?.warning ||
+                  'QR gagal diverifikasi atau tidak dapat dibaca.'}
             </Text>
           </View>
 
@@ -309,7 +280,7 @@ export default function ScanPresentationScreen() {
                 />
               </View>
 
-              <Text style={styles.sectionTitle}>Holder DID</Text>
+              <Text style={styles.sectionTitle}>Holder / Subject DID</Text>
             </View>
 
             <Text style={styles.value}>{holderDid || '-'}</Text>
@@ -321,7 +292,7 @@ export default function ScanPresentationScreen() {
                 <Ionicons name="id-card-outline" size={22} color="#2563EB" />
               </View>
 
-              <Text style={styles.sectionTitle}>Data yang Dipresentasikan</Text>
+              <Text style={styles.sectionTitle}>Data yang Dibaca</Text>
             </View>
 
             {presentedCredentials.length > 0 ? (
@@ -335,15 +306,15 @@ export default function ScanPresentationScreen() {
                   ) : (
                     <>
                       <Text style={styles.presentedLabel}>
-                        {credential.attributeName}
+                        {credential.attributeName || 'Credential'}
                       </Text>
 
                       <Text style={styles.presentedValue}>
-                        {credential.attributeValue}
+                        {credential.attributeValue || '-'}
                       </Text>
 
                       <Text style={styles.presentedMeta}>
-                        Type: {credential.attributeType}
+                        Type: {credential.attributeType || '-'}
                       </Text>
 
                       <Text style={styles.presentedMeta}>
@@ -355,7 +326,7 @@ export default function ScanPresentationScreen() {
                       </Text>
 
                       <Text style={styles.presentedMeta}>
-                        Issued At: {credential.issuanceDate}
+                        Issued At: {String(credential.issuanceDate || '-')}
                       </Text>
                     </>
                   )}
@@ -363,7 +334,7 @@ export default function ScanPresentationScreen() {
               ))
             ) : (
               <Text style={styles.emptyText}>
-                Tidak ada credential yang dapat dibaca dari VP JWT.
+                Tidak ada credential yang dapat dibaca dari QR.
               </Text>
             )}
           </View>
@@ -386,7 +357,9 @@ export default function ScanPresentationScreen() {
                 {JSON.stringify(didDocument, null, 2)}
               </Text>
             ) : (
-              <Text style={styles.emptyText}>DID Document tidak ditemukan.</Text>
+              <Text style={styles.emptyText}>
+                DID Document tidak ditemukan atau QR tidak memakai did:key.
+              </Text>
             )}
           </View>
 
@@ -415,10 +388,10 @@ export default function ScanPresentationScreen() {
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionIconOrange}>
-                <Ionicons name="layers-outline" size={22} color="#F97316" />
+                <Ionicons name="code-slash-outline" size={22} color="#F97316" />
               </View>
 
-              <Text style={styles.sectionTitle}>Decoded VP Payload</Text>
+              <Text style={styles.sectionTitle}>Decoded Payload / JSON</Text>
             </View>
 
             {decodedPayload ? (
@@ -432,23 +405,21 @@ export default function ScanPresentationScreen() {
 
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconOrange}>
-                <Ionicons name="qr-code-outline" size={22} color="#F97316" />
+              <View style={styles.sectionIconBlue}>
+                <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
               </View>
 
-              <Text style={styles.sectionTitle}>Raw VP JWT</Text>
+              <Text style={styles.sectionTitle}>Raw QR / JWT</Text>
             </View>
 
-            <Text style={styles.jwtText}>{rawJwt}</Text>
+            <Text style={styles.jwtText}>{rawQr || '-'}</Text>
           </View>
 
           <AnimatedButton style={styles.scanAgainButton} onPress={handleScanAgain}>
             <Ionicons name="scan-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.scanAgainText}>Scan Lagi</Text>
+            <Text style={styles.scanAgainButtonText}>Scan Lagi</Text>
           </AnimatedButton>
         </ScrollView>
-
-        <LoadingOverlay visible={loading} message="Memverifikasi VP JWT..." />
 
         <AppToast
           visible={toast.visible}
@@ -461,48 +432,164 @@ export default function ScanPresentationScreen() {
   }
 
   return (
-    <View style={styles.cameraContainer}>
+    <View style={{ flex: 1 }}>
       <CameraView
-        style={StyleSheet.absoluteFillObject}
+        style={styles.camera}
         facing="back"
-        onBarcodeScanned={handleBarcodeScanned}
         barcodeScannerSettings={{
           barcodeTypes: ['qr'],
         }}
-      />
+        onBarcodeScanned={handleBarcodeScanned}
+      >
+        <LinearGradient
+          colors={['rgba(0,0,0,0.75)', 'transparent', 'rgba(0,0,0,0.85)']}
+          style={styles.overlay}
+        >
+          <View style={styles.scanHeader}>
+            <Pressable style={styles.closeButton} onPress={() => router.back()}>
+              <Ionicons name="close-outline" size={28} color="#FFFFFF" />
+            </Pressable>
 
-      <View style={styles.overlay}>
-        <Pressable style={styles.closeButton} onPress={() => router.back()}>
-          <Ionicons name="close-outline" size={30} color="#FFFFFF" />
-        </Pressable>
+            <Text style={styles.scanTitle}>Scan Credential QR</Text>
+            <Text style={styles.scanSubtitle}>
+              Mendukung VP JWT, VC JWT, dan JSON credential.
+            </Text>
+          </View>
 
-        <Text style={styles.scanTitle}>Scan VP JWT</Text>
+          <View style={styles.scanFrame}>
+            <View style={[styles.corner, styles.topLeft]} />
+            <View style={[styles.corner, styles.topRight]} />
+            <View style={[styles.corner, styles.bottomLeft]} />
+            <View style={[styles.corner, styles.bottomRight]} />
+          </View>
 
-        <Text style={styles.scanSubtitle}>
-          Arahkan kamera ke QR Verifiable Presentation berbentuk JWT.
-        </Text>
+          <Text style={styles.scanHint}>
+            Arahkan kamera ke QR credential atau presentation
+          </Text>
+        </LinearGradient>
+      </CameraView>
 
-        <View style={styles.scanFrame}>
-          <View style={styles.cornerTopLeft} />
-          <View style={styles.cornerTopRight} />
-          <View style={styles.cornerBottomLeft} />
-          <View style={styles.cornerBottomRight} />
-        </View>
-      </View>
-
-      <LoadingOverlay visible={loading} message="Memverifikasi VP JWT..." />
-
-      <AppToast
-        visible={toast.visible}
-        message={toast.message}
-        type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
-      />
+      <LoadingOverlay visible={loading} message="Membaca QR..." />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  camera: {
+    flex: 1,
+  },
+  overlay: {
+    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 24,
+    paddingTop: 54,
+    paddingBottom: 54,
+  },
+  scanHeader: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  closeButton: {
+    alignSelf: 'flex-start',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanTitle: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    marginTop: 18,
+  },
+  scanSubtitle: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  scanFrame: {
+    width: 260,
+    height: 260,
+    position: 'relative',
+  },
+  corner: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+    borderColor: '#FFFFFF',
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderTopLeftRadius: 18,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderTopRightRadius: 18,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderBottomLeftRadius: 18,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderBottomRightRadius: 18,
+  },
+  scanHint: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  centerTitle: {
+    color: '#111827',
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 12,
+  },
+  centerText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginTop: 8,
+  },
+  permissionButton: {
+    backgroundColor: '#2563EB',
+    marginTop: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+  },
+  permissionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 15,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
@@ -510,116 +597,6 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 40,
-  },
-  centerContainer: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  centerTitle: {
-    fontSize: 22,
-    color: '#111827',
-    fontWeight: '900',
-    marginTop: 14,
-    textAlign: 'center',
-  },
-  centerText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 21,
-    marginTop: 8,
-    marginBottom: 18,
-  },
-  permissionButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-  },
-  permissionButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-  },
-  cameraContainer: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  overlay: {
-    flex: 1,
-    padding: 24,
-    alignItems: 'center',
-  },
-  closeButton: {
-    alignSelf: 'flex-start',
-    marginTop: 18,
-  },
-  scanTitle: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '900',
-    marginTop: 42,
-  },
-  scanSubtitle: {
-    color: '#D1D5DB',
-    fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 22,
-  },
-  scanFrame: {
-    width: 270,
-    height: 270,
-    marginTop: 60,
-    position: 'relative',
-  },
-  cornerTopLeft: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 60,
-    height: 60,
-    borderTopWidth: 5,
-    borderLeftWidth: 5,
-    borderColor: '#F97316',
-    borderTopLeftRadius: 24,
-  },
-  cornerTopRight: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 60,
-    height: 60,
-    borderTopWidth: 5,
-    borderRightWidth: 5,
-    borderColor: '#F97316',
-    borderTopRightRadius: 24,
-  },
-  cornerBottomLeft: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 60,
-    height: 60,
-    borderBottomWidth: 5,
-    borderLeftWidth: 5,
-    borderColor: '#F97316',
-    borderBottomLeftRadius: 24,
-  },
-  cornerBottomRight: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 60,
-    height: 60,
-    borderBottomWidth: 5,
-    borderRightWidth: 5,
-    borderColor: '#F97316',
-    borderBottomRightRadius: 24,
   },
   backButton: {
     flexDirection: 'row',
@@ -629,8 +606,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontSize: 15,
-    color: '#111827',
     fontWeight: '800',
+    color: '#111827',
   },
   resultHero: {
     borderRadius: 28,
@@ -641,22 +618,22 @@ const styles = StyleSheet.create({
   },
   heroLabel: {
     fontSize: 14,
-    color: '#FFEDD5',
+    color: '#E5E7EB',
     fontWeight: '900',
   },
   heroTitle: {
-    fontSize: 27,
+    fontSize: 26,
     color: '#FFFFFF',
     fontWeight: '900',
     marginTop: 2,
+    maxWidth: 240,
   },
   heroSubtitle: {
     fontSize: 14,
-    color: '#DBEAFE',
+    color: '#F3F4F6',
     marginTop: 8,
     lineHeight: 21,
-    maxWidth: 230,
-    fontWeight: '700',
+    maxWidth: 235,
   },
   heroIcon: {
     width: 70,
@@ -668,20 +645,20 @@ const styles = StyleSheet.create({
   },
   statusCard: {
     backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 20,
-    padding: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
   },
   statusText: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 19,
+    fontWeight: '900',
+    fontSize: 14,
+    lineHeight: 20,
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
@@ -695,7 +672,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   sectionIconBlue: {
     width: 42,
@@ -720,18 +697,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   value: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#2563EB',
-    fontWeight: '700',
     lineHeight: 20,
+    fontWeight: '700',
   },
   presentedItem: {
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
     padding: 14,
-    marginTop: 10,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginTop: 10,
   },
   presentedLabel: {
     fontSize: 12,
@@ -739,7 +716,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   presentedValue: {
-    fontSize: 17,
+    fontSize: 18,
     color: '#111827',
     fontWeight: '900',
     marginTop: 5,
@@ -749,7 +726,12 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontWeight: '700',
     marginTop: 5,
-    lineHeight: 17,
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   jsonText: {
     backgroundColor: '#F8FAFC',
@@ -769,22 +751,17 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 14,
   },
-  emptyText: {
-    color: '#6B7280',
-    fontWeight: '700',
-    fontSize: 13,
-  },
   scanAgainButton: {
     backgroundColor: '#2563EB',
     marginTop: 18,
-    paddingVertical: 15,
     borderRadius: 18,
+    paddingVertical: 15,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
   },
-  scanAgainText: {
+  scanAgainButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 15,
