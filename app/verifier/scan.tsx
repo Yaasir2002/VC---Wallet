@@ -146,7 +146,10 @@ export default function ScanPresentationScreen() {
             ? error.message
             : 'VP JWT verification failed';
 
-        safeLogger.error('VP JWT verification failed', { message });
+        // Jangan pakai safeLogger.error di sini.
+        // QR invalid adalah input user biasa, bukan crash aplikasi.
+        // Kalau pakai console.error/safeLogger.error, React Native menampilkan red screen.
+        safeLogger.warn('VP JWT verification failed', { message });
 
         try {
           const normalizedJwt = extractJwtFromQrData(data);
