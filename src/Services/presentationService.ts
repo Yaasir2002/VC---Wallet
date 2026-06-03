@@ -48,6 +48,12 @@ export async function createSignedPresentationJWT(params: {
   try {
     const credentialJWTs = params.credentials.map(extractCredentialJWT);
 
+    for (const credentialJwt of credentialJWTs) {
+      if (!isJwtString(credentialJwt)) {
+        throw new Error('Terdapat credential yang bukan VC JWT valid.');
+      }
+    }
+
     const jwt = await signVpJwtWithWallet({
       holderDid: params.holderDid,
       verifiableCredential: credentialJWTs,

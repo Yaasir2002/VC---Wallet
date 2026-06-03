@@ -1,6 +1,10 @@
 import { createVerifiableCredentialJwt, createVerifiablePresentationJwt } from 'did-jwt-vc';
 import { EdDSASigner } from 'did-jwt';
-import { getRecoverableWalletIdentity } from '../Storage/secureWalletStorage';
+
+import {
+  getRecoverableWalletIdentity,
+  getWalletPrivateKeySeedHex,
+} from '../Storage/secureWalletStorage';
 
 export type WalletSignerIdentity = {
   did: string;
@@ -12,6 +16,10 @@ function hexToBytes(hex: string): Uint8Array {
 
   if (!normalized || normalized.length % 2 !== 0) {
     throw new Error('Private key seed hex tidak valid.');
+  }
+
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error('Private key seed harus hexadecimal.');
   }
 
   const bytes = new Uint8Array(normalized.length / 2);
@@ -49,13 +57,16 @@ export async function getWalletSignerIdentity(): Promise<WalletSignerIdentity> {
     throw new Error(`Wallet DID tidak valid: ${identity.did || '-'}`);
   }
 
-  if (!identity.privateKeySeedHex) {
+  const privateKeySeedHex =
+    identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
+
+  if (!privateKeySeedHex) {
     throw new Error('Private key seed wallet tidak ditemukan.');
   }
 
   return {
     did: identity.did,
-    signer: EdDSASigner(hexToBytes(identity.privateKeySeedHex)),
+    signer: EdDSASigner(hexToBytes(privateKeySeedHex)),
   };
 }
 
@@ -114,6 +125,16 @@ export async function signVpJwtWithWallet(params: {
     throw new Error(
       `Holder DID harus sama dengan DID wallet penandatangan. holder=${params.holderDid}, wallet=${wallet.did}`
     );
+  }
+
+  if (!params.verifiableCredential.length) {
+    throw new Error('VP harus memiliki minimal 1 VC JWT.');
+  }
+
+  for (const vcJwt of params.verifiableCredential) {
+    if (!isJwtString(vcJwt)) {
+      throw new Error('Salah satu credential bukan VC JWT valid.');
+    }
   }
 
   const vpPayload: any = {

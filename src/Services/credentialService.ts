@@ -71,6 +71,12 @@ export async function createAttributeCredential(params: {
     attributeValue: params.attributeValue,
   });
 
+  const type = [
+    'VerifiableCredential',
+    'AttributeCredential',
+    `${params.documentType}Credential`,
+  ];
+
   let jwt = '';
 
   try {
@@ -79,7 +85,7 @@ export async function createAttributeCredential(params: {
       subjectDid,
       issuanceDate,
       expirationDate: params.expirationDate,
-      type: ['VerifiableCredential', 'AttributeCredential', `${params.documentType}Credential`],
+      type,
       credentialSubject,
     });
 
@@ -96,11 +102,13 @@ export async function createAttributeCredential(params: {
   }
 
   return {
-    id: `vc-${params.documentType}-${params.attributeType}-${Date.now()}`,
+    id: `vc-${params.documentType}-${params.attributeType}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
     documentId: params.documentId,
     documentType: params.documentType,
     documentName: params.documentName,
-    type: ['VerifiableCredential', 'AttributeCredential', `${params.documentType}Credential`],
+    type,
     issuer: issuerDid,
     issuanceDate,
     expirationDate: params.expirationDate,

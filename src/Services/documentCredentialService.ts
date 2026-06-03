@@ -7,6 +7,7 @@ import {
   ModularCredential,
 } from '../types/vc';
 import { createAttributeCredential } from './credentialService';
+import { isJwtString } from './walletJwtSigner';
 
 type DocumentAttributeInput = {
   attributeType: AttributeType;
@@ -40,6 +41,10 @@ export async function createDocumentCredentials(params: {
     throw new Error('DID belum dibuat');
   }
 
+  if (!didData.did.startsWith('did:key:')) {
+    throw new Error('DID harus did:key agar bisa signing dan verify offline.');
+  }
+
   const documentId = `${params.documentType}-${Date.now()}`;
   const createdCredentials: ModularCredential[] = [];
 
@@ -54,6 +59,12 @@ export async function createDocumentCredentials(params: {
       attributeValue: attribute.attributeValue,
       expirationDate: attribute.expirationDate,
     });
+
+    if (!isJwtString(vc.jwt) && !isJwtString(vc.proof?.jwt)) {
+      throw new Error(
+        `Credential ${attribute.attributeName} gagal dibuat sebagai VC JWT valid.`
+      );
+    }
 
     await saveVC(vc);
     createdCredentials.push(vc);
