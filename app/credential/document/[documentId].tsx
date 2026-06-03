@@ -6,36 +6,122 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  Switch,
-  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
+import * as Clipboard from 'expo-clipboard';
 
-import { CredentialDocument } from '../../../src/types/vc';
+import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
 import { getCredentialDocumentById } from '../../../src/Services/documentCredentialService';
+import { getDID } from '../../../src/Storage/didStorage';
 import {
-  SelectedAttributeMap,
-  buildCredentialPresentationPayload,
-  createDefaultSelectedAttributes,
-  extractPresentationAttributes,
-  stringifyPresentationPayload,
-} from '../../../src/Services/credentialPresentationService';
+  createSignedPresentationJWT,
+  SignedPresentationJWT,
+} from '../../../src/Services/presentationService';
+import { checkCredentialExpiration } from '../../../src/Services/credentialValidityService';
 import { validatePresentationPayloadSize } from '../../../src/Services/qrPayloadService';
+import { isJwtString } from '../../../src/Services/walletJwtSigner';
+
+import AnimatedButton from '../../../components/ui/AnimatedButton';
+import AppToast from '../../../components/ui/AppToast';
+import LoadingOverlay from '../../../components/ui/LoadingOverlay';
+
+type SelectedAttributeMap = Record<string, boolean>;
+
+type ToastState = {
+  visible: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info';
+};
+
+const INVALID_PRESENTATION_STATUSES = [
+  'invalid',
+  'invalid_signature',
+  'malformed_credential',
+  'expired',
+  'not_yet_valid',
+];
+
+function getCredentialJwt(credential: ModularCredential): string {
+  const proof = credential.proof as any;
+
+  if (isJwtString(credential.jwt)) {
+    return credential.jwt.trim();
+  }
+
+  if (isJwtString(proof?.jwt)) {
+    return proof.jwt.trim();
+  }
+
+  if (isJwtString(proof?.jws)) {
+    return proof.jws.trim();
+  }
+
+  return '';
+}
+
+function formatDate(value?: string): string {
+  if (!value) return '-';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString();
+}
+
+function shorten(value?: string) {
+  if (!value) return '-';
+  if (value.length <= 24) return value;
+
+  return `${value.slice(0, 14)}...${value.slice(-8)}`;
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoItem}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value || '-'}</Text>
+    </View>
+  );
+}
 
 export default function CredentialDocumentDetailScreen() {
   const { documentId } = useLocalSearchParams<{ documentId: string }>();
   const router = useRouter();
 
   const [document, setDocument] = useState<CredentialDocument | null>(null);
-  const [selectedAttributes, setSelectedAttributes] =
-    useState<SelectedAttributeMap>({});
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [qrPayload, setQrPayload] = useState('');
-  const [selectedAttributeNames, setSelectedAttributeNames] = useState<string[]>(
-    []
+  const [selectedAttributes, setSelectedAttributes] = useState<SelectedAttributeMap>({});
+  const [presentationJwt, setPresentationJwt] = useState('');
+  const [presentationMeta, setPresentationMeta] =
+    useState<SignedPresentationJWT | null>(null);
+  const [qrWarning, setQrWarning] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const [toast, setToast] = useState<ToastState>({
+    visible: false,
+    message: '',
+    type: 'info',
+  });
+
+  const credentials = document?.credentials ?? [];
+
+  const mainCredential = useMemo(() => {
+    if (!document) return null;
+
+    return getMainCredential(document);
+  }, [document]);
+
+  const selectedCredentials = useMemo(
+    () => credentials.filter((credential) => selectedAttributes[credential.id]),
+    [credentials, selectedAttributes]
   );
+
+  const qrJwt = presentationJwt.trim();
+  const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
+  const isPresentationJwtValid =
+    Boolean(qrJwt) && isJwtString(qrJwt) && qrJwtParts === 3;
 
   const loadDocument = useCallback(async () => {
     try {
@@ -45,6 +131,8 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
+      setLoading(true);
+
       const data = await getCredentialDocumentById(documentId);
 
       if (!data) {
@@ -53,16 +141,21 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
-      const attributes = extractPresentationAttributes(data);
+      const defaultSelected: SelectedAttributeMap = {};
 
-      if (attributes.length === 0) {
-        Alert.alert('Atribut kosong', 'Credential ini tidak memiliki atribut.');
+      for (const credential of data.credentials ?? []) {
+        defaultSelected[credential.id] = isCredentialPresentable(credential);
       }
 
       setDocument(data);
-      setSelectedAttributes(createDefaultSelectedAttributes(attributes));
+      setSelectedAttributes(defaultSelected);
+      setPresentationJwt('');
+      setPresentationMeta(null);
+      setQrWarning('');
     } catch {
       Alert.alert('Error', 'Gagal mengambil detail dokumen credential');
+    } finally {
+      setLoading(false);
     }
   }, [documentId, router]);
 
@@ -70,74 +163,183 @@ export default function CredentialDocumentDetailScreen() {
     void loadDocument();
   }, [loadDocument]);
 
-  const presentationAttributes = useMemo(() => {
-    if (!document) return [];
-    return extractPresentationAttributes(document);
-  }, [document]);
+  function showToast(message: string, type: ToastState['type']) {
+    setToast({
+      visible: true,
+      message,
+      type,
+    });
+  }
+
+  function resetPresentation() {
+    setPresentationJwt('');
+    setPresentationMeta(null);
+    setQrWarning('');
+  }
 
   function handleToggleAttribute(attributeId: string) {
+    resetPresentation();
+
+    const target = credentials.find((credential) => credential.id === attributeId);
+
+    if (!target) {
+      showToast('Credential tidak ditemukan.', 'error');
+      return;
+    }
+
+    if (!isCredentialPresentable(target)) {
+      showToast(getCredentialBlockedReason(target), 'error');
+      return;
+    }
+
     setSelectedAttributes((current) => ({
       ...current,
       [attributeId]: !current[attributeId],
     }));
   }
 
-  function handleGenerateQR() {
-    if (!document) {
-      Alert.alert('Error', 'Credential tidak ditemukan');
-      return;
+  function selectAll() {
+    resetPresentation();
+
+    const nextSelected: SelectedAttributeMap = {};
+
+    for (const credential of credentials) {
+      nextSelected[credential.id] = isCredentialPresentable(credential);
     }
 
-    try {
-      const selectedCount = presentationAttributes.filter(
-        (attribute) => selectedAttributes[attribute.id]
-      ).length;
+    setSelectedAttributes(nextSelected);
 
-      if (selectedCount === 0) {
-        Alert.alert(
-          'Atribut belum dipilih',
-          'Pilih minimal 1 atribut sebelum membuat QR.'
+    const selectedCount = Object.values(nextSelected).filter(Boolean).length;
+
+    if (selectedCount === 0) {
+      showToast(
+        'Tidak ada atribut yang bisa dipresentasikan. Pastikan credential punya VC JWT valid.',
+        'error'
+      );
+    }
+  }
+
+  function clearSelection() {
+    resetPresentation();
+
+    const nextSelected: SelectedAttributeMap = {};
+
+    for (const credential of credentials) {
+      nextSelected[credential.id] = false;
+    }
+
+    setSelectedAttributes(nextSelected);
+  }
+
+  async function handleConfirmAndSignPresentation() {
+    try {
+      if (!document) {
+        showToast('Dokumen credential tidak ditemukan.', 'error');
+        return;
+      }
+
+      if (selectedCredentials.length === 0) {
+        showToast('Pilih minimal 1 atribut untuk dipresentasikan.', 'error');
+        return;
+      }
+
+      setLoading(true);
+      resetPresentation();
+
+      const didData = await getDID();
+
+      if (!didData?.did) {
+        showToast('DID belum tersedia.', 'error');
+        return;
+      }
+
+      if (!didData.did.startsWith('did:key:')) {
+        showToast('DID wallet harus menggunakan did:key.', 'error');
+        return;
+      }
+
+      const invalidCredential = selectedCredentials.find(
+        (credential) => !isCredentialPresentable(credential)
+      );
+
+      if (invalidCredential) {
+        showToast(
+          `Ada credential yang tidak dapat dipresentasikan. ${getCredentialBlockedReason(
+            invalidCredential
+          )}`,
+          'error'
         );
         return;
       }
 
-      const payload = buildCredentialPresentationPayload(
-        document,
-        selectedAttributes
+      const vp = await createSignedPresentationJWT({
+        holderDid: didData.did,
+        credentials: selectedCredentials,
+      });
+
+      const vpJwt = vp.jwt.trim();
+
+      if (!vpJwt) {
+        throw new Error('VP JWT kosong.');
+      }
+
+      if (!isJwtString(vpJwt) || vpJwt.split('.').length !== 3) {
+        throw new Error('VP JWT hasil signing tidak valid.');
+      }
+
+      validatePresentationPayloadSize(vpJwt);
+
+      if (vpJwt.length > 2500) {
+        setQrWarning(
+          'VP JWT cukup panjang. Jika QR sulit discan, kurangi jumlah atribut yang dipilih.'
+        );
+      }
+
+      setPresentationJwt(vpJwt);
+      setPresentationMeta(vp);
+
+      showToast(
+        `${vp.credentialCount} atribut berhasil ditandatangani sebagai VP JWT.`,
+        'success'
       );
-
-      const payloadString = stringifyPresentationPayload(payload);
-
-      validatePresentationPayloadSize(payloadString);
-
-      setQrPayload(payloadString);
-      setSelectedAttributeNames(payload.presentationMetadata.selectedAttributes);
-      setShowQRModal(true);
     } catch (error) {
-      Alert.alert(
-        'Tidak Bisa Membuat QR',
-        error instanceof Error
-          ? error.message
-          : 'Gagal membuat QR presentation'
-      );
+      const message =
+        error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
+
+      setQrWarning(message);
+      setPresentationJwt('');
+      setPresentationMeta(null);
+
+      showToast(message, 'error');
+    } finally {
+      setLoading(false);
     }
   }
 
-  if (!document) {
+  async function handleCopyJWT() {
+    if (!isPresentationJwtValid) {
+      showToast('VP JWT tidak valid sehingga tidak bisa disalin.', 'error');
+      return;
+    }
+
+    await Clipboard.setStringAsync(qrJwt);
+
+    showToast('VP JWT berhasil disalin.', 'success');
+  }
+
+  if (!document || !mainCredential) {
     return (
       <View style={styles.loadingContainer}>
         <Ionicons name="hourglass-outline" size={36} color="#2563EB" />
         <Text style={styles.loadingText}>Memuat detail credential...</Text>
+        <LoadingOverlay visible={loading} message="Memuat detail credential..." />
       </View>
     );
   }
 
-  const mainCredential = getMainCredential(document);
   const status = getMainCredentialStatus(document);
   const isValid = status.status === 'VALID';
-  const selectedCount = presentationAttributes.filter(
-    (attribute) => selectedAttributes[attribute.id]
-  ).length;
+  const selectedCount = selectedCredentials.length;
 
   return (
     <View style={{ flex: 1 }}>
@@ -147,7 +349,7 @@ export default function CredentialDocumentDetailScreen() {
           <Text style={styles.backText}>Kembali</Text>
         </Pressable>
 
-        <View style={styles.titleSection}>
+        <View style={styles.headerCard}>
           <View style={styles.documentIcon}>
             <Ionicons
               name={getDocumentIcon(document.documentType)}
@@ -157,7 +359,6 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
-
           <Text style={styles.documentSubtitle}>Credential Parent</Text>
 
           <View
@@ -177,140 +378,278 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.issuerText} numberOfLines={2}>
-            Issuer: {mainCredential?.issuer ?? 'Unknown Issuer'}
+            Issuer: {mainCredential.issuer ?? 'Unknown Issuer'}
           </Text>
         </View>
 
-        <View style={styles.presentationCard}>
-          <View style={styles.presentationHeader}>
-            <View style={styles.presentationIcon}>
-              <Ionicons name="qr-code-outline" size={24} color="#2563EB" />
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIconBlue}>
+              <Ionicons name="document-text-outline" size={22} color="#2563EB" />
             </View>
+            <Text style={styles.sectionTitle}>Credential Parent</Text>
+          </View>
 
+          <InfoItem label="Document ID" value={document.documentId} />
+          <InfoItem label="Document Type" value={document.documentType} />
+          <InfoItem label="Document Name" value={document.documentName} />
+          <InfoItem label="Issuer" value={mainCredential.issuer} />
+          <InfoItem label="Issuance Date" value={formatDate(mainCredential.issuanceDate)} />
+          <InfoItem label="Expiration Date" value={formatDate(mainCredential.expirationDate)} />
+          <InfoItem
+            label="Credential Count"
+            value={String(document.credentials?.length ?? 0)}
+          />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderBetween}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.presentationTitle}>Presentasi QR</Text>
-              <Text style={styles.presentationSubtitle}>
-                {selectedCount} dari {presentationAttributes.length} atribut
-                akan dibagikan.
+              <Text style={styles.sectionTitle}>Daftar Atribut Credential</Text>
+              <Text style={styles.smallText}>
+                Dipilih: {selectedCount} dari {credentials.length}
               </Text>
+            </View>
+
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={selectAll}>
+                <Text style={styles.smallButtonText}>Semua</Text>
+              </Pressable>
+
+              <Pressable style={styles.smallButtonLight} onPress={clearSelection}>
+                <Text style={styles.smallButtonLightText}>Reset</Text>
+              </Pressable>
             </View>
           </View>
 
-          <Text style={styles.presentationNote}>
-            Ini adalah UI-level attribute selection. Atribut yang dimatikan tidak
-            dimasukkan ke payload QR, tetapi ini belum cryptographic selective
-            disclosure seperti BBS+ atau SD-JWT.
-          </Text>
+          {credentials.map((credential) => {
+            const enabled = Boolean(selectedAttributes[credential.id]);
+            const presentable = isCredentialPresentable(credential);
+            const statusLabel = getCredentialStatusLabel(credential);
 
-          <Pressable style={styles.generateQRButton} onPress={handleGenerateQR}>
-            <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.generateQRButtonText}>Tampilkan QR</Text>
-          </Pressable>
-        </View>
+            return (
+              <Pressable
+                key={credential.id}
+                style={[
+                  styles.attributeRow,
+                  enabled && styles.attributeRowActive,
+                  !presentable && styles.attributeRowDisabled,
+                ]}
+                onPress={() => handleToggleAttribute(credential.id)}
+              >
+                <View style={[styles.checkCircle, enabled && styles.checkCircleActive]}>
+                  {enabled && <Ionicons name="checkmark" size={18} color="#FFFFFF" />}
+                </View>
 
-        <View style={styles.tableCard}>
-          <View style={styles.tableTitleRow}>
-            <View>
-              <Text style={styles.tableTitle}>Daftar Atribut</Text>
-              <Text style={styles.tableSubtitle}>
-                Aktifkan atribut yang ingin dibagikan.
-              </Text>
-            </View>
-          </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.attributeName, enabled && styles.attributeNameActive]}>
+                    {credential.credentialSubject.attributeName}
+                  </Text>
 
-          {presentationAttributes.map((attribute) => (
-            <AttributeToggleRow
-              key={attribute.id}
-              attributeName={attribute.attributeName}
-              attributeValue={attribute.attributeValue}
-              enabled={!!selectedAttributes[attribute.id]}
-              onToggle={() => handleToggleAttribute(attribute.id)}
-            />
-          ))}
-        </View>
-      </ScrollView>
+                  <Text style={[styles.attributeValue, enabled && styles.attributeValueActive]}>
+                    {credential.credentialSubject.attributeValue || '-'}
+                  </Text>
 
-      <Modal visible={showQRModal} transparent animationType="fade">
-        <View style={styles.qrModalOverlay}>
-          <View style={styles.qrModalBox}>
-            <View style={styles.qrModalIcon}>
-              <Ionicons name="qr-code-outline" size={34} color="#2563EB" />
-            </View>
+                  <Text style={[styles.attributeMeta, enabled && styles.attributeMetaActive]}>
+                    Type: {credential.credentialSubject.attributeType} • Issuer: {shorten(credential.issuer)}
+                  </Text>
 
-            <Text style={styles.qrModalTitle}>Credential Presentation</Text>
+                  <Text
+                    style={[
+                      styles.attributeStatus,
+                      enabled && styles.attributeStatusActive,
+                      !presentable && styles.attributeStatusBlocked,
+                    ]}
+                  >
+                    Status: {statusLabel}
+                  </Text>
+                </View>
 
-            <Text style={styles.qrModalSubtitle}>
-              QR ini hanya berisi atribut yang kamu aktifkan.
-            </Text>
+                <Ionicons
+                  name={enabled ? 'eye-outline' : 'eye-off-outline'}
+                  size={22}
+                  color={enabled ? '#FFFFFF' : '#6B7280'}
+                />
+              </Pressable>
+            );
+          })}
 
-            <View style={styles.qrContainer}>
-              {qrPayload ? <QRCode value={qrPayload} size={220} /> : null}
-            </View>
+          {selectedCredentials.length > 0 && (
+            <View style={styles.previewBox}>
+              <Text style={styles.previewTitle}>Preview Atribut Terpilih</Text>
 
-            <View style={styles.sharedAttributeBox}>
-              <Text style={styles.sharedAttributeTitle}>
-                Atribut yang dibagikan
-              </Text>
-
-              {selectedAttributeNames.map((name) => (
-                <View key={name} style={styles.sharedAttributeChip}>
-                  <Ionicons
-                    name="checkmark-circle-outline"
-                    size={16}
-                    color="#166534"
-                  />
-                  <Text style={styles.sharedAttributeText}>{name}</Text>
+              {selectedCredentials.map((credential) => (
+                <View key={credential.id} style={styles.previewRow}>
+                  <Text style={styles.previewLabel}>
+                    {credential.credentialSubject.attributeName}
+                  </Text>
+                  <Text style={styles.previewValue}>
+                    {credential.credentialSubject.attributeValue || '-'}
+                  </Text>
                 </View>
               ))}
             </View>
+          )}
 
-            <View style={styles.qrWarningBox}>
-              <Ionicons name="warning-outline" size={18} color="#C2410C" />
-              <Text style={styles.qrWarningText}>
-                Presentation ini belum ditandatangani secara cryptographic.
-                Gunakan Signed VP JWT untuk presentation yang lebih aman.
+          <AnimatedButton
+            style={[
+              styles.presentButton,
+              selectedCredentials.length === 0 && styles.disabledButton,
+            ]}
+            disabled={selectedCredentials.length === 0}
+            onPress={handleConfirmAndSignPresentation}
+          >
+            <Ionicons name="create-outline" size={22} color="#FFFFFF" />
+            <Text style={styles.presentButtonText}>Confirm & Sign Presentation</Text>
+          </AnimatedButton>
+        </View>
+
+        {qrWarning ? (
+          <View style={styles.warningCard}>
+            <Ionicons name="warning-outline" size={22} color="#F97316" />
+            <Text style={styles.warningText}>{qrWarning}</Text>
+          </View>
+        ) : null}
+
+        {presentationJwt ? (
+          isPresentationJwtValid ? (
+            <>
+              <View style={styles.qrCard}>
+                <Text style={styles.qrTitle}>Signed QR Presentation</Text>
+
+                <View style={styles.qrStatusBox}>
+                  <Text style={styles.qrStatusText}>Status: VP JWT Valid</Text>
+                  <Text style={styles.qrStatusText}>JWT Parts: {qrJwtParts}</Text>
+                  <Text style={styles.qrStatusText}>
+                    Credential Count:{' '}
+                    {presentationMeta?.credentialCount || selectedCredentials.length}
+                  </Text>
+                </View>
+
+                <Text style={styles.verifyOnlyText}>SCAN QR INI DI TAB VERIFY</Text>
+
+                <View style={styles.qrBox}>
+                  <QRCode value={qrJwt} size={220} />
+                </View>
+
+                <Text style={styles.qrNote}>
+                  QR ini berisi VP JWT murni dengan format header.payload.signature.
+                  QR ini hanya muncul setelah Confirm & Sign Presentation berhasil.
+                </Text>
+
+                <Text style={styles.jwtLabel}>Preview VP JWT</Text>
+                <Text style={styles.jwtPreview} numberOfLines={4}>
+                  {qrJwt}
+                </Text>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.jwtHeader}>
+                  <Text style={styles.sectionTitle}>VP JWT Lengkap</Text>
+
+                  <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
+                    <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.copyButtonText}>Copy JWT</Text>
+                  </AnimatedButton>
+                </View>
+
+                <Text style={styles.jwtText}>{qrJwt}</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.warningCard}>
+              <Ionicons name="close-circle-outline" size={22} color="#DC2626" />
+              <Text style={styles.warningText}>
+                VP JWT tidak valid sehingga QR tidak ditampilkan. Silakan buat ulang presentation.
               </Text>
             </View>
+          )
+        ) : null}
 
-            <Pressable
-              style={styles.qrCloseButton}
-              onPress={() => setShowQRModal(false)}
-            >
-              <Text style={styles.qrCloseButtonText}>Tutup</Text>
-            </Pressable>
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIconBlue}>
+              <Ionicons name="key-outline" size={22} color="#2563EB" />
+            </View>
+            <Text style={styles.sectionTitle}>Proof VC JWT</Text>
           </View>
+
+          {getCredentialJwt(mainCredential) ? (
+            <>
+              <InfoItem label="Proof Type" value="JwtProof2020" />
+              <InfoItem label="Verification Method" value={mainCredential.issuer || '-'} />
+
+              <Text style={styles.infoLabel}>VC JWT</Text>
+              <Text style={styles.jwtText}>{getCredentialJwt(mainCredential)}</Text>
+            </>
+          ) : (
+            <View style={styles.emptyProof}>
+              <Ionicons name="warning-outline" size={26} color="#F97316" />
+              <Text style={styles.emptyProofText}>
+                Credential belum memiliki VC JWT. Credential lama perlu dibuat ulang agar bisa dipresentasikan sebagai VP JWT.
+              </Text>
+            </View>
+          )}
         </View>
-      </Modal>
+      </ScrollView>
+
+      <LoadingOverlay visible={loading} message="Memproses..." />
+
+      <AppToast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={() => setToast({ ...toast, visible: false })}
+      />
     </View>
   );
 }
 
-function AttributeToggleRow({
-  attributeName,
-  attributeValue,
-  enabled,
-  onToggle,
-}: {
-  attributeName: string;
-  attributeValue: string;
-  enabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <View style={styles.attributeToggleRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.attributeName}>{attributeName}</Text>
-        <Text style={styles.attributeValue}>{attributeValue || '-'}</Text>
-      </View>
+function isCredentialPresentable(credential: ModularCredential): boolean {
+  const expiration = checkCredentialExpiration(credential);
 
-      <Switch
-        value={enabled}
-        onValueChange={onToggle}
-        trackColor={{ false: '#E5E7EB', true: '#BFDBFE' }}
-        thumbColor={enabled ? '#2563EB' : '#F9FAFB'}
-      />
-    </View>
-  );
+  if (expiration.isExpired || expiration.isNotYetValid) {
+    return false;
+  }
+
+  if (!getCredentialJwt(credential)) {
+    return false;
+  }
+
+  return !INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '');
+}
+
+function getCredentialStatusLabel(credential: ModularCredential): string {
+  const expiration = checkCredentialExpiration(credential);
+
+  if (!getCredentialJwt(credential)) return 'Tidak punya VC JWT';
+  if (expiration.isExpired) return 'Expired';
+  if (expiration.isNotYetValid) return 'Belum Berlaku';
+  if (credential.verificationStatus === 'verified') return 'Verified JWT';
+
+  return credential.verificationStatus || 'Pending Verification';
+}
+
+function getCredentialBlockedReason(credential: ModularCredential): string {
+  const expiration = checkCredentialExpiration(credential);
+
+  if (!getCredentialJwt(credential)) {
+    return 'Credential ini tidak punya VC JWT. Buat ulang credential sebagai VC JWT valid.';
+  }
+
+  if (expiration.isExpired) {
+    return 'Credential ini sudah expired.';
+  }
+
+  if (expiration.isNotYetValid) {
+    return 'Credential ini belum berlaku.';
+  }
+
+  if (INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '')) {
+    return 'Credential ini berstatus invalid dan tidak dapat dipresentasikan.';
+  }
+
+  return 'Credential ini tidak dapat dipresentasikan.';
 }
 
 function getDetailTitle(document: CredentialDocument) {
@@ -399,59 +738,50 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
   },
-  titleSection: {
+  headerCard: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
     padding: 24,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginBottom: 16,
   },
   documentIcon: {
     width: 82,
     height: 82,
-    borderRadius: 41,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
+    borderRadius: 24,
+    backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   documentTitle: {
-    fontSize: 26,
-    fontWeight: '900',
     color: '#111827',
+    fontSize: 24,
+    fontWeight: '900',
     textAlign: 'center',
-    lineHeight: 32,
   },
   documentSubtitle: {
-    marginTop: 6,
-    fontSize: 13,
+    color: '#6B7280',
     fontWeight: '800',
-    color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 1.4,
+    marginTop: 6,
   },
   statusBadge: {
-    marginTop: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 999,
-    borderWidth: 1,
+    marginTop: 12,
   },
   statusValid: {
     backgroundColor: '#DCFCE7',
-    borderColor: '#166534',
   },
   statusExpired: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#991B1B',
+    backgroundColor: '#FEE2E2',
   },
   statusText: {
-    fontSize: 11,
     fontWeight: '900',
-    letterSpacing: 1.2,
+    fontSize: 12,
   },
   statusTextValid: {
     color: '#166534',
@@ -460,218 +790,329 @@ const styles = StyleSheet.create({
     color: '#991B1B',
   },
   issuerText: {
-    marginTop: 14,
-    fontSize: 12,
     color: '#64748B',
     fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 18,
+    marginTop: 10,
+    lineHeight: 20,
   },
-  presentationCard: {
+  sectionCard: {
     backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 22,
     padding: 18,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-  },
-  presentationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  presentationIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  presentationTitle: {
-    color: '#111827',
-    fontWeight: '900',
-    fontSize: 18,
-  },
-  presentationSubtitle: {
-    color: '#64748B',
-    fontWeight: '700',
-    fontSize: 13,
-    marginTop: 2,
-  },
-  presentationNote: {
-    color: '#1E40AF',
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 16,
-    padding: 12,
-    marginTop: 14,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  generateQRButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 16,
-    paddingVertical: 14,
-    marginTop: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-  },
-  generateQRButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  tableCard: {
-    backgroundColor: '#FFFFFF',
-    marginTop: 18,
-    borderRadius: 24,
-    padding: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
-  tableTitleRow: {
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     marginBottom: 14,
   },
-  tableTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#111827',
-  },
-  tableSubtitle: {
-    color: '#64748B',
-    fontWeight: '700',
-    fontSize: 13,
-    marginTop: 4,
-  },
-  attributeToggleRow: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 10,
+  sectionHeaderBetween: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 10,
   },
-  attributeName: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '900',
-  },
-  attributeValue: {
-    fontSize: 13,
-    color: '#374151',
-    fontWeight: '600',
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  qrModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  qrModalBox: {
-    width: '100%',
-    maxHeight: '92%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    padding: 22,
-    alignItems: 'center',
-  },
-  qrModalIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+  sectionIconBlue: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sectionTitle: {
+    color: '#111827',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  infoItem: {
     marginBottom: 12,
   },
-  qrModalTitle: {
-    fontSize: 22,
-    color: '#111827',
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  qrModalSubtitle: {
+  infoLabel: {
     color: '#6B7280',
-    fontWeight: '700',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 16,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+    textTransform: 'uppercase',
   },
-  qrContainer: {
-    backgroundColor: '#FFFFFF',
+  infoValue: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  smallText: {
+    color: '#6B7280',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  inlineActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  smallButton: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  smallButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  smallButtonLight: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  smallButtonLightText: {
+    color: '#2563EB',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  attributeRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 20,
-    padding: 14,
+    marginBottom: 10,
   },
-  sharedAttributeBox: {
-    width: '100%',
+  attributeRowActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  attributeRowDisabled: {
+    opacity: 0.55,
+  },
+  checkCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkCircleActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: '#1D4ED8',
+  },
+  attributeName: {
+    color: '#111827',
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  attributeNameActive: {
+    color: '#FFFFFF',
+  },
+  attributeValue: {
+    color: '#374151',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  attributeValueActive: {
+    color: '#E0F2FE',
+  },
+  attributeMeta: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  attributeMetaActive: {
+    color: '#DBEAFE',
+  },
+  attributeStatus: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  attributeStatusActive: {
+    color: '#FFFFFF',
+  },
+  attributeStatusBlocked: {
+    color: '#DC2626',
+  },
+  previewBox: {
     backgroundColor: '#F8FAFC',
     borderRadius: 18,
     padding: 14,
-    marginTop: 16,
-    maxHeight: 150,
+    marginTop: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  sharedAttributeTitle: {
+  previewTitle: {
     color: '#111827',
     fontWeight: '900',
-    fontSize: 13,
     marginBottom: 8,
   },
-  sharedAttributeChip: {
+  previewRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  previewLabel: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  previewValue: {
+    color: '#111827',
+    fontWeight: '800',
+  },
+  presentButton: {
+    backgroundColor: '#2563EB',
+    borderRadius: 18,
+    paddingVertical: 16,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  presentButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  warningText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 20,
+  },
+  qrCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  qrTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
+  qrStatusBox: {
+    alignSelf: 'stretch',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  qrStatusText: {
+    color: '#166534',
+    fontWeight: '900',
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  verifyOnlyText: {
+    color: '#16A34A',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  qrBox: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  qrNote: {
+    color: '#6B7280',
+    textAlign: 'center',
+    fontWeight: '700',
+    marginTop: 14,
+    lineHeight: 20,
+  },
+  jwtLabel: {
+    alignSelf: 'stretch',
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 18,
+    marginBottom: 6,
+  },
+  jwtPreview: {
+    alignSelf: 'stretch',
+    color: '#374151',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  jwtHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 10,
+  },
+  copyButton: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 6,
   },
-  sharedAttributeText: {
-    flex: 1,
-    color: '#374151',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  qrWarningBox: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-    borderRadius: 16,
-    padding: 12,
-    marginTop: 14,
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
-  },
-  qrWarningText: {
-    flex: 1,
-    color: '#C2410C',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  qrCloseButton: {
-    backgroundColor: '#111827',
-    borderRadius: 16,
-    paddingVertical: 13,
-    paddingHorizontal: 18,
-    marginTop: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  qrCloseButtonText: {
+  copyButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
-    fontSize: 14,
+    fontSize: 12,
+  },
+  jwtText: {
+    color: '#374151',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  emptyProof: {
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#FFF7ED',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyProofText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
