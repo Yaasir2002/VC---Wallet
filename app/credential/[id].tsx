@@ -63,6 +63,7 @@ function getText(value: unknown, fallback = '-'): string {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'string') return value.trim() || fallback;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
   return fallback;
 }
 
@@ -139,7 +140,9 @@ export default function CredentialDetailScreen() {
   const router = useRouter();
 
   const [credential, setCredential] = useState<ModularCredential | null>(null);
-  const [documentCredentials, setDocumentCredentials] = useState<ModularCredential[]>([]);
+  const [documentCredentials, setDocumentCredentials] = useState<
+    ModularCredential[]
+  >([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [presentationJwt, setPresentationJwt] = useState('');
   const [presentationMeta, setPresentationMeta] =
@@ -456,7 +459,7 @@ export default function CredentialDetailScreen() {
             <Text style={styles.heroLabel}>Credential Detail</Text>
             <Text style={styles.heroTitle}>{credentialTitle}</Text>
             <Text style={styles.heroSubtitle}>
-              Pilih atribut, lalu klik Confirm & Sign Presentation untuk membuat QR VP JWT.
+              Pilih atribut credential, lalu tanda tangani sebagai VP JWT.
             </Text>
           </View>
 
@@ -465,20 +468,12 @@ export default function CredentialDetailScreen() {
           </View>
         </LinearGradient>
 
-        <View style={styles.noticeCard}>
-          <Ionicons name="information-circle-outline" size={24} color="#2563EB" />
-          <Text style={styles.noticeText}>
-            Tombol Tampilkan QR diganti menjadi Confirm & Sign Presentation.
-            QR hanya muncul setelah VP JWT berhasil dibuat.
-          </Text>
-        </View>
-
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionIconBlue}>
               <Ionicons name="document-text-outline" size={22} color="#2563EB" />
             </View>
-            <Text style={styles.sectionTitle}>Credential Information</Text>
+            <Text style={styles.sectionTitle}>Credential Parent</Text>
           </View>
 
           <InfoItem label="Credential ID" value={credential.id} />
@@ -498,7 +493,7 @@ export default function CredentialDetailScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeaderBetween}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sectionTitle}>Pilih Atribut untuk Ditampilkan</Text>
+              <Text style={styles.sectionTitle}>Daftar Atribut Credential</Text>
               <Text style={styles.smallText}>
                 Dipilih: {selectedIds.length} dari {documentCredentials.length}
               </Text>
@@ -574,6 +569,23 @@ export default function CredentialDetailScreen() {
             );
           })}
 
+          {selectedCredentials.length > 0 && (
+            <View style={styles.previewBox}>
+              <Text style={styles.previewTitle}>Preview Atribut Terpilih</Text>
+
+              {selectedCredentials.map((item) => (
+                <View key={item.id} style={styles.previewRow}>
+                  <Text style={styles.previewLabel}>
+                    {item.credentialSubject.attributeName}
+                  </Text>
+                  <Text style={styles.previewValue}>
+                    {item.credentialSubject.attributeValue || '-'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           <AnimatedButton
             style={[
               styles.presentButton,
@@ -586,23 +598,6 @@ export default function CredentialDetailScreen() {
             <Text style={styles.presentButtonText}>Confirm & Sign Presentation</Text>
           </AnimatedButton>
         </View>
-
-        {selectedCredentials.length > 0 && (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Preview Data yang Akan Ditampilkan</Text>
-
-            {selectedCredentials.map((item) => (
-              <View key={item.id} style={styles.previewRow}>
-                <Text style={styles.previewLabel}>
-                  {item.credentialSubject.attributeName}
-                </Text>
-                <Text style={styles.previewValue}>
-                  {item.credentialSubject.attributeValue || '-'}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
 
         {qrWarning ? (
           <View style={styles.warningCard}>
@@ -621,7 +616,8 @@ export default function CredentialDetailScreen() {
                   <Text style={styles.qrStatusText}>Status: VP JWT Valid</Text>
                   <Text style={styles.qrStatusText}>JWT Parts: {qrJwtParts}</Text>
                   <Text style={styles.qrStatusText}>
-                    Credential Count: {presentationMeta?.credentialCount || selectedCredentials.length}
+                    Credential Count:{' '}
+                    {presentationMeta?.credentialCount || selectedCredentials.length}
                   </Text>
                 </View>
 
@@ -633,7 +629,7 @@ export default function CredentialDetailScreen() {
 
                 <Text style={styles.qrNote}>
                   QR ini berisi VP JWT murni dengan format header.payload.signature.
-                  QR ini dibuat setelah Confirm & Sign Presentation.
+                  QR ini hanya muncul setelah Confirm & Sign Presentation berhasil.
                 </Text>
 
                 <Text style={styles.jwtLabel}>Preview VP JWT</Text>
@@ -786,23 +782,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  noticeCard: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  noticeText: {
-    color: '#1E3A8A',
-    fontWeight: '800',
-    flex: 1,
-    lineHeight: 20,
-  },
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
@@ -952,6 +931,35 @@ const styles = StyleSheet.create({
   optionStatusBlocked: {
     color: '#DC2626',
   },
+  previewBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  previewTitle: {
+    color: '#111827',
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  previewRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  previewLabel: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  previewValue: {
+    color: '#111827',
+    fontWeight: '800',
+  },
   presentButton: {
     backgroundColor: '#2563EB',
     borderRadius: 18,
@@ -969,21 +977,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 15,
-  },
-  previewRow: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  previewLabel: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  previewValue: {
-    color: '#111827',
-    fontWeight: '800',
   },
   warningCard: {
     backgroundColor: '#FFF7ED',
