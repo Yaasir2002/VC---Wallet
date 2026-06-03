@@ -350,7 +350,10 @@ export default function CredentialDetailScreen() {
         onPress={() =>
           router.push({
             pathname: '/credential/present',
-            params: { id: credential.id },
+            params: {
+              documentId: credential.documentId,
+              requester: 'Verifier',
+            },
           })
         }
       >

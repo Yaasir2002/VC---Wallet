@@ -39,6 +39,13 @@ function isJwtString(value: unknown): value is string {
   );
 }
 
+function shorten(value?: string) {
+  if (!value) return '-';
+  if (value.length <= 18) return value;
+
+  return `${value.slice(0, 12)}...${value.slice(-6)}`;
+}
+
 export default function PresentCredentialScreen() {
   const router = useRouter();
 
@@ -85,7 +92,7 @@ export default function PresentCredentialScreen() {
         setDocumentType('');
       }
     } catch {
-      safeLogger.error('Failed to load credentials for presentation');
+      safeLogger.warn('Failed to load credentials for presentation');
 
       setToast({
         visible: true,
@@ -241,11 +248,12 @@ export default function PresentCredentialScreen() {
       }
 
       validatePresentationPayloadSize(vpJwt);
+
       setPresentationJwt(vpJwt);
 
       setToast({
         visible: true,
-        message: `${selectedCredentials.length} atribut berhasil ditandatangani`,
+        message: `${selectedCredentials.length} atribut berhasil ditandatangani sebagai VP JWT`,
         type: 'success',
       });
     } catch (error) {
@@ -254,7 +262,7 @@ export default function PresentCredentialScreen() {
           ? error.message
           : 'Gagal membuat presentation JWT';
 
-      safeLogger.error('Failed to create VP JWT', { message });
+      safeLogger.warn('Failed to create VP JWT', { message });
 
       setToast({
         visible: true,
@@ -490,20 +498,26 @@ export default function PresentCredentialScreen() {
         {presentationJwt ? (
           <>
             <View style={styles.qrCard}>
-              <Text style={styles.sectionTitle}>Signed QR Presentation</Text>
+              <Text style={styles.qrTitle}>Signed QR Presentation</Text>
 
               <View style={styles.qrBox}>
                 <QRCode value={presentationJwt} size={220} />
               </View>
 
               <Text style={styles.qrNote}>
-                QR ini berisi VP JWT murni yang dapat discan oleh verifier.
+                QR ini berisi VP JWT murni dengan format header.payload.signature.
+                Scan QR ini dari tab Verifier.
+              </Text>
+
+              <Text style={styles.jwtLabel}>VP JWT</Text>
+              <Text style={styles.jwtPreview} numberOfLines={4}>
+                {presentationJwt}
               </Text>
             </View>
 
             <View style={styles.sectionCard}>
               <View style={styles.jwtHeader}>
-                <Text style={styles.sectionTitle}>VP JWT</Text>
+                <Text style={styles.sectionTitle}>VP JWT Lengkap</Text>
 
                 <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
                   <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
@@ -551,13 +565,6 @@ export default function PresentCredentialScreen() {
       />
     </View>
   );
-}
-
-function shorten(value?: string) {
-  if (!value) return '-';
-  if (value.length <= 18) return value;
-
-  return `${value.slice(0, 12)}...${value.slice(-6)}`;
 }
 
 const styles = StyleSheet.create({
@@ -817,11 +824,18 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     alignItems: 'center',
   },
+  qrTitle: {
+    fontSize: 18,
+    color: '#111827',
+    fontWeight: '900',
+    marginBottom: 14,
+  },
   qrBox: {
     backgroundColor: '#FFFFFF',
     padding: 18,
     borderRadius: 20,
-    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   qrNote: {
     fontSize: 13,
@@ -830,6 +844,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 19,
     marginTop: 12,
+  },
+  jwtLabel: {
+    alignSelf: 'flex-start',
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 16,
+  },
+  jwtPreview: {
+    alignSelf: 'stretch',
+    backgroundColor: '#F8FAFC',
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    padding: 12,
+    borderRadius: 14,
+    marginTop: 6,
   },
   jwtHeader: {
     flexDirection: 'row',
