@@ -51,7 +51,10 @@ function getExpirationDateFromValidUntil(validUntil?: string): string | undefine
     return undefined;
   }
 
-  if (normalized.toLowerCase() === 'seumur hidup') {
+  if (
+    normalized.toLowerCase() === 'seumur hidup' ||
+    normalized.toLowerCase() === 'berlaku seumur hidup'
+  ) {
     return undefined;
   }
 
@@ -70,8 +73,8 @@ function getExpirationDateFromValidUntil(validUntil?: string): string | undefine
  * Fungsi ini dipertahankan agar fitur lama/custom yang masih memanggil
  * createDocumentCredentials tidak langsung rusak.
  *
- * Untuk flow baru, gunakan createKtpCredential() yang menghasilkan
- * satu document = satu credential utuh.
+ * Untuk flow baru, gunakan createKtpCredential() yang menghasilkan:
+ * 1 dokumen = 1 credential utuh = 1 VC JWT.
  */
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;

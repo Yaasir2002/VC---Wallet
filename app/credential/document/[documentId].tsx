@@ -78,6 +78,29 @@ function formatDate(value?: string): string {
 }
 
 function normalizeLabel(key: string): string {
+  const labels: Record<string, string> = {
+    fullName: 'Nama Lengkap',
+    nik: 'NIK',
+    birthPlace: 'Tempat Lahir',
+    birthDate: 'Tanggal Lahir',
+    gender: 'Jenis Kelamin',
+    address: 'Alamat',
+    religion: 'Agama',
+    maritalStatus: 'Status Perkawinan',
+    occupation: 'Pekerjaan',
+    citizenship: 'Kewarganegaraan',
+    validUntil: 'Berlaku Hingga',
+    studentId: 'NIM',
+    university: 'Universitas',
+    faculty: 'Fakultas',
+    studyProgram: 'Program Studi',
+    enrollmentYear: 'Tahun Masuk',
+  };
+
+  if (labels[key]) {
+    return labels[key];
+  }
+
   return key
     .replace(/([A-Z])/g, ' $1')
     .replace(/_/g, ' ')

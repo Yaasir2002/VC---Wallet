@@ -19,13 +19,15 @@ export type SignVcJwtWithWalletParams = {
 
   /**
    * Format baru:
-   * credentialSubject utuh berisi semua data dokumen, misalnya seluruh data KTP.
+   * credentialSubject utuh berisi seluruh data dokumen,
+   * misalnya seluruh data KTP dalam satu VC JWT.
    */
   credentialSubject?: Record<string, unknown>;
 
   /**
-   * Legacy compatibility.
-   * Masih dipertahankan agar createAttributeCredential lama tidak langsung rusak.
+   * Legacy compatibility:
+   * masih dipertahankan agar helper lama createAttributeCredential()
+   * tidak langsung rusak.
    */
   attributeType?: string;
   attributeName?: string;
