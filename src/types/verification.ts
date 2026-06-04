@@ -1,5 +1,8 @@
+// File: src/types/verification.ts
+
 export type CredentialVerificationStatus =
   | 'verified'
+  | 'signature_verified'
   | 'unverified'
   | 'pending_verification'
   | 'invalid'

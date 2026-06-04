@@ -1,3 +1,5 @@
+// File: app/wallet/scan-qr.tsx
+
 import { useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -10,14 +12,13 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+
 import { authenticateWalletAccess } from '../../src/Services/walletLockService';
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
-import {
-  ParsedScannedCredential,
-  parseCredentialFromQR,
-  saveScannedCredential,
-} from '../../src/Services/qrCredentialService';
+import { VerifiedJwtVcClaim, verifyJwtVcClaimFromQr } from '../../src/Services/jwtVcClaimService';
+import { saveClaimedJwtCredential } from '../../src/Services/credentialStorage';
+import { stringifySafeValue } from '../../src/utils/safeJson';
 
 type ToastState = {
   visible: boolean;
@@ -26,23 +27,33 @@ type ToastState = {
 };
 
 function getSafeErrorMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof Error)) {
-    return fallback;
-  }
+  if (!(error instanceof Error)) return fallback;
 
   const message = error.message.trim();
 
-  if (!message) {
-    return fallback;
-  }
+  if (!message) return fallback;
+
+  const map: Record<string, string> = {
+    did_resolution_failed:
+      'DID issuer tidak dapat diverifikasi. Credential ditolak.',
+    public_key_not_found:
+      'Public key issuer tidak ditemukan. Credential ditolak.',
+    invalid_signature:
+      'Signature credential tidak valid. Credential ditolak.',
+    unsupported_public_key:
+      'Public key issuer tidak kompatibel dengan ES256. Credential ditolak.',
+    unsupported_algorithm:
+      'Algoritma signature tidak didukung. Credential ditolak.',
+    untrusted_issuer:
+      'Issuer credential tidak dipercaya. Credential ditolak.',
+  };
+
+  if (map[message]) return map[message];
 
   const unsafePatterns = [
     /stack/i,
-    /token/i,
     /private/i,
     /secret/i,
-    /key/i,
-    /jwt/i,
     /file:\/\//i,
     /documentDirectory/i,
     /SecureStore/i,
@@ -53,7 +64,7 @@ function getSafeErrorMessage(error: unknown, fallback: string): string {
     return fallback;
   }
 
-  return message.slice(0, 160);
+  return message.slice(0, 180);
 }
 
 export default function ScanQRScreen() {
@@ -66,8 +77,9 @@ export default function ScanQRScreen() {
 
   const [isScanning, setIsScanning] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [parsedCredential, setParsedCredential] =
-    useState<ParsedScannedCredential | null>(null);
+  const [verifiedClaim, setVerifiedClaim] = useState<VerifiedJwtVcClaim | null>(
+    null
+  );
 
   const [toast, setToast] = useState<ToastState>({
     visible: false,
@@ -84,20 +96,27 @@ export default function ScanQRScreen() {
   }, []);
 
   async function handleBarcodeScanned({ data }: { data: string }) {
-    if (!isScanning || isProcessing || parsedCredential) {
-      return;
-    }
+    if (!isScanning || isProcessing || verifiedClaim) return;
 
     try {
       setIsScanning(false);
       setIsProcessing(true);
 
-      const parsed = await parseCredentialFromQR(data);
-      setParsedCredential(parsed);
+      const claim = await verifyJwtVcClaimFromQr(data);
+      setVerifiedClaim(claim);
+
+      setToast({
+        visible: true,
+        message: 'Signature credential berhasil diverifikasi.',
+        type: 'success',
+      });
     } catch (error) {
       setToast({
         visible: true,
-        message: getSafeErrorMessage(error, 'QR tidak dapat diproses'),
+        message: getSafeErrorMessage(
+          error,
+          'QR bukan JWT credential claim yang valid.'
+        ),
         type: 'error',
       });
     } finally {
@@ -106,17 +125,15 @@ export default function ScanQRScreen() {
   }
 
   function handleResetScan() {
-    setParsedCredential(null);
+    setVerifiedClaim(null);
     setIsProcessing(false);
     setIsScanning(true);
   }
 
   async function handleSaveCredential() {
-    if (!parsedCredential) {
-      return;
-    }
+    if (!verifiedClaim) return;
 
-        const auth = await authenticateWalletAccess(
+    const auth = await authenticateWalletAccess(
       'Autentikasi diperlukan untuk menyimpan credential ke wallet.'
     );
 
@@ -132,11 +149,11 @@ export default function ScanQRScreen() {
     try {
       setIsProcessing(true);
 
-      await saveScannedCredential(parsedCredential);
+      await saveClaimedJwtCredential(verifiedClaim.claimedCredential);
 
       setToast({
         visible: true,
-        message: 'Credential berhasil disimpan',
+        message: 'Credential verified berhasil disimpan.',
         type: 'success',
       });
 
@@ -146,7 +163,7 @@ export default function ScanQRScreen() {
     } catch (error) {
       setToast({
         visible: true,
-        message: getSafeErrorMessage(error, 'Gagal menyimpan credential'),
+        message: getSafeErrorMessage(error, 'Gagal menyimpan credential.'),
         type: 'error',
       });
     } finally {
@@ -174,8 +191,6 @@ export default function ScanQRScreen() {
 
         <Text style={styles.permissionText}>
           Aplikasi membutuhkan akses kamera untuk melakukan scan QR credential.
-          Jika permission ditolak permanen, aktifkan kamera dari pengaturan
-          aplikasi.
         </Text>
 
         <AnimatedButton
@@ -195,7 +210,7 @@ export default function ScanQRScreen() {
 
   return (
     <View style={styles.container}>
-      {!parsedCredential ? (
+      {!verifiedClaim ? (
         <View style={styles.scannerContainer}>
           <CameraView
             style={styles.camera}
@@ -211,7 +226,7 @@ export default function ScanQRScreen() {
               <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
             </Pressable>
 
-            <Text style={styles.headerTitle}>Scan QR Credential</Text>
+            <Text style={styles.headerTitle}>Claim VC dari QR</Text>
 
             <View style={{ width: 44 }} />
           </View>
@@ -225,13 +240,15 @@ export default function ScanQRScreen() {
 
           <View style={styles.bottomOverlay}>
             <Text style={styles.scanInstruction}>
-              Arahkan kamera ke QR credential atau credential offer.
+              Arahkan kamera ke QR berisi JWT compact string credential.
             </Text>
 
             {isProcessing && (
               <View style={styles.processingBox}>
                 <ActivityIndicator size="small" color="#FFFFFF" />
-                <Text style={styles.processingText}>Memproses QR...</Text>
+                <Text style={styles.processingText}>
+                  Memverifikasi JWT, DID, dan signature...
+                </Text>
               </View>
             )}
 
@@ -260,63 +277,61 @@ export default function ScanQRScreen() {
 
           <View style={styles.previewCard}>
             <View style={styles.previewIcon}>
-              <Ionicons name="document-text-outline" size={34} color="#2563EB" />
+              <Ionicons name="shield-checkmark-outline" size={34} color="#16A34A" />
             </View>
 
             <Text style={styles.credentialName}>
-              {parsedCredential.preview.credentialName}
+              {verifiedClaim.preview.credentialType}
             </Text>
 
-            <View style={styles.statusBadge}>
-              <Ionicons
-                name="alert-circle-outline"
-                size={15}
-                color="#C2410C"
-              />
-              <Text style={styles.statusBadgeText}>Pending Verification</Text>
+            <View style={styles.verifiedBadge}>
+              <Ionicons name="checkmark-circle-outline" size={15} color="#166534" />
+              <Text style={styles.verifiedBadgeText}>Signature Verified</Text>
             </View>
 
             <View style={styles.detailGroup}>
+              <PreviewRow label="Issuer" value={verifiedClaim.preview.issuer} />
               <PreviewRow
-                label="Issuer"
-                value={parsedCredential.preview.issuer}
+                label="Credential ID"
+                value={verifiedClaim.preview.credentialId}
               />
               <PreviewRow
-                label="Subject / Holder"
-                value={parsedCredential.preview.subject}
+                label="Subject ID"
+                value={verifiedClaim.preview.subjectId}
+              />
+              <PreviewRow
+                label="Nama"
+                value={verifiedClaim.preview.subjectName || '-'}
               />
               <PreviewRow
                 label="Tanggal Penerbitan"
-                value={parsedCredential.preview.issuanceDate}
+                value={verifiedClaim.preview.issuanceDate || '-'}
               />
               <PreviewRow
-                label="Tanggal Kedaluwarsa"
-                value={parsedCredential.preview.expirationDate ?? '-'}
+                label="Status"
+                value="signature_verified"
               />
             </View>
 
-            <Text style={styles.claimTitle}>Claim Utama</Text>
+            <Text style={styles.claimTitle}>Credential Subject</Text>
 
-            {parsedCredential.preview.mainClaims.length === 0 ? (
-              <Text style={styles.emptyClaimText}>
-                Tidak ada claim utama yang dapat ditampilkan.
-              </Text>
-            ) : (
-              parsedCredential.preview.mainClaims.map((claim) => (
-                <View key={claim.label} style={styles.claimRow}>
-                  <Text style={styles.claimLabel}>{claim.label}</Text>
-                  <Text style={styles.claimValue}>{claim.value}</Text>
+            {Object.entries(verifiedClaim.preview.credentialSubject).map(
+              ([key, value]) => (
+                <View key={key} style={styles.claimRow}>
+                  <Text style={styles.claimLabel}>{key}</Text>
+                  <Text style={styles.claimValue}>
+                    {stringifySafeValue(value)}
+                  </Text>
                 </View>
-              ))
+              )
             )}
           </View>
 
           <View style={styles.securityNote}>
-            <Ionicons name="shield-checkmark-outline" size={22} color="#2563EB" />
+            <Ionicons name="shield-checkmark-outline" size={22} color="#16A34A" />
             <Text style={styles.securityNoteText}>
-              Credential ini baru divalidasi secara struktur dasar. Statusnya
-              disimpan sebagai pending_verification, bukan verified, sampai ada
-              verifikasi cryptographic.
+              Credential ini sudah lolos validasi struktur VC v2, issuer DID Web,
+              public key P-256, dan signature JWT ES256.
             </Text>
           </View>
 
@@ -449,105 +464,106 @@ const styles = StyleSheet.create({
   },
   bottomOverlay: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 42,
+    left: 24,
+    right: 24,
+    bottom: 56,
     alignItems: 'center',
   },
   scanInstruction: {
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
-    fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 22,
+    marginBottom: 16,
   },
   processingBox: {
-    marginTop: 18,
-    backgroundColor: 'rgba(37, 99, 235, 0.9)',
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
   },
   processingText: {
     color: '#FFFFFF',
-    fontWeight: '900',
     fontSize: 13,
+    fontWeight: '700',
   },
   retryButton: {
-    marginTop: 18,
-    backgroundColor: '#2563EB',
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 8,
+    backgroundColor: 'rgba(37, 99, 235, 0.9)',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
   },
   retryButtonText: {
     color: '#FFFFFF',
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   centerContainer: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 24,
   },
   permissionContainer: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 24,
   },
   permissionIcon: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 18,
   },
   permissionTitle: {
-    color: '#111827',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
-    textAlign: 'center',
+    color: '#111827',
+    marginBottom: 10,
   },
   permissionText: {
-    color: '#6B7280',
-    fontWeight: '700',
-    lineHeight: 21,
+    fontSize: 15,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 10,
+    lineHeight: 22,
+    marginBottom: 20,
   },
   primaryButton: {
     backgroundColor: '#2563EB',
     borderRadius: 16,
     paddingVertical: 14,
-    paddingHorizontal: 18,
-    marginTop: 24,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   secondaryButton: {
-    marginTop: 12,
+    marginTop: 14,
     paddingVertical: 12,
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
     color: '#2563EB',
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   previewContainer: {
     flex: 1,
@@ -555,7 +571,7 @@ const styles = StyleSheet.create({
   },
   previewContent: {
     padding: 20,
-    paddingTop: 48,
+    paddingTop: 54,
     paddingBottom: 40,
   },
   previewHeader: {
@@ -568,9 +584,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -581,130 +595,125 @@ const styles = StyleSheet.create({
   },
   previewCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 26,
+    borderRadius: 24,
     padding: 20,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   previewIcon: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: '#DBEAFE',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 14,
   },
   credentialName: {
-    color: '#111827',
-    fontSize: 23,
+    fontSize: 22,
     fontWeight: '900',
-    marginTop: 16,
+    color: '#111827',
+    marginBottom: 10,
   },
-  statusBadge: {
+  verifiedBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#FFEDD5',
-    borderRadius: 999,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginBottom: 18,
   },
-  statusBadgeText: {
-    color: '#C2410C',
-    fontWeight: '900',
+  verifiedBadgeText: {
+    color: '#166534',
     fontSize: 12,
+    fontWeight: '900',
   },
   detailGroup: {
-    marginTop: 18,
     gap: 12,
+    marginBottom: 20,
   },
   previewRow: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
+    gap: 4,
   },
   previewLabel: {
-    color: '#6B7280',
     fontSize: 12,
     fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
   },
   previewValue: {
-    color: '#111827',
     fontSize: 14,
-    fontWeight: '800',
-    marginTop: 4,
+    fontWeight: '700',
+    color: '#111827',
     lineHeight: 20,
   },
   claimTitle: {
-    color: '#111827',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
-    marginTop: 20,
-  },
-  emptyClaimText: {
-    color: '#6B7280',
-    fontWeight: '700',
-    marginTop: 10,
+    color: '#111827',
+    marginBottom: 12,
   },
   claimRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 12,
+    marginTop: 12,
+    gap: 4,
   },
   claimLabel: {
-    color: '#6B7280',
     fontSize: 12,
+    color: '#64748B',
     fontWeight: '800',
   },
   claimValue: {
-    color: '#111827',
     fontSize: 14,
-    fontWeight: '800',
-    marginTop: 4,
+    color: '#111827',
+    fontWeight: '700',
     lineHeight: 20,
   },
   securityNote: {
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 20,
-    padding: 16,
     marginTop: 16,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 18,
+    padding: 16,
     flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
   securityNoteText: {
     flex: 1,
-    color: '#1E40AF',
-    fontWeight: '700',
-    lineHeight: 19,
+    color: '#166534',
     fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
   },
   saveButton: {
-    backgroundColor: '#2563EB',
     marginTop: 18,
-    borderRadius: 16,
+    backgroundColor: '#16A34A',
+    borderRadius: 18,
     paddingVertical: 15,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
     gap: 8,
   },
   saveButtonText: {
     color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '900',
-    fontSize: 14,
   },
   cancelButton: {
+    marginTop: 14,
     alignItems: 'center',
-    paddingVertical: 15,
-    marginTop: 8,
+    paddingVertical: 14,
   },
   cancelButtonText: {
-    color: '#6B7280',
-    fontWeight: '900',
+    color: '#64748B',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

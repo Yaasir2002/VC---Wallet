@@ -1,24 +1,30 @@
-import { safeLogger } from './safeLogger';
+// File: src/utils/safeJson.ts
 
-export function safeParseJSON<T>(value: string | null, fallback: T): T {
-  if (!value) {
-    return fallback;
-  }
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
 
+export function safeParseJson<T>(
+  value: string,
+  fallback: T | null = null
+): T | null {
   try {
     return JSON.parse(value) as T;
   } catch {
-    safeLogger.warn('Failed to parse JSON safely');
     return fallback;
   }
 }
 
-export function safeParseObject(value: string | null): Record<string, unknown> | null {
-  const parsed = safeParseJSON<unknown>(value, null);
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return null;
+export function stringifySafeValue(value: unknown): string {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
   }
 
-  return parsed as Record<string, unknown>;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '-';
+  }
 }
