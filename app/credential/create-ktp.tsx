@@ -1,3 +1,5 @@
+// File: app/credential/create-ktp.tsx
+
 import { useState } from 'react';
 import {
   View,
@@ -27,6 +29,9 @@ export default function CreateKtpScreen() {
   const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [gender, setGender] = useState('');
   const [address, setAddress] = useState('');
+  const [rtRw, setRtRw] = useState('');
+  const [kelurahanDesa, setKelurahanDesa] = useState('');
+  const [kecamatan, setKecamatan] = useState('');
   const [religion, setReligion] = useState('');
   const [maritalStatus, setMaritalStatus] = useState('');
   const [occupation, setOccupation] = useState('');
@@ -66,12 +71,18 @@ export default function CreateKtpScreen() {
         tanggalLahir: birthDateText,
         jenisKelamin: gender.trim(),
         alamat: address.trim(),
+        rtRw: rtRw.trim(),
+        kelurahanDesa: kelurahanDesa.trim(),
+        kecamatan: kecamatan.trim(),
         agama: religion.trim(),
         statusPerkawinan: maritalStatus.trim(),
         pekerjaan: occupation.trim(),
         kewarganegaraan: citizenship.trim(),
         berlakuHingga: validUntil.trim() || 'Seumur Hidup',
 
+        /**
+         * Compatibility untuk service lama.
+         */
         fullName: fullName.trim(),
         birthPlace: birthPlace.trim(),
         birthDate: birthDateText,
@@ -236,6 +247,30 @@ export default function CreateKtpScreen() {
               textAlignVertical="top"
             />
           </View>
+
+          <InputField
+            label="RT/RW"
+            placeholder="Contoh: 001/002"
+            value={rtRw}
+            onChangeText={setRtRw}
+            icon="home-outline"
+          />
+
+          <InputField
+            label="Kelurahan/Desa"
+            placeholder="Contoh: Sukamaju"
+            value={kelurahanDesa}
+            onChangeText={setKelurahanDesa}
+            icon="map-outline"
+          />
+
+          <InputField
+            label="Kecamatan"
+            placeholder="Contoh: Cibinong"
+            value={kecamatan}
+            onChangeText={setKecamatan}
+            icon="navigate-outline"
+          />
 
           <InputField
             label="Agama"

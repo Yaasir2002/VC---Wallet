@@ -1,5 +1,4 @@
 // File: src/types/vc.ts
-import { CredentialSecurityStatus } from './verification';
 
 export type AttributeType =
   | 'legalName'
@@ -44,19 +43,16 @@ export type VerificationStatus =
 
 export type ProofStatus =
   | 'none'
-  | 'present'
   | 'jwt_signed'
-  | 'jwt'
-  | 'data_integrity'
+  | 'present'
   | 'unknown';
 
-export interface CredentialSubject {
+export type CredentialSubject = {
   id?: string;
   [key: string]: unknown;
-}
+};
 
-export interface KtpCredentialSubject extends CredentialSubject {
-  id: string;
+export type KtpFormData = {
   nama: string;
   nik: string;
   tempatLahir: string;
@@ -71,10 +67,9 @@ export interface KtpCredentialSubject extends CredentialSubject {
   pekerjaan: string;
   kewarganegaraan: string;
   berlakuHingga: string;
+};
 
-  /**
-   * Alias kompatibilitas untuk UI lama.
-   */
+export type KtpCredentialInput = Partial<KtpFormData> & {
   fullName?: string;
   birthPlace?: string;
   birthDate?: string;
@@ -84,136 +79,67 @@ export interface KtpCredentialSubject extends CredentialSubject {
   maritalStatus?: string;
   occupation?: string;
   citizenship?: string;
-  validUntilText?: string;
-}
+  validUntil?: string;
+};
 
-export interface CredentialIssuer {
-  id: string;
-  name?: string;
-  [key: string]: unknown;
-}
-
-export interface CredentialStatus {
-  id?: string;
-  type: string;
-  status?: string;
-  [key: string]: unknown;
-}
-
-export interface CredentialMetadata {
-  schemaVersion: 'vc-data-model-v2.0';
-  source?:
-    | 'manual_ktp_form'
-    | 'manual'
-    | 'scan'
-    | 'import'
-    | 'legacy-migration'
-    | 'wallet';
+export type CredentialMetadata = {
+  schemaVersion: 'vc-json-v2';
+  source?: 'manual_ktp_form' | 'manual' | 'scan' | 'import' | 'legacy-migration';
   verificationStatus: VerificationStatus;
-  proofStatus?: ProofStatus;
+  proofStatus: ProofStatus;
   createdAt: string;
   updatedAt: string;
-  importedAt?: string;
-  originalFormat?: 'vc-v2' | 'vc-v1.1' | 'jwt-vc' | 'legacy-modular' | 'unknown';
-  jwt?: string;
-  securedCredential?: string;
   documentId?: string;
   documentType?: DocumentType;
   documentName?: string;
   [key: string]: unknown;
-}
+};
 
-export interface VerifiableCredentialV2 {
+export type VerifiableCredentialV2 = {
   '@context': string[];
-  id: string;
   type: string[];
-  issuer: CredentialIssuer;
-  validFrom: string;
-  validUntil?: string;
+  id: string;
+  issuer: string;
+  issuanceDate: string;
   credentialSubject: CredentialSubject;
-  credentialStatus?: CredentialStatus;
-  proof?: unknown;
+
+  /**
+   * Field tambahan internal aplikasi.
+   * Tidak wajib ikut contoh credential, tetapi aman disimpan untuk UI/storage.
+   */
   metadata?: CredentialMetadata;
   jwt?: string;
   securedCredential?: string;
+  proof?: unknown;
 
   /**
-   * Fallback baca credential lama. Jangan dipakai untuk data baru.
-   */
-  issuanceDate?: string;
-  expirationDate?: string;
-
-  /**
-   * Field kompatibilitas UI existing.
+   * Compatibility untuk UI lama.
    */
   documentId?: string;
   documentType?: DocumentType;
   documentName?: string;
-  verificationStatus?: CredentialSecurityStatus | VerificationStatus;
-  verificationResult?: unknown;
-  verification?: unknown;
-  verifiedAt?: string | null;
-  importedAt?: string;
-  source?: string;
-}
+  verificationStatus?: VerificationStatus | string;
 
-export interface PresentationMetadata {
-  schemaVersion: 'vc-data-model-v2.0';
-  presentationFormat: 'jwt';
-  selectedAttributes?: string[];
-  createdAt: string;
-}
+  /**
+   * Fallback legacy.
+   */
+  validFrom?: string;
+  validUntil?: string;
+  expirationDate?: string;
+};
 
-export interface VerifiablePresentationV2 {
-  '@context': string[];
-  id?: string;
-  type: string[];
-  holder: string;
-  verifiableCredential: VerifiableCredentialV2[];
-  metadata?: PresentationMetadata;
-}
-
-export interface SignedCredentialEnvelope {
-  credential: VerifiableCredentialV2;
-  jwt: string;
-  proofStatus: ProofStatus;
-}
-
-export interface JwtPresentationResult {
-  jwt: string;
-  holderDid: string;
-  credentialCount: number;
-  createdAt: string;
-  qrPayload: string;
-}
-
-export interface KtpFormData {
-  nama: string;
-  nik: string;
-  tempatLahir: string;
-  tanggalLahir: string;
-  jenisKelamin: string;
-  alamat: string;
-  rtRw: string;
-  kelurahanDesa: string;
-  kecamatan: string;
-  agama: string;
-  statusPerkawinan: string;
-  pekerjaan: string;
-  kewarganegaraan: string;
-  berlakuHingga: string;
-}
-
-export interface CredentialDocument {
+export type CredentialDocument = {
   documentId: string;
   documentType: DocumentType;
   documentName: string;
   credentials: VerifiableCredentialV2[];
-}
+};
+
+export type SignedPresentationJWT = {
+  jwt: string;
+  holderDid: string;
+  credentialCount: number;
+};
 
 export type VerifiableCredential = VerifiableCredentialV2;
-
-/**
- * Alias agar file lama tidak langsung rusak.
- */
 export type ModularCredential = VerifiableCredentialV2;

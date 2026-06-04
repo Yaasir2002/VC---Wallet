@@ -1,117 +1,89 @@
-import { ModularCredential } from '../types/vc';
-import { isJwtString, signVpJwtWithWallet } from './walletJwtSigner';
-import { safeLogger } from '../utils/safeLogger';
-import { VC_V2_CONTEXT } from './credentialV2Service';
+// File: src/Services/walletJwtSigner.ts
 
-export type SignedPresentationJWT = {
-  jwt: string;
-  holderDid: string;
-  credentialCount: number;
-};
+import { createJWT, EdDSASigner } from 'did-jwt';
 
-function getAttributeLabel(credential: ModularCredential): string {
-  const subject = credential.credentialSubject as Record<string, unknown> | undefined;
+import {
+  getRecoverableWalletIdentity,
+  getWalletPrivateKeySeedHex,
+} from '../Storage/secureWalletStorage';
+import { DEFAULT_ISSUER_DID } from './credentialV2Service';
 
-  return (
-    (typeof subject?.nama === 'string' ? subject.nama : undefined) ||
-    (typeof subject?.fullName === 'string' ? subject.fullName : undefined) ||
-    (typeof subject?.attributeName === 'string' ? subject.attributeName : undefined) ||
-    credential.documentName ||
-    credential.id ||
-    'Credential'
-  );
+const DEFAULT_KID = 'kNEWdFSyvEfr91s1AI3r99C0mqGn6XcA5XDxUwHJ2P0';
+
+export function isJwtString(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+
+  const parts = value.trim().split('.');
+
+  return parts.length === 3 && parts.every((part) => part.length > 0);
 }
 
-function getProofJwt(credential: ModularCredential): string | undefined {
-  const proof = credential.proof as any;
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
 
-  if (!proof || typeof proof !== 'object') {
-    return undefined;
+  if (!normalized || normalized.length % 2 !== 0) {
+    throw new Error('Private key untuk signing belum tersedia.');
   }
 
-  if (isJwtString(proof.jwt)) {
-    return proof.jwt.trim();
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error('Private key untuk signing tidak valid.');
   }
 
-  if (isJwtString(proof.jws)) {
-    return proof.jws.trim();
+  const bytes = new Uint8Array(normalized.length / 2);
+
+  for (let i = 0; i < normalized.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
   }
 
-  return undefined;
+  return bytes;
 }
 
-function extractCredentialJWT(credential: ModularCredential): string {
-  const rawCredential = (credential as any)?.rawCredential;
+export async function getWalletSigner() {
+  const identity = await getRecoverableWalletIdentity();
 
-  const candidates = [
-    credential.jwt,
-    (credential as any)?.securedCredential,
-    getProofJwt(credential),
-    (credential as any)?.vcJwt,
-    rawCredential?.jwt,
-    rawCredential?.securedCredential,
-    rawCredential?.proof?.jwt,
-  ];
-
-  const found = candidates.find((candidate) => isJwtString(candidate));
-
-  if (!found) {
-    throw new Error(
-      `Credential ${getAttributeLabel(
-        credential
-      )} tidak memiliki VC JWT valid. Buat ulang credential sebagai VC JWT.`
-    );
+  if (!identity?.did) {
+    throw new Error('Wallet signer belum tersedia.');
   }
 
-  return found.trim();
+  const privateKeySeedHex =
+    identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
+
+  if (!privateKeySeedHex) {
+    throw new Error('Private key untuk signing belum tersedia.');
+  }
+
+  return {
+    walletDid: identity.did,
+    issuer: DEFAULT_ISSUER_DID,
+    kid: DEFAULT_KID,
+    alg: 'EdDSA' as const,
+    signer: EdDSASigner(hexToBytes(privateKeySeedHex)),
+  };
 }
 
-export async function createSignedPresentationJWT(params: {
-  holderDid: string;
-  credentials: ModularCredential[];
-}): Promise<SignedPresentationJWT> {
-  if (!params.holderDid?.startsWith('did:key:')) {
-    throw new Error('Holder DID harus did:key.');
+export async function signCredentialObjectAsJwt(
+  credential: Record<string, unknown>
+): Promise<string> {
+  const wallet = await getWalletSigner();
+
+  /**
+   * Project sekarang memakai Ed25519/EdDSA.
+   * Header iss/kid mengikuti kebutuhan integrasi, alg tetap EdDSA agar sesuai private key.
+   */
+  const jwt = await createJWT(credential, {
+    issuer: wallet.issuer,
+    signer: wallet.signer,
+    alg: wallet.alg,
+    header: {
+      alg: wallet.alg,
+      iss: wallet.issuer,
+      kid: wallet.kid,
+    } as any,
+  } as any);
+
+  if (!isJwtString(jwt)) {
+    throw new Error('JWT hasil signing tidak valid.');
   }
 
-  if (!Array.isArray(params.credentials) || params.credentials.length === 0) {
-    throw new Error('Pilih minimal 1 credential.');
-  }
-
-  try {
-    const credentialJWTs = params.credentials.map(extractCredentialJWT);
-
-    for (const jwt of credentialJWTs) {
-      if (!isJwtString(jwt)) {
-        throw new Error('Ada credential yang bukan VC JWT valid.');
-      }
-    }
-
-    const jwt = await signVpJwtWithWallet({
-      holderDid: params.holderDid,
-      vp: {
-        '@context': [VC_V2_CONTEXT],
-        type: ['VerifiablePresentation'],
-        holder: params.holderDid,
-        verifiableCredential: credentialJWTs,
-      },
-    });
-
-    if (!isJwtString(jwt)) {
-      throw new Error('Presentation tidak menghasilkan VP JWT valid.');
-    }
-
-    return {
-      jwt: jwt.trim(),
-      holderDid: params.holderDid,
-      credentialCount: credentialJWTs.length,
-    };
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Gagal membuat VP JWT.';
-
-    safeLogger.warn('Failed to create signed VP JWT', { message });
-
-    throw new Error(`Gagal membuat VP JWT signed. Detail: ${message}`);
-  }
+  return jwt.trim();
 }

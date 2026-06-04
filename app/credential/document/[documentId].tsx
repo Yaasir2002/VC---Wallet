@@ -1,3 +1,5 @@
+// File: app/credential/document/[documentId].tsx
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -14,14 +16,12 @@ import * as Clipboard from 'expo-clipboard';
 
 import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
 import { getCredentialDocumentById } from '../../../src/Services/documentCredentialService';
-import { getDID } from '../../../src/Storage/didStorage';
 import {
   createSignedPresentationJWT,
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
-import { checkCredentialExpiration } from '../../../src/Services/credentialValidityService';
-import { validatePresentationPayloadSize } from '../../../src/Services/qrPayloadService';
 import { isJwtString } from '../../../src/Services/walletJwtSigner';
+import { MAX_PRESENTATION_QR_BYTES } from '../../../src/config/securityLimits';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
@@ -39,104 +39,76 @@ type DetailItem = {
   value: string;
 };
 
-const INVALID_PRESENTATION_STATUSES = [
-  'invalid',
-  'invalid_signature',
-  'malformed_credential',
-  'expired',
-  'not_yet_valid',
-];
-
-const QR_SAFE_MAX_LENGTH = 2200;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function getCredentialJwt(credential: ModularCredential | null | undefined): string {
-  if (!credential) return '';
-
-  const proof = credential.proof as any;
-  const rawCredential = (credential as any)?.rawCredential;
-
-  const candidates = [
-    credential.jwt,
-    (credential as any)?.securedCredential,
-    proof?.jwt,
-    proof?.jws,
-    (credential as any)?.vcJwt,
-    rawCredential?.jwt,
-    rawCredential?.securedCredential,
-    rawCredential?.proof?.jwt,
-  ];
-
-  const found = candidates.find((candidate) => isJwtString(candidate));
-
-  return found ? found.trim() : '';
 }
 
 function getIssuerText(issuer: unknown): string {
   if (!issuer) return 'Unknown Issuer';
 
-  if (typeof issuer === 'string') {
-    return issuer.trim() || 'Unknown Issuer';
-  }
+  if (typeof issuer === 'string') return issuer;
 
-  if (typeof issuer === 'object' && issuer !== null) {
-    const issuerRecord = issuer as Record<string, unknown>;
-
-    if (typeof issuerRecord.name === 'string' && issuerRecord.name.trim()) {
-      return issuerRecord.name;
-    }
-
-    if (typeof issuerRecord.id === 'string' && issuerRecord.id.trim()) {
-      return issuerRecord.id;
-    }
+  if (isRecord(issuer)) {
+    if (typeof issuer.name === 'string') return issuer.name;
+    if (typeof issuer.id === 'string') return issuer.id;
   }
 
   return 'Unknown Issuer';
 }
 
+function byteLength(value: string): number {
+  try {
+    return new TextEncoder().encode(value).length;
+  } catch {
+    return value.length;
+  }
+}
+
 function normalizeLabel(key: string): string {
   const labels: Record<string, string> = {
-    nama: 'Nama Lengkap',
-    fullName: 'Nama Lengkap',
-    legalName: 'Nama Lengkap',
+    Nama: 'Nama',
+    nama: 'Nama',
+    fullName: 'Nama',
+    NIK: 'NIK',
     nik: 'NIK',
+    'Tempat Lahir': 'Tempat Lahir',
     tempatLahir: 'Tempat Lahir',
     birthPlace: 'Tempat Lahir',
+    'Tanggal Lahir': 'Tanggal Lahir',
     tanggalLahir: 'Tanggal Lahir',
     birthDate: 'Tanggal Lahir',
+    'Jenis Kelamin': 'Jenis Kelamin',
     jenisKelamin: 'Jenis Kelamin',
     gender: 'Jenis Kelamin',
+    Alamat: 'Alamat',
     alamat: 'Alamat',
     address: 'Alamat',
+    'RT/RW': 'RT/RW',
+    rtRw: 'RT/RW',
+    'Kelurahan/Desa': 'Kelurahan/Desa',
+    kelurahanDesa: 'Kelurahan/Desa',
+    Kecamatan: 'Kecamatan',
+    kecamatan: 'Kecamatan',
+    Agama: 'Agama',
     agama: 'Agama',
-    religion: 'Agama',
+    'Status Perkawinan': 'Status Perkawinan',
     statusPerkawinan: 'Status Perkawinan',
     maritalStatus: 'Status Perkawinan',
+    Pekerjaan: 'Pekerjaan',
     pekerjaan: 'Pekerjaan',
     occupation: 'Pekerjaan',
+    Kewarganegaraan: 'Kewarganegaraan',
     kewarganegaraan: 'Kewarganegaraan',
     citizenship: 'Kewarganegaraan',
+    'Berlaku Hingga': 'Berlaku Hingga',
     berlakuHingga: 'Berlaku Hingga',
     validUntilText: 'Berlaku Hingga',
-    validUntil: 'Berlaku Hingga',
-    studentId: 'NIM',
-    university: 'Universitas',
-    faculty: 'Fakultas',
-    studyProgram: 'Program Studi',
-    enrollmentYear: 'Tahun Masuk',
+    'Nim ': 'NIM',
+    Nim: 'NIM',
+    nim: 'NIM',
   };
 
-  if (labels[key]) return labels[key];
-
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^./, (char) => char.toUpperCase());
+  return labels[key] || key;
 }
 
 function stringifyValue(value: unknown): string {
@@ -179,22 +151,18 @@ export default function CredentialDocumentDetailScreen() {
 
   const mainCredential = useMemo(() => {
     if (!document) return null;
-
     return getMainCredential(document);
   }, [document]);
 
   const detailItems = useMemo(() => {
     if (!document || !mainCredential) return [];
-
     return buildCredentialDetailItems(document, mainCredential);
   }, [document, mainCredential]);
 
   const qrJwt = presentationJwt.trim();
-  const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
-  const isPresentationJwtValid =
-    Boolean(qrJwt) && isJwtString(qrJwt) && qrJwtParts === 3;
+  const isPresentationJwtValid = isJwtString(qrJwt);
   const canRenderQr =
-    isPresentationJwtValid && qrJwt.length <= QR_SAFE_MAX_LENGTH;
+    isPresentationJwtValid && byteLength(qrJwt) <= MAX_PRESENTATION_QR_BYTES;
 
   const loadDocument = useCallback(async () => {
     try {
@@ -237,74 +205,42 @@ export default function CredentialDocumentDetailScreen() {
     });
   }
 
-  function resetPresentation() {
-    setPresentationJwt('');
-    setPresentationMeta(null);
-    setQrWarning('');
-  }
-
   async function handleConfirmAndSignPresentation() {
     try {
-      if (!document || !mainCredential) {
-        showToast('Dokumen credential tidak ditemukan.', 'error');
+      if (!mainCredential) {
+        showToast('Credential tidak ditemukan.', 'error');
         return;
       }
 
       setLoading(true);
-      resetPresentation();
-
-      const didData = await getDID();
-
-      if (!didData?.did) {
-        showToast('DID belum tersedia.', 'error');
-        return;
-      }
-
-      if (!didData.did.startsWith('did:key:')) {
-        showToast('DID wallet harus menggunakan did:key.', 'error');
-        return;
-      }
-
-      if (!isCredentialPresentable(mainCredential)) {
-        showToast(getCredentialBlockedReason(mainCredential), 'error');
-        return;
-      }
-
-      const vp = await createSignedPresentationJWT({
-        holderDid: didData.did,
-        credentials: [mainCredential],
-      });
-
-      const vpJwt = vp.jwt.trim();
-
-      if (!vpJwt) {
-        throw new Error('VP JWT kosong.');
-      }
-
-      if (!isJwtString(vpJwt) || vpJwt.split('.').length !== 3) {
-        throw new Error('VP JWT hasil signing tidak valid.');
-      }
-
-      validatePresentationPayloadSize(vpJwt);
-
-      if (vpJwt.length > QR_SAFE_MAX_LENGTH) {
-        setQrWarning(
-          'VP JWT terlalu panjang untuk QR Code. Gunakan Copy JWT atau sederhanakan data credential.'
-        );
-      }
-
-      setPresentationJwt(vpJwt);
-      setPresentationMeta(vp);
-
-      showToast('Credential berhasil ditandatangani sebagai VP JWT.', 'success');
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
-
-      setQrWarning(message);
+      setQrWarning('');
       setPresentationJwt('');
       setPresentationMeta(null);
 
+      const result = await createSignedPresentationJWT({
+        holderDid:
+          typeof mainCredential.credentialSubject?.id === 'string'
+            ? mainCredential.credentialSubject.id
+            : '',
+        credentials: [mainCredential],
+      });
+
+      if (!isJwtString(result.jwt)) {
+        throw new Error('JWT hasil signing tidak valid.');
+      }
+
+      if (byteLength(result.jwt) > MAX_PRESENTATION_QR_BYTES) {
+        throw new Error('Payload QR terlalu besar.');
+      }
+
+      setPresentationJwt(result.jwt);
+      setPresentationMeta(result);
+      showToast('Credential berhasil ditandatangani sebagai JWT.', 'success');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Gagal membuat JWT.';
+
+      setQrWarning(message);
       showToast(message, 'error');
     } finally {
       setLoading(false);
@@ -313,12 +249,12 @@ export default function CredentialDocumentDetailScreen() {
 
   async function handleCopyJWT() {
     if (!isPresentationJwtValid) {
-      showToast('VP JWT tidak valid sehingga tidak bisa disalin.', 'error');
+      showToast('JWT tidak valid sehingga tidak bisa disalin.', 'error');
       return;
     }
 
     await Clipboard.setStringAsync(qrJwt);
-    showToast('VP JWT berhasil disalin.', 'success');
+    showToast('JWT berhasil disalin.', 'success');
   }
 
   if (!document || !mainCredential) {
@@ -331,10 +267,8 @@ export default function CredentialDocumentDetailScreen() {
     );
   }
 
-  const status = getMainCredentialStatus(document);
+  const status = getMainCredentialStatus(mainCredential);
   const isValid = status.status === 'VALID';
-  const mainCredentialJwt = getCredentialJwt(mainCredential);
-  const issuerText = getIssuerText(mainCredential.issuer);
 
   return (
     <View style={{ flex: 1 }}>
@@ -354,7 +288,7 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
-          <Text style={styles.documentSubtitle}>Satu Credential Utuh</Text>
+          <Text style={styles.documentSubtitle}>Credential JSON VC v2</Text>
 
           <View
             style={[
@@ -373,7 +307,7 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.issuerText} numberOfLines={2}>
-            Issuer: {issuerText}
+            Issuer: {getIssuerText(mainCredential.issuer)}
           </Text>
         </View>
 
@@ -395,21 +329,8 @@ export default function CredentialDocumentDetailScreen() {
             </Text>
           )}
 
-          {!mainCredentialJwt ? (
-            <View style={styles.legacyWarningBox}>
-              <Ionicons name="warning-outline" size={24} color="#F97316" />
-              <Text style={styles.legacyWarningText}>
-                Credential lama belum sesuai format baru. Hapus credential ini dan buat ulang sebagai satu credential utuh.
-              </Text>
-            </View>
-          ) : null}
-
           <AnimatedButton
-            style={[
-              styles.presentButton,
-              !isCredentialPresentable(mainCredential) && styles.disabledButton,
-            ]}
-            disabled={!isCredentialPresentable(mainCredential)}
+            style={styles.presentButton}
             onPress={handleConfirmAndSignPresentation}
           >
             <Ionicons name="create-outline" size={22} color="#FFFFFF" />
@@ -425,69 +346,55 @@ export default function CredentialDocumentDetailScreen() {
         ) : null}
 
         {presentationJwt ? (
-          isPresentationJwtValid ? (
-            <>
-              <View style={styles.qrCard}>
-                <Text style={styles.qrTitle}>Signed QR Presentation</Text>
+          <View style={styles.qrCard}>
+            <Text style={styles.qrTitle}>Signed JWT QR</Text>
 
-                <View style={styles.qrStatusBox}>
-                  <Text style={styles.qrStatusText}>Status: VP JWT Valid</Text>
-                  <Text style={styles.qrStatusText}>JWT Parts: {qrJwtParts}</Text>
-                  <Text style={styles.qrStatusText}>
-                    Credential Count: {presentationMeta?.credentialCount || 1}
-                  </Text>
-                  <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
-                </View>
-
-                <Text style={styles.verifyOnlyText}>SCAN QR INI DI TAB VERIFY</Text>
-
-                {canRenderQr ? (
-                  <View style={styles.qrBox}>
-                    <QRCode value={qrJwt} size={220} />
-                  </View>
-                ) : (
-                  <View style={styles.qrTooLargeBox}>
-                    <Ionicons name="warning-outline" size={34} color="#F97316" />
-                    <Text style={styles.qrTooLargeTitle}>
-                      VP JWT terlalu panjang untuk QR Code
-                    </Text>
-                    <Text style={styles.qrTooLargeText}>
-                      Credential berhasil ditandatangani, tetapi datanya terlalu besar untuk dimasukkan ke QR. Gunakan Copy JWT.
-                    </Text>
-                  </View>
-                )}
-
-                <Text style={styles.qrNote}>
-                  QR ini berisi VP JWT murni dengan format header.payload.signature.
-                </Text>
-
-                <Text style={styles.jwtLabel}>Preview VP JWT</Text>
-                <Text style={styles.jwtPreview} numberOfLines={4}>
-                  {qrJwt}
-                </Text>
-              </View>
-
-              <View style={styles.sectionCard}>
-                <View style={styles.jwtHeader}>
-                  <Text style={styles.sectionTitle}>VP JWT Lengkap</Text>
-
-                  <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
-                    <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.copyButtonText}>Copy JWT</Text>
-                  </AnimatedButton>
-                </View>
-
-                <Text style={styles.jwtText}>{qrJwt}</Text>
-              </View>
-            </>
-          ) : (
-            <View style={styles.warningCard}>
-              <Ionicons name="close-circle-outline" size={22} color="#DC2626" />
-              <Text style={styles.warningText}>
-                VP JWT tidak valid sehingga QR tidak ditampilkan. Silakan buat ulang presentation.
+            <View style={styles.qrStatusBox}>
+              <Text style={styles.qrStatusText}>Status: JWT Valid</Text>
+              <Text style={styles.qrStatusText}>
+                JWT Parts: {qrJwt.split('.').length}
               </Text>
+              <Text style={styles.qrStatusText}>
+                Credential Count: {presentationMeta?.credentialCount || 1}
+              </Text>
+              <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
             </View>
-          )
+
+            {canRenderQr ? (
+              <View style={styles.qrBox}>
+                <QRCode value={qrJwt} size={220} />
+              </View>
+            ) : (
+              <View style={styles.warningCard}>
+                <Ionicons name="warning-outline" size={22} color="#F97316" />
+                <Text style={styles.warningText}>Payload QR terlalu besar.</Text>
+              </View>
+            )}
+
+            <Text style={styles.qrNote}>
+              QR ini berisi JWT compact: header.payload.signature.
+            </Text>
+
+            <Text style={styles.jwtLabel}>Preview JWT</Text>
+            <Text style={styles.jwtPreview} numberOfLines={4}>
+              {qrJwt}
+            </Text>
+          </View>
+        ) : null}
+
+        {presentationJwt ? (
+          <View style={styles.sectionCard}>
+            <View style={styles.jwtHeader}>
+              <Text style={styles.sectionTitle}>JWT Lengkap</Text>
+
+              <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
+                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.copyButtonText}>Copy JWT</Text>
+              </AnimatedButton>
+            </View>
+
+            <Text style={styles.jwtText}>{qrJwt}</Text>
+          </View>
         ) : null}
       </ScrollView>
 
@@ -501,38 +408,6 @@ export default function CredentialDocumentDetailScreen() {
       />
     </View>
   );
-}
-
-function isCredentialPresentable(credential: ModularCredential): boolean {
-  const expiration = checkCredentialExpiration(credential);
-
-  if (expiration.isExpired || expiration.isNotYetValid) return false;
-  if (!getCredentialJwt(credential)) return false;
-
-  return !INVALID_PRESENTATION_STATUSES.includes(
-    String(credential.verificationStatus ?? '')
-  );
-}
-
-function getCredentialBlockedReason(credential: ModularCredential): string {
-  const expiration = checkCredentialExpiration(credential);
-
-  if (!getCredentialJwt(credential)) {
-    return 'Credential lama belum sesuai format baru. Hapus credential ini dan buat ulang sebagai satu credential utuh.';
-  }
-
-  if (expiration.isExpired) return 'Credential ini sudah expired.';
-  if (expiration.isNotYetValid) return 'Credential ini belum berlaku.';
-
-  if (
-    INVALID_PRESENTATION_STATUSES.includes(
-      String(credential.verificationStatus ?? '')
-    )
-  ) {
-    return 'Credential ini berstatus invalid dan tidak dapat dipresentasikan.';
-  }
-
-  return 'Credential ini tidak dapat dipresentasikan.';
 }
 
 function getDetailTitle(document: CredentialDocument) {
@@ -553,53 +428,28 @@ function getDocumentIcon(documentType: string): any {
   return 'document-text-outline';
 }
 
-function getMainCredential(document: CredentialDocument) {
+function getMainCredential(document: CredentialDocument): ModularCredential | null {
   const credentials = document.credentials ?? [];
 
-  const fullDocumentCredential = credentials.find((credential) => {
-    const subject = credential.credentialSubject as any;
-
-    return Boolean(
-      getCredentialJwt(credential) &&
-        subject &&
-        (
-          subject.nama ||
-          subject.fullName ||
-          subject.nik ||
-          subject.alamat ||
-          subject.address
-        )
-    );
-  });
-
-  if (fullDocumentCredential) {
-    return fullDocumentCredential;
-  }
-
   return (
-    credentials.find((credential) => Boolean(getCredentialJwt(credential))) ||
+    credentials.find((credential) => {
+      const subject = credential.credentialSubject || {};
+
+      return Boolean(subject.Nama || subject.nama || subject.NIK || subject.nik);
+    }) ||
     credentials[0] ||
     null
   );
 }
 
-function getMainCredentialStatus(document: CredentialDocument) {
-  const mainCredential = getMainCredential(document);
+function getMainCredentialStatus(credential: ModularCredential) {
   const validUntil =
-    mainCredential?.validUntil ||
-    mainCredential?.expirationDate ||
-    (typeof mainCredential?.credentialSubject?.berlakuHingga === 'string'
-      ? mainCredential.credentialSubject.berlakuHingga
-      : undefined) ||
-    (typeof mainCredential?.credentialSubject?.validUntilText === 'string'
-      ? mainCredential.credentialSubject.validUntilText
-      : undefined);
+    credential.credentialSubject?.['Berlaku Hingga'] ||
+    credential.credentialSubject?.berlakuHingga ||
+    credential.credentialSubject?.validUntilText;
 
   if (!validUntil) {
-    return {
-      status: 'VALID',
-      label: 'VALID',
-    };
+    return { status: 'VALID', label: 'VALID' };
   }
 
   const normalized = String(validUntil).trim().toLowerCase();
@@ -609,26 +459,20 @@ function getMainCredentialStatus(document: CredentialDocument) {
     normalized === 'berlaku seumur hidup' ||
     normalized === 'lifetime'
   ) {
-    return {
-      status: 'VALID',
-      label: 'VALID',
-    };
+    return { status: 'VALID', label: 'VALID' };
   }
 
-  const validUntilDate = new Date(validUntil);
+  const date = new Date(String(validUntil));
 
-  if (Number.isNaN(validUntilDate.getTime())) {
-    return {
-      status: 'VALID',
-      label: 'VALID',
-    };
+  if (Number.isNaN(date.getTime())) {
+    return { status: 'VALID', label: 'VALID' };
   }
 
-  const isExpired = validUntilDate < new Date();
+  const expired = date < new Date();
 
   return {
-    status: isExpired ? 'EXPIRED' : 'VALID',
-    label: isExpired ? 'EXPIRED' : 'VALID',
+    status: expired ? 'EXPIRED' : 'VALID',
+    label: expired ? 'EXPIRED' : 'VALID',
   };
 }
 
@@ -639,105 +483,76 @@ function buildCredentialDetailItems(
   const subject = credential.credentialSubject || {};
   const items: DetailItem[] = [];
 
+  const preferredOrder = [
+    'Nama',
+    'nama',
+    'fullName',
+    'NIK',
+    'nik',
+    'Tempat Lahir',
+    'tempatLahir',
+    'Tanggal Lahir',
+    'tanggalLahir',
+    'Jenis Kelamin',
+    'jenisKelamin',
+    'Alamat',
+    'alamat',
+    'RT/RW',
+    'rtRw',
+    'Kelurahan/Desa',
+    'kelurahanDesa',
+    'Kecamatan',
+    'kecamatan',
+    'Agama',
+    'agama',
+    'Status Perkawinan',
+    'statusPerkawinan',
+    'Pekerjaan',
+    'pekerjaan',
+    'Kewarganegaraan',
+    'kewarganegaraan',
+    'Berlaku Hingga',
+    'berlakuHingga',
+    'Nim ',
+    'Nim',
+    'nim',
+  ];
+
   const ignoredKeys = new Set([
     'id',
     'documentId',
     'documentType',
     'documentName',
-    'attributeType',
-    'attributeName',
-    'attributeValue',
   ]);
 
-  const preferredOrder = [
-    'nama',
-    'fullName',
-    'legalName',
-    'nik',
-    'tempatLahir',
-    'birthPlace',
-    'tanggalLahir',
-    'birthDate',
-    'jenisKelamin',
-    'gender',
-    'alamat',
-    'address',
-    'agama',
-    'religion',
-    'statusPerkawinan',
-    'maritalStatus',
-    'pekerjaan',
-    'occupation',
-    'kewarganegaraan',
-    'citizenship',
-    'berlakuHingga',
-    'validUntilText',
-    'validUntil',
-  ];
+  const addedLabels = new Set<string>();
 
-  if (isRecord(subject)) {
-    const addedKeys = new Set<string>();
+  function pushItem(key: string, value: unknown) {
+    if (ignoredKeys.has(key)) return;
+    if (value === undefined || value === null || value === '') return;
 
-    for (const key of preferredOrder) {
-      const value = subject[key];
+    const label = normalizeLabel(key);
 
-      if (value === undefined || value === null || value === '') {
-        continue;
-      }
+    if (addedLabels.has(label)) return;
 
-      if (addedKeys.has(key)) {
-        continue;
-      }
-
-      items.push({
-        key,
-        label: normalizeLabel(key),
-        value: stringifyValue(value),
-      });
-
-      addedKeys.add(key);
-    }
-
-    Object.entries(subject).forEach(([key, value]) => {
-      if (ignoredKeys.has(key)) return;
-      if (preferredOrder.includes(key)) return;
-      if (value === undefined || value === null || value === '') return;
-
-      items.push({
-        key,
-        label: normalizeLabel(key),
-        value: stringifyValue(value),
-      });
+    items.push({
+      key,
+      label,
+      value: stringifyValue(value),
     });
 
-    if (items.length > 0) {
-      return items;
-    }
-
-    const legacyAttributeName = subject.attributeName;
-    const legacyAttributeValue = subject.attributeValue;
-
-    if (legacyAttributeName || legacyAttributeValue) {
-      return [
-        {
-          key: 'legacyWarning',
-          label: 'Format Credential',
-          value:
-            'Credential ini masih format lama per atribut. Hapus dan buat ulang KTP agar detail tampil lengkap sebagai satu credential.',
-        },
-        {
-          key: 'legacyAttributeName',
-          label: 'Atribut Lama',
-          value: stringifyValue(legacyAttributeName),
-        },
-        {
-          key: 'legacyAttributeValue',
-          label: 'Nilai Atribut Lama',
-          value: stringifyValue(legacyAttributeValue),
-        },
-      ];
-    }
+    addedLabels.add(label);
   }
+
+  for (const key of preferredOrder) {
+    pushItem(key, subject[key]);
+  }
+
+  Object.entries(subject).forEach(([key, value]) => {
+    pushItem(key, value);
+  });
+
+  if (items.length > 0) return items;
 
   return [
     {
@@ -896,9 +711,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  disabledButton: {
-    opacity: 0.5,
-  },
   presentButtonText: {
     color: '#FFFFFF',
     fontWeight: '900',
@@ -907,23 +719,6 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#6B7280',
     fontWeight: '700',
-    lineHeight: 20,
-  },
-  legacyWarningBox: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  legacyWarningText: {
-    color: '#9A3412',
-    fontWeight: '800',
-    flex: 1,
     lineHeight: 20,
   },
   warningCard: {
@@ -973,42 +768,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 2,
   },
-  verifyOnlyText: {
-    color: '#2563EB',
-    fontWeight: '900',
-    fontSize: 12,
-    marginBottom: 12,
-    letterSpacing: 1,
-  },
   qrBox: {
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-  },
-  qrTooLargeBox: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 18,
-    padding: 18,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  qrTooLargeTitle: {
-    color: '#9A3412',
-    fontWeight: '900',
-    fontSize: 15,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  qrTooLargeText: {
-    color: '#9A3412',
-    fontWeight: '700',
-    fontSize: 13,
-    marginTop: 6,
-    lineHeight: 19,
-    textAlign: 'center',
   },
   qrNote: {
     color: '#64748B',
