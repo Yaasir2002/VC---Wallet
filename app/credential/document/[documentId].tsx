@@ -61,10 +61,12 @@ function getCredentialJwt(credential: ModularCredential | null | undefined): str
 
   const candidates = [
     credential.jwt,
+    (credential as any)?.securedCredential,
     proof?.jwt,
     proof?.jws,
     (credential as any)?.vcJwt,
     rawCredential?.jwt,
+    rawCredential?.securedCredential,
     rawCredential?.proof?.jwt,
   ];
 
@@ -73,18 +75,52 @@ function getCredentialJwt(credential: ModularCredential | null | undefined): str
   return found ? found.trim() : '';
 }
 
+function getIssuerText(issuer: unknown): string {
+  if (!issuer) return 'Unknown Issuer';
+
+  if (typeof issuer === 'string') {
+    return issuer.trim() || 'Unknown Issuer';
+  }
+
+  if (typeof issuer === 'object' && issuer !== null) {
+    const issuerRecord = issuer as Record<string, unknown>;
+
+    if (typeof issuerRecord.name === 'string' && issuerRecord.name.trim()) {
+      return issuerRecord.name;
+    }
+
+    if (typeof issuerRecord.id === 'string' && issuerRecord.id.trim()) {
+      return issuerRecord.id;
+    }
+  }
+
+  return 'Unknown Issuer';
+}
+
 function normalizeLabel(key: string): string {
   const labels: Record<string, string> = {
+    nama: 'Nama Lengkap',
     fullName: 'Nama Lengkap',
+    legalName: 'Nama Lengkap',
     nik: 'NIK',
+    tempatLahir: 'Tempat Lahir',
     birthPlace: 'Tempat Lahir',
+    tanggalLahir: 'Tanggal Lahir',
     birthDate: 'Tanggal Lahir',
+    jenisKelamin: 'Jenis Kelamin',
     gender: 'Jenis Kelamin',
+    alamat: 'Alamat',
     address: 'Alamat',
+    agama: 'Agama',
     religion: 'Agama',
+    statusPerkawinan: 'Status Perkawinan',
     maritalStatus: 'Status Perkawinan',
+    pekerjaan: 'Pekerjaan',
     occupation: 'Pekerjaan',
+    kewarganegaraan: 'Kewarganegaraan',
     citizenship: 'Kewarganegaraan',
+    berlakuHingga: 'Berlaku Hingga',
+    validUntilText: 'Berlaku Hingga',
     validUntil: 'Berlaku Hingga',
     studentId: 'NIM',
     university: 'Universitas',
@@ -298,6 +334,7 @@ export default function CredentialDocumentDetailScreen() {
   const status = getMainCredentialStatus(document);
   const isValid = status.status === 'VALID';
   const mainCredentialJwt = getCredentialJwt(mainCredential);
+  const issuerText = getIssuerText(mainCredential.issuer);
 
   return (
     <View style={{ flex: 1 }}>
@@ -336,7 +373,7 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.issuerText} numberOfLines={2}>
-            Issuer: {mainCredential.issuer ?? 'Unknown Issuer'}
+            Issuer: {issuerText}
           </Text>
         </View>
 
@@ -472,7 +509,9 @@ function isCredentialPresentable(credential: ModularCredential): boolean {
   if (expiration.isExpired || expiration.isNotYetValid) return false;
   if (!getCredentialJwt(credential)) return false;
 
-  return !INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '');
+  return !INVALID_PRESENTATION_STATUSES.includes(
+    String(credential.verificationStatus ?? '')
+  );
 }
 
 function getCredentialBlockedReason(credential: ModularCredential): string {
@@ -485,7 +524,11 @@ function getCredentialBlockedReason(credential: ModularCredential): string {
   if (expiration.isExpired) return 'Credential ini sudah expired.';
   if (expiration.isNotYetValid) return 'Credential ini belum berlaku.';
 
-  if (INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '')) {
+  if (
+    INVALID_PRESENTATION_STATUSES.includes(
+      String(credential.verificationStatus ?? '')
+    )
+  ) {
     return 'Credential ini berstatus invalid dan tidak dapat dipresentasikan.';
   }
 
@@ -501,7 +544,7 @@ function getDetailTitle(document: CredentialDocument) {
   return document.documentName || 'Credential Document';
 }
 
-function getDocumentIcon(documentType: string) {
+function getDocumentIcon(documentType: string): any {
   if (documentType === 'KTP') return 'id-card-outline';
   if (documentType === 'KTM') return 'school-outline';
   if (documentType === 'SIM') return 'car-outline';
@@ -513,17 +556,19 @@ function getDocumentIcon(documentType: string) {
 function getMainCredential(document: CredentialDocument) {
   const credentials = document.credentials ?? [];
 
-  /**
-   * Format baru KTP hasil createKtpCredential() akan punya fullName / nik.
-   * Prioritaskan credential yang sudah punya credentialSubject utuh.
-   */
   const fullDocumentCredential = credentials.find((credential) => {
     const subject = credential.credentialSubject as any;
 
     return Boolean(
       getCredentialJwt(credential) &&
         subject &&
-        (subject.fullName || subject.nik || subject.address)
+        (
+          subject.nama ||
+          subject.fullName ||
+          subject.nik ||
+          subject.alamat ||
+          subject.address
+        )
     );
   });
 
@@ -540,15 +585,46 @@ function getMainCredential(document: CredentialDocument) {
 
 function getMainCredentialStatus(document: CredentialDocument) {
   const mainCredential = getMainCredential(document);
+  const validUntil =
+    mainCredential?.validUntil ||
+    mainCredential?.expirationDate ||
+    (typeof mainCredential?.credentialSubject?.berlakuHingga === 'string'
+      ? mainCredential.credentialSubject.berlakuHingga
+      : undefined) ||
+    (typeof mainCredential?.credentialSubject?.validUntilText === 'string'
+      ? mainCredential.credentialSubject.validUntilText
+      : undefined);
 
-  if (!mainCredential?.expirationDate) {
+  if (!validUntil) {
     return {
       status: 'VALID',
       label: 'VALID',
     };
   }
 
-  const isExpired = new Date(mainCredential.expirationDate) < new Date();
+  const normalized = String(validUntil).trim().toLowerCase();
+
+  if (
+    normalized === 'seumur hidup' ||
+    normalized === 'berlaku seumur hidup' ||
+    normalized === 'lifetime'
+  ) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const validUntilDate = new Date(validUntil);
+
+  if (Number.isNaN(validUntilDate.getTime())) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const isExpired = validUntilDate < new Date();
 
   return {
     status: isExpired ? 'EXPIRED' : 'VALID',
@@ -574,53 +650,67 @@ function buildCredentialDetailItems(
   ]);
 
   const preferredOrder = [
+    'nama',
     'fullName',
+    'legalName',
     'nik',
+    'tempatLahir',
     'birthPlace',
+    'tanggalLahir',
     'birthDate',
+    'jenisKelamin',
     'gender',
+    'alamat',
     'address',
+    'agama',
     'religion',
+    'statusPerkawinan',
     'maritalStatus',
+    'pekerjaan',
     'occupation',
+    'kewarganegaraan',
     'citizenship',
+    'berlakuHingga',
+    'validUntilText',
     'validUntil',
   ];
 
   if (isRecord(subject)) {
-    const hasFullKtpData = preferredOrder.some((key) => {
+    const addedKeys = new Set<string>();
+
+    for (const key of preferredOrder) {
       const value = subject[key];
 
-      return value !== undefined && value !== null && value !== '';
-    });
-
-    if (hasFullKtpData) {
-      for (const key of preferredOrder) {
-        const value = subject[key];
-
-        if (value === undefined || value === null || value === '') {
-          continue;
-        }
-
-        items.push({
-          key,
-          label: normalizeLabel(key),
-          value: stringifyValue(value),
-        });
+      if (value === undefined || value === null || value === '') {
+        continue;
       }
 
-      Object.entries(subject).forEach(([key, value]) => {
-        if (ignoredKeys.has(key)) return;
-        if (preferredOrder.includes(key)) return;
-        if (value === undefined || value === null || value === '') return;
+      if (addedKeys.has(key)) {
+        continue;
+      }
 
-        items.push({
-          key,
-          label: normalizeLabel(key),
-          value: stringifyValue(value),
-        });
+      items.push({
+        key,
+        label: normalizeLabel(key),
+        value: stringifyValue(value),
       });
 
+      addedKeys.add(key);
+    }
+
+    Object.entries(subject).forEach(([key, value]) => {
+      if (ignoredKeys.has(key)) return;
+      if (preferredOrder.includes(key)) return;
+      if (value === undefined || value === null || value === '') return;
+
+      items.push({
+        key,
+        label: normalizeLabel(key),
+        value: stringifyValue(value),
+      });
+    });
+
+    if (items.length > 0) {
       return items;
     }
 
@@ -646,21 +736,6 @@ function buildCredentialDetailItems(
           value: stringifyValue(legacyAttributeValue),
         },
       ];
-    }
-
-    Object.entries(subject).forEach(([key, value]) => {
-      if (ignoredKeys.has(key)) return;
-      if (value === undefined || value === null || value === '') return;
-
-      items.push({
-        key,
-        label: normalizeLabel(key),
-        value: stringifyValue(value),
-      });
-    });
-
-    if (items.length > 0) {
-      return items;
     }
   }
 
@@ -899,21 +974,20 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   verifyOnlyText: {
-    color: '#16A34A',
-    fontSize: 14,
+    color: '#2563EB',
     fontWeight: '900',
-    marginBottom: 10,
-    textAlign: 'center',
+    fontSize: 12,
+    marginBottom: 12,
+    letterSpacing: 1,
   },
   qrBox: {
     backgroundColor: '#FFFFFF',
-    padding: 14,
+    padding: 16,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   qrTooLargeBox: {
-    alignSelf: 'stretch',
     backgroundColor: '#FFF7ED',
     borderRadius: 18,
     padding: 18,
@@ -923,52 +997,56 @@ const styles = StyleSheet.create({
   },
   qrTooLargeTitle: {
     color: '#9A3412',
-    fontSize: 16,
     fontWeight: '900',
+    fontSize: 15,
+    marginTop: 8,
     textAlign: 'center',
-    marginTop: 10,
   },
   qrTooLargeText: {
     color: '#9A3412',
     fontWeight: '700',
+    fontSize: 13,
+    marginTop: 6,
+    lineHeight: 19,
     textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 8,
   },
   qrNote: {
-    color: '#6B7280',
-    textAlign: 'center',
+    color: '#64748B',
+    fontSize: 12,
     fontWeight: '700',
-    marginTop: 14,
-    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 18,
   },
   jwtLabel: {
-    alignSelf: 'stretch',
-    color: '#6B7280',
-    fontSize: 12,
+    color: '#111827',
     fontWeight: '900',
-    marginTop: 18,
-    marginBottom: 6,
+    fontSize: 13,
+    marginTop: 14,
+    alignSelf: 'stretch',
   },
   jwtPreview: {
-    alignSelf: 'stretch',
-    color: '#374151',
-    fontFamily: 'monospace',
+    color: '#334155',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
     fontSize: 11,
     lineHeight: 16,
+    marginTop: 8,
+    alignSelf: 'stretch',
   },
   jwtHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
     marginBottom: 12,
-    gap: 10,
   },
   copyButton: {
     backgroundColor: '#2563EB',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -979,9 +1057,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   jwtText: {
-    color: '#374151',
-    fontFamily: 'monospace',
+    color: '#334155',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
     fontSize: 11,
-    lineHeight: 17,
+    lineHeight: 16,
   },
 });

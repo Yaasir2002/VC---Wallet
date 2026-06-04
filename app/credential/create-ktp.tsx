@@ -60,8 +60,19 @@ export default function CreateKtpScreen() {
       setLoading(true);
 
       await createKtpCredential({
-        fullName: fullName.trim(),
+        nama: fullName.trim(),
         nik: nik.trim(),
+        tempatLahir: birthPlace.trim(),
+        tanggalLahir: birthDateText,
+        jenisKelamin: gender.trim(),
+        alamat: address.trim(),
+        agama: religion.trim(),
+        statusPerkawinan: maritalStatus.trim(),
+        pekerjaan: occupation.trim(),
+        kewarganegaraan: citizenship.trim(),
+        berlakuHingga: validUntil.trim() || 'Seumur Hidup',
+
+        fullName: fullName.trim(),
         birthPlace: birthPlace.trim(),
         birthDate: birthDateText,
         gender: gender.trim(),
@@ -83,21 +94,21 @@ export default function CreateKtpScreen() {
         router.replace('/(tabs)/wallet');
       }, 700);
     } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : 'Gagal membuat KTP Digital. Pastikan DID sudah dibuat.';
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Gagal membuat KTP Digital. Pastikan DID sudah dibuat.';
 
-        safeLogger.error(`Failed to create KTP credential: ${message}`);
+      safeLogger.error(`Failed to create KTP credential: ${message}`);
 
-        setToast({
-          visible: true,
-          message,
-          type: 'error',
-        });
-      } finally {
-        setLoading(false);
-      }
+      setToast({
+        visible: true,
+        message,
+        type: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
   }
 
   function validateForm() {
