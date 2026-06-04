@@ -35,7 +35,9 @@ function createDocumentId(documentType: DocumentType) {
 }
 
 function createCredentialId(documentType: DocumentType) {
-  return `${documentType}-VC-${Date.now()}`;
+  return `${documentType}-VC-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 }
 
 function getNowIso() {
@@ -65,11 +67,11 @@ function getExpirationDateFromValidUntil(validUntil?: string): string | undefine
 /**
  * Legacy helper.
  *
- * Fungsi ini masih dipertahankan untuk kompatibilitas jika ada screen lama/custom
- * yang masih memanggil createDocumentCredentials().
+ * Fungsi ini dipertahankan agar fitur lama/custom yang masih memanggil
+ * createDocumentCredentials tidak langsung rusak.
  *
- * Untuk revisi baru, credential seperti KTP/KTM/SIM/Ijazah sebaiknya dibuat
- * sebagai satu credential utuh, bukan banyak credential per atribut.
+ * Untuk flow baru, gunakan createKtpCredential() yang menghasilkan
+ * satu document = satu credential utuh.
  */
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
@@ -154,13 +156,11 @@ export async function createKtpCredential(
     documentId,
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    attributeType: 'ktpDocument' as AttributeType,
-    attributeName: 'KTP Digital',
-    attributeValue: JSON.stringify(credentialSubject),
     issuanceDate,
     expirationDate,
     credentialSubject,
-  } as any);
+    additionalTypes: ['IdentityCredential'],
+  });
 
   if (!isJwtString(signed.jwt)) {
     throw new Error('KTP Digital gagal dibuat sebagai VC JWT valid.');
@@ -175,7 +175,7 @@ export async function createKtpCredential(
     issuer: signed.issuerDid,
     issuanceDate,
     expirationDate,
-    credentialSubject: credentialSubject as any,
+    credentialSubject: signed.credentialSubject as any,
     jwt: signed.jwt,
     proof: {
       type: 'JwtProof2020',

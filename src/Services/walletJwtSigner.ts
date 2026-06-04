@@ -9,6 +9,34 @@ import {
   getWalletPrivateKeySeedHex,
 } from '../Storage/secureWalletStorage';
 
+export type SignVcJwtWithWalletParams = {
+  subjectDid: string;
+  documentId: string;
+  documentType: string;
+  documentName: string;
+  issuanceDate: string;
+  expirationDate?: string;
+
+  /**
+   * Format baru:
+   * credentialSubject utuh berisi semua data dokumen, misalnya seluruh data KTP.
+   */
+  credentialSubject?: Record<string, unknown>;
+
+  /**
+   * Legacy compatibility.
+   * Masih dipertahankan agar createAttributeCredential lama tidak langsung rusak.
+   */
+  attributeType?: string;
+  attributeName?: string;
+  attributeValue?: string;
+
+  /**
+   * Optional VC type tambahan.
+   */
+  additionalTypes?: string[];
+};
+
 export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') {
     return false;
@@ -69,17 +97,45 @@ async function getWalletSigner() {
   };
 }
 
-export async function signVcJwtWithWallet(params: {
-  subjectDid: string;
-  documentId: string;
-  documentType: string;
-  documentName: string;
-  attributeType: string;
-  attributeName: string;
-  attributeValue: string;
-  issuanceDate: string;
-  expirationDate?: string;
-}) {
+function buildCredentialSubject(params: SignVcJwtWithWalletParams) {
+  if (params.credentialSubject) {
+    return {
+      id: params.subjectDid,
+      documentId: params.documentId,
+      documentType: params.documentType,
+      documentName: params.documentName,
+      ...params.credentialSubject,
+    };
+  }
+
+  if (!params.attributeType || !params.attributeName || !params.attributeValue) {
+    throw new Error(
+      'credentialSubject utuh belum tersedia. Untuk format baru, kirim credentialSubject lengkap.'
+    );
+  }
+
+  return {
+    id: params.subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
+  };
+}
+
+function buildVcTypes(params: SignVcJwtWithWalletParams) {
+  const baseTypes = [
+    'VerifiableCredential',
+    `${params.documentType}Credential`,
+    ...(params.additionalTypes ?? []),
+  ];
+
+  return Array.from(new Set(baseTypes.filter(Boolean)));
+}
+
+export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   const wallet = await getWalletSigner();
 
   if (!params.subjectDid?.startsWith('did:')) {
@@ -92,21 +148,8 @@ export async function signVcJwtWithWallet(params: {
     throw new Error('Issuance date tidak valid.');
   }
 
-  const credentialSubject = {
-    id: params.subjectDid,
-    documentId: params.documentId,
-    documentType: params.documentType,
-    documentName: params.documentName,
-    attributeType: params.attributeType,
-    attributeName: params.attributeName,
-    attributeValue: params.attributeValue,
-  };
-
-  const vcTypes = [
-    'VerifiableCredential',
-    'AttributeCredential',
-    `${params.documentType}Credential`,
-  ];
+  const credentialSubject = buildCredentialSubject(params);
+  const vcTypes = buildVcTypes(params);
 
   const vcPayload: any = {
     sub: params.subjectDid,
