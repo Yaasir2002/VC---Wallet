@@ -19,23 +19,19 @@ export type SignVcJwtWithWalletParams = {
 
   /**
    * Format baru:
-   * credentialSubject utuh berisi seluruh data dokumen,
-   * misalnya seluruh data KTP dalam satu VC JWT.
+   * satu credentialSubject utuh berisi seluruh data dokumen.
+   * Contoh KTP: fullName, nik, birthPlace, birthDate, gender, address, dst.
    */
   credentialSubject?: Record<string, unknown>;
 
   /**
-   * Legacy compatibility:
-   * masih dipertahankan agar helper lama createAttributeCredential()
-   * tidak langsung rusak.
+   * Legacy compatibility.
+   * Dipertahankan agar helper lama createAttributeCredential() tidak langsung rusak.
    */
   attributeType?: string;
   attributeName?: string;
   attributeValue?: string;
 
-  /**
-   * Optional VC type tambahan.
-   */
   additionalTypes?: string[];
 };
 
@@ -128,13 +124,13 @@ function buildCredentialSubject(params: SignVcJwtWithWalletParams) {
 }
 
 function buildVcTypes(params: SignVcJwtWithWalletParams) {
-  const baseTypes = [
+  const types = [
     'VerifiableCredential',
     `${params.documentType}Credential`,
     ...(params.additionalTypes ?? []),
   ];
 
-  return Array.from(new Set(baseTypes.filter(Boolean)));
+  return Array.from(new Set(types.filter(Boolean)));
 }
 
 export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {

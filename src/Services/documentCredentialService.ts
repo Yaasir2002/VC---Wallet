@@ -44,16 +44,33 @@ function getNowIso() {
   return new Date().toISOString();
 }
 
+function normalizeKtpInput(input: KtpCredentialInput): KtpCredentialInput {
+  return {
+    fullName: input.fullName?.trim() ?? '',
+    nik: input.nik?.trim() ?? '',
+    birthPlace: input.birthPlace?.trim() ?? '',
+    birthDate: input.birthDate?.trim() ?? '',
+    gender: input.gender?.trim() ?? '',
+    address: input.address?.trim() ?? '',
+    religion: input.religion?.trim() ?? '',
+    maritalStatus: input.maritalStatus?.trim() ?? '',
+    occupation: input.occupation?.trim() ?? '',
+    citizenship: input.citizenship?.trim() ?? '',
+    validUntil: input.validUntil?.trim() || 'Seumur Hidup',
+  };
+}
+
 function getExpirationDateFromValidUntil(validUntil?: string): string | undefined {
   const normalized = validUntil?.trim();
 
-  if (!normalized) {
-    return undefined;
-  }
+  if (!normalized) return undefined;
+
+  const lower = normalized.toLowerCase();
 
   if (
-    normalized.toLowerCase() === 'seumur hidup' ||
-    normalized.toLowerCase() === 'berlaku seumur hidup'
+    lower === 'seumur hidup' ||
+    lower === 'berlaku seumur hidup' ||
+    lower === 'lifetime'
   ) {
     return undefined;
   }
@@ -69,12 +86,9 @@ function getExpirationDateFromValidUntil(validUntil?: string): string | undefine
 
 /**
  * Legacy helper.
- *
- * Fungsi ini dipertahankan agar fitur lama/custom yang masih memanggil
- * createDocumentCredentials tidak langsung rusak.
- *
- * Untuk flow baru, gunakan createKtpCredential() yang menghasilkan:
- * 1 dokumen = 1 credential utuh = 1 VC JWT.
+ * Dipertahankan agar fitur lama/custom tidak langsung rusak.
+ * Untuk KTP revisi baru, jangan gunakan fungsi ini.
+ * Gunakan createKtpCredential() agar 1 KTP = 1 credential utuh.
  */
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
@@ -132,26 +146,32 @@ export async function createKtpCredential(
     throw new Error('DID harus did:key agar bisa signing dan verify offline.');
   }
 
+  const normalized = normalizeKtpInput(input);
   const documentId = createDocumentId('KTP');
   const issuanceDate = getNowIso();
-  const expirationDate = getExpirationDateFromValidUntil(input.validUntil);
+  const expirationDate = getExpirationDateFromValidUntil(normalized.validUntil);
 
+  /**
+   * Ini inti revisi:
+   * seluruh data form KTP disimpan dalam SATU credentialSubject.
+   * Tidak ada lagi attributeName / attributeValue untuk KTP baru.
+   */
   const credentialSubject = {
     id: didData.did,
     documentId,
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    fullName: input.fullName,
-    nik: input.nik,
-    birthPlace: input.birthPlace,
-    birthDate: input.birthDate,
-    gender: input.gender,
-    address: input.address,
-    religion: input.religion,
-    maritalStatus: input.maritalStatus,
-    occupation: input.occupation,
-    citizenship: input.citizenship,
-    validUntil: input.validUntil || 'Seumur Hidup',
+    fullName: normalized.fullName,
+    nik: normalized.nik,
+    birthPlace: normalized.birthPlace,
+    birthDate: normalized.birthDate,
+    gender: normalized.gender,
+    address: normalized.address,
+    religion: normalized.religion,
+    maritalStatus: normalized.maritalStatus,
+    occupation: normalized.occupation,
+    citizenship: normalized.citizenship,
+    validUntil: normalized.validUntil,
   };
 
   const signed = await signVcJwtWithWallet({

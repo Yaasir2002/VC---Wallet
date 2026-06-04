@@ -33,6 +33,12 @@ type ToastState = {
   type: 'success' | 'error' | 'info';
 };
 
+type DetailItem = {
+  key: string;
+  label: string;
+  value: string;
+};
+
 const INVALID_PRESENTATION_STATUSES = [
   'invalid',
   'invalid_signature',
@@ -67,16 +73,6 @@ function getCredentialJwt(credential: ModularCredential | null | undefined): str
   return found ? found.trim() : '';
 }
 
-function formatDate(value?: string): string {
-  if (!value) return '-';
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString();
-}
-
 function normalizeLabel(key: string): string {
   const labels: Record<string, string> = {
     fullName: 'Nama Lengkap',
@@ -97,9 +93,7 @@ function normalizeLabel(key: string): string {
     enrollmentYear: 'Tahun Masuk',
   };
 
-  if (labels[key]) {
-    return labels[key];
-  }
+  if (labels[key]) return labels[key];
 
   return key
     .replace(/([A-Z])/g, ' $1')
@@ -259,7 +253,7 @@ export default function CredentialDocumentDetailScreen() {
 
       if (vpJwt.length > QR_SAFE_MAX_LENGTH) {
         setQrWarning(
-          'VP JWT terlalu panjang untuk QR Code. Kurangi ukuran data credential atau gunakan Copy JWT.'
+          'VP JWT terlalu panjang untuk QR Code. Gunakan Copy JWT atau sederhanakan data credential.'
         );
       }
 
@@ -288,7 +282,6 @@ export default function CredentialDocumentDetailScreen() {
     }
 
     await Clipboard.setStringAsync(qrJwt);
-
     showToast('VP JWT berhasil disalin.', 'success');
   }
 
@@ -324,7 +317,7 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
-          <Text style={styles.documentSubtitle}>Credential Parent</Text>
+          <Text style={styles.documentSubtitle}>Satu Credential Utuh</Text>
 
           <View
             style={[
@@ -345,23 +338,6 @@ export default function CredentialDocumentDetailScreen() {
           <Text style={styles.issuerText} numberOfLines={2}>
             Issuer: {mainCredential.issuer ?? 'Unknown Issuer'}
           </Text>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIconBlue}>
-              <Ionicons name="document-text-outline" size={22} color="#2563EB" />
-            </View>
-            <Text style={styles.sectionTitle}>Credential Information</Text>
-          </View>
-
-          <InfoItem label="Document ID" value={document.documentId} />
-          <InfoItem label="Document Type" value={document.documentType} />
-          <InfoItem label="Document Name" value={document.documentName} />
-          <InfoItem label="Issuer" value={mainCredential.issuer} />
-          <InfoItem label="Issuance Date" value={formatDate(mainCredential.issuanceDate)} />
-          <InfoItem label="Expiration Date" value={formatDate(mainCredential.expirationDate)} />
-          <InfoItem label="VC JWT Status" value={mainCredentialJwt ? 'Available' : 'Not Available'} />
         </View>
 
         <View style={styles.sectionCard}>
@@ -439,7 +415,7 @@ export default function CredentialDocumentDetailScreen() {
                       VP JWT terlalu panjang untuk QR Code
                     </Text>
                     <Text style={styles.qrTooLargeText}>
-                      Credential ini tetap berhasil ditandatangani, tetapi datanya terlalu besar untuk dimasukkan ke QR. Gunakan Copy JWT atau sederhanakan data credential.
+                      Credential berhasil ditandatangani, tetapi datanya terlalu besar untuk dimasukkan ke QR. Gunakan Copy JWT.
                     </Text>
                   </View>
                 )}
@@ -476,32 +452,6 @@ export default function CredentialDocumentDetailScreen() {
             </View>
           )
         ) : null}
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIconBlue}>
-              <Ionicons name="key-outline" size={22} color="#2563EB" />
-            </View>
-            <Text style={styles.sectionTitle}>Proof VC JWT</Text>
-          </View>
-
-          {mainCredentialJwt ? (
-            <>
-              <InfoItem label="Proof Type" value="JwtProof2020" />
-              <InfoItem label="Verification Method" value={mainCredential.issuer || '-'} />
-
-              <Text style={styles.infoLabel}>VC JWT</Text>
-              <Text style={styles.jwtText}>{mainCredentialJwt}</Text>
-            </>
-          ) : (
-            <View style={styles.emptyProof}>
-              <Ionicons name="warning-outline" size={26} color="#F97316" />
-              <Text style={styles.emptyProofText}>
-                Credential belum memiliki VC JWT. Credential lama perlu dibuat ulang agar bisa dipresentasikan sebagai VP JWT.
-              </Text>
-            </View>
-          )}
-        </View>
       </ScrollView>
 
       <LoadingOverlay visible={loading} message="Memproses..." />
@@ -519,13 +469,8 @@ export default function CredentialDocumentDetailScreen() {
 function isCredentialPresentable(credential: ModularCredential): boolean {
   const expiration = checkCredentialExpiration(credential);
 
-  if (expiration.isExpired || expiration.isNotYetValid) {
-    return false;
-  }
-
-  if (!getCredentialJwt(credential)) {
-    return false;
-  }
+  if (expiration.isExpired || expiration.isNotYetValid) return false;
+  if (!getCredentialJwt(credential)) return false;
 
   return !INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '');
 }
@@ -537,13 +482,8 @@ function getCredentialBlockedReason(credential: ModularCredential): string {
     return 'Credential lama belum sesuai format baru. Hapus credential ini dan buat ulang sebagai satu credential utuh.';
   }
 
-  if (expiration.isExpired) {
-    return 'Credential ini sudah expired.';
-  }
-
-  if (expiration.isNotYetValid) {
-    return 'Credential ini belum berlaku.';
-  }
+  if (expiration.isExpired) return 'Credential ini sudah expired.';
+  if (expiration.isNotYetValid) return 'Credential ini belum berlaku.';
 
   if (INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '')) {
     return 'Credential ini berstatus invalid dan tidak dapat dipresentasikan.';
@@ -573,6 +513,24 @@ function getDocumentIcon(documentType: string) {
 function getMainCredential(document: CredentialDocument) {
   const credentials = document.credentials ?? [];
 
+  /**
+   * Format baru KTP hasil createKtpCredential() akan punya fullName / nik.
+   * Prioritaskan credential yang sudah punya credentialSubject utuh.
+   */
+  const fullDocumentCredential = credentials.find((credential) => {
+    const subject = credential.credentialSubject as any;
+
+    return Boolean(
+      getCredentialJwt(credential) &&
+        subject &&
+        (subject.fullName || subject.nik || subject.address)
+    );
+  });
+
+  if (fullDocumentCredential) {
+    return fullDocumentCredential;
+  }
+
   return (
     credentials.find((credential) => Boolean(getCredentialJwt(credential))) ||
     credentials[0] ||
@@ -601,19 +559,98 @@ function getMainCredentialStatus(document: CredentialDocument) {
 function buildCredentialDetailItems(
   document: CredentialDocument,
   credential: ModularCredential
-) {
+): DetailItem[] {
   const subject = credential.credentialSubject || {};
-  const items: Array<{ key: string; label: string; value: string }> = [];
+  const items: DetailItem[] = [];
+
   const ignoredKeys = new Set([
     'id',
     'documentId',
     'documentType',
     'documentName',
+    'attributeType',
+    'attributeName',
+    'attributeValue',
   ]);
 
+  const preferredOrder = [
+    'fullName',
+    'nik',
+    'birthPlace',
+    'birthDate',
+    'gender',
+    'address',
+    'religion',
+    'maritalStatus',
+    'occupation',
+    'citizenship',
+    'validUntil',
+  ];
+
   if (isRecord(subject)) {
+    const hasFullKtpData = preferredOrder.some((key) => {
+      const value = subject[key];
+
+      return value !== undefined && value !== null && value !== '';
+    });
+
+    if (hasFullKtpData) {
+      for (const key of preferredOrder) {
+        const value = subject[key];
+
+        if (value === undefined || value === null || value === '') {
+          continue;
+        }
+
+        items.push({
+          key,
+          label: normalizeLabel(key),
+          value: stringifyValue(value),
+        });
+      }
+
+      Object.entries(subject).forEach(([key, value]) => {
+        if (ignoredKeys.has(key)) return;
+        if (preferredOrder.includes(key)) return;
+        if (value === undefined || value === null || value === '') return;
+
+        items.push({
+          key,
+          label: normalizeLabel(key),
+          value: stringifyValue(value),
+        });
+      });
+
+      return items;
+    }
+
+    const legacyAttributeName = subject.attributeName;
+    const legacyAttributeValue = subject.attributeValue;
+
+    if (legacyAttributeName || legacyAttributeValue) {
+      return [
+        {
+          key: 'legacyWarning',
+          label: 'Format Credential',
+          value:
+            'Credential ini masih format lama per atribut. Hapus dan buat ulang KTP agar detail tampil lengkap sebagai satu credential.',
+        },
+        {
+          key: 'legacyAttributeName',
+          label: 'Atribut Lama',
+          value: stringifyValue(legacyAttributeName),
+        },
+        {
+          key: 'legacyAttributeValue',
+          label: 'Nilai Atribut Lama',
+          value: stringifyValue(legacyAttributeValue),
+        },
+      ];
+    }
+
     Object.entries(subject).forEach(([key, value]) => {
       if (ignoredKeys.has(key)) return;
+      if (value === undefined || value === null || value === '') return;
 
       items.push({
         key,
@@ -621,29 +658,24 @@ function buildCredentialDetailItems(
         value: stringifyValue(value),
       });
     });
+
+    if (items.length > 0) {
+      return items;
+    }
   }
 
-  if (items.length === 0) {
-    const fallbackItems = [
-      ['documentName', document.documentName],
-      ['documentType', document.documentType],
-      ['issuer', credential.issuer],
-      ['issuanceDate', credential.issuanceDate],
-      ['expirationDate', credential.expirationDate],
-    ];
-
-    fallbackItems.forEach(([key, value]) => {
-      if (!value) return;
-
-      items.push({
-        key: String(key),
-        label: normalizeLabel(String(key)),
-        value: stringifyValue(value),
-      });
-    });
-  }
-
-  return items;
+  return [
+    {
+      key: 'documentName',
+      label: 'Nama Dokumen',
+      value: document.documentName,
+    },
+    {
+      key: 'documentType',
+      label: 'Jenis Dokumen',
+      value: document.documentType,
+    },
+  ];
 }
 
 const styles = StyleSheet.create({
@@ -951,18 +983,5 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     fontSize: 11,
     lineHeight: 17,
-  },
-  emptyProof: {
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    gap: 8,
-  },
-  emptyProofText: {
-    color: '#9A3412',
-    fontWeight: '800',
-    textAlign: 'center',
-    lineHeight: 20,
   },
 });
