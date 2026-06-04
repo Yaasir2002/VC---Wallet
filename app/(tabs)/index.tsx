@@ -51,7 +51,7 @@ export default function HomeScreen() {
       setProfile(userProfile);
       setDidData(did);
       setDocuments(docs);
-    } catch (error) {
+    } catch {
       safeLogger.error('Failed to load dashboard');
 
       setToast({
@@ -172,8 +172,7 @@ export default function HomeScreen() {
 
               <Text style={styles.didAddressLabel}>DID Address</Text>
               <Text style={styles.didAddress}>
-                {didData?.did ??
-                  'DID belum tersedia. Buat akun terlebih dahulu.'}
+                {didData?.did ?? 'DID belum tersedia. Buat akun terlebih dahulu.'}
               </Text>
 
               {didData ? (
@@ -244,8 +243,8 @@ export default function HomeScreen() {
                 <Ionicons name="file-tray-outline" size={34} color="#9CA3AF" />
                 <Text style={styles.emptyTitleSmall}>Belum Ada VC</Text>
                 <Text style={styles.emptyText}>
-                  Buat dummy credential dari halaman Wallet untuk menambahkan
-                  credential parent ke dashboard.
+                  Buat credential dari halaman Wallet untuk menambahkan
+                  credential ke dashboard.
                 </Text>
 
                 <AnimatedButton
@@ -322,7 +321,7 @@ export default function HomeScreen() {
 
                     <View style={styles.parentCredentialFooter}>
                       <Text style={styles.parentCredentialHint}>
-                        Klik untuk melihat detail atribut
+                        Klik untuk melihat detail credential
                       </Text>
 
                       <Ionicons
@@ -363,8 +362,7 @@ export default function HomeScreen() {
             <Ionicons name="lock-closed-outline" size={22} color="#F97316" />
             <Text style={styles.securityText}>
               Wallet dilindungi dengan secure storage, PIN lokal, dan biometrik.
-              Credential ditampilkan sebagai credential parent yang membungkus
-              beberapa atribut identitas.
+              Credential disimpan sebagai Verifiable Credential Data Model v2.0.
             </Text>
           </View>
         </AnimatedScreen>
@@ -387,11 +385,10 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.qrDidAddress} numberOfLines={4}>
-              {didData?.did}
+              {didData?.did ?? '-'}
             </Text>
 
             <View style={styles.qrModalActionRow}>
-
               <Pressable
                 style={styles.qrCloseButton}
                 onPress={() => setShowDIDQR(false)}
@@ -407,7 +404,12 @@ export default function HomeScreen() {
         visible={toast.visible}
         message={toast.message}
         type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
+        onHide={() =>
+          setToast((current) => ({
+            ...current,
+            visible: false,
+          }))
+        }
       />
     </View>
   );
@@ -425,31 +427,50 @@ function getInitial(name?: string) {
   return `${names[0].charAt(0)}${names[1].charAt(0)}`.toUpperCase();
 }
 
-function getDocumentDisplayName(document: CredentialDocument) {
+function getDocumentDisplayName(document: CredentialDocument): string {
   if (document.documentName) {
     return document.documentName;
   }
 
   if (document.documentType === 'KTP') return 'KTP Digital';
+  if (document.documentType === 'KTM') return 'KTM Digital';
   if (document.documentType === 'SIM') return 'SIM Digital';
   if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
 
   return 'Credential Document';
 }
 
-function getDocumentIcon(documentType: string) {
+function getDocumentIcon(documentType?: string): any {
   if (documentType === 'KTP') return 'id-card-outline';
+  if (documentType === 'KTM') return 'school-outline';
   if (documentType === 'SIM') return 'car-outline';
   if (documentType === 'IJAZAH') return 'school-outline';
 
   return 'document-text-outline';
 }
 
-function getParentCredentialIssuer(document: CredentialDocument) {
+function getParentCredentialIssuer(document: CredentialDocument): string {
   const mainCredential = getMainCredential(document);
+  const issuer = mainCredential?.issuer;
 
-  if (mainCredential?.issuer) {
-    return mainCredential.issuer;
+  if (!issuer) {
+    return 'Unknown Issuer';
+  }
+
+  if (typeof issuer === 'string') {
+    return issuer || 'Unknown Issuer';
+  }
+
+  if (typeof issuer === 'object' && issuer !== null) {
+    const issuerRecord = issuer as Record<string, unknown>;
+
+    if (typeof issuerRecord.name === 'string' && issuerRecord.name.trim()) {
+      return issuerRecord.name;
+    }
+
+    if (typeof issuerRecord.id === 'string' && issuerRecord.id.trim()) {
+      return issuerRecord.id;
+    }
   }
 
   return 'Unknown Issuer';
@@ -458,14 +479,43 @@ function getParentCredentialIssuer(document: CredentialDocument) {
 function getParentCredentialStatus(document: CredentialDocument) {
   const mainCredential = getMainCredential(document);
 
-  if (!mainCredential?.expirationDate) {
+  const validUntil =
+    mainCredential?.validUntil ||
+    mainCredential?.expirationDate ||
+    (typeof mainCredential?.credentialSubject?.validUntil === 'string'
+      ? mainCredential.credentialSubject.validUntil
+      : undefined);
+
+  if (!validUntil) {
     return {
       status: 'VALID',
       label: 'VALID',
     };
   }
 
-  const isExpired = new Date(mainCredential.expirationDate) < new Date();
+  const normalizedValidUntil = String(validUntil).trim().toLowerCase();
+
+  if (
+    normalizedValidUntil === 'seumur hidup' ||
+    normalizedValidUntil === 'berlaku seumur hidup' ||
+    normalizedValidUntil === 'lifetime'
+  ) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const validUntilDate = new Date(validUntil);
+
+  if (Number.isNaN(validUntilDate.getTime())) {
+    return {
+      status: 'VALID',
+      label: 'VALID',
+    };
+  }
+
+  const isExpired = validUntilDate < new Date();
 
   return {
     status: isExpired ? 'EXPIRED' : 'VALID',
@@ -477,16 +527,15 @@ function getMainCredential(document: CredentialDocument) {
   const credentials = document.credentials ?? [];
 
   return (
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'legalName'
-    ) ||
+    credentials.find((vc) => vc.type?.includes('KTPCredential')) ||
+    credentials.find((vc) => vc.type?.includes('IdentityCredential')) ||
+    credentials.find((vc) => typeof vc.credentialSubject?.nik === 'string') ||
+    credentials.find((vc) => typeof vc.credentialSubject?.fullName === 'string') ||
+    credentials.find((vc) => typeof vc.credentialSubject?.legalName === 'string') ||
+    credentials.find((vc) => vc.credentialSubject?.attributeType === 'legalName') ||
     credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
-    ) ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'studentId'
-    ) ||
+    credentials.find((vc) => vc.credentialSubject?.attributeType === 'licenseNumber') ||
+    credentials.find((vc) => vc.credentialSubject?.attributeType === 'studentId') ||
     credentials[0]
   );
 }
@@ -860,18 +909,18 @@ const styles = StyleSheet.create({
   },
   scanSubtitle: {
     color: '#DBEAFE',
-    fontSize: 13,
+    marginTop: 4,
+    fontSize: 12,
     lineHeight: 18,
-    marginTop: 3,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   securityCard: {
     backgroundColor: '#FFF7ED',
-    borderWidth: 1,
     borderColor: '#FED7AA',
-    borderRadius: 20,
-    padding: 16,
+    borderWidth: 1,
     marginTop: 18,
+    borderRadius: 18,
+    padding: 16,
     flexDirection: 'row',
     gap: 10,
     alignItems: 'flex-start',
@@ -879,93 +928,75 @@ const styles = StyleSheet.create({
   securityText: {
     flex: 1,
     color: '#9A3412',
-    fontSize: 13,
     fontWeight: '700',
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 20,
   },
   qrModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
   qrModalBox: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    borderRadius: 26,
     padding: 22,
     alignItems: 'center',
   },
   qrModalIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: '#DBEAFE',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
   qrModalTitle: {
-    fontSize: 22,
-    fontWeight: '900',
+    marginTop: 14,
+    fontSize: 20,
     color: '#111827',
+    fontWeight: '900',
   },
   qrModalSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '700',
     marginTop: 6,
-    marginBottom: 18,
+    fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
+    fontWeight: '600',
+    lineHeight: 19,
   },
   qrContainer: {
+    marginTop: 18,
     backgroundColor: '#FFFFFF',
     padding: 14,
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   qrDidAddress: {
-    fontSize: 12,
+    marginTop: 12,
     color: '#2563EB',
-    fontWeight: '700',
+    fontSize: 12,
     lineHeight: 18,
+    fontWeight: '700',
     textAlign: 'center',
-    marginTop: 16,
   },
   qrModalActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 20,
     width: '100%',
-  },
-  qrCopyButton: {
-    flex: 1,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  qrCopyButtonText: {
-    color: '#2563EB',
-    fontWeight: '900',
-    fontSize: 13,
+    marginTop: 18,
   },
   qrCloseButton: {
-    flex: 1,
-    backgroundColor: '#111827',
+    backgroundColor: '#2563EB',
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   qrCloseButtonText: {
     color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '900',
-    fontSize: 13,
   },
 });
