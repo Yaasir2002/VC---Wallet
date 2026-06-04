@@ -90,6 +90,10 @@ function getCredentialFileUri(fileName: string): string {
   return `${VC_DIRECTORY}${fileName}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 function createFallbackCredentialFromJwt(jwt: string): ModularCredential {
   const now = new Date().toISOString();
 
@@ -106,7 +110,7 @@ function createFallbackCredentialFromJwt(jwt: string): ModularCredential {
       attributeType: 'custom',
       attributeName: 'Imported JWT',
       attributeValue: '[JWT Credential]',
-    },
+    } as any,
     proof: {
       type: 'JwtProof2020',
       jwt,
@@ -119,15 +123,27 @@ function createFallbackCredentialFromJwt(jwt: string): ModularCredential {
   };
 }
 
-function normalizeCredentialSubject(
-  vc: any
-): ModularCredential['credentialSubject'] {
+function normalizeCredentialSubject(vc: any): ModularCredential['credentialSubject'] {
+  const subject = vc?.credentialSubject;
+
+  if (isRecord(subject)) {
+    const normalizedSubject: Record<string, unknown> = {
+      ...subject,
+      id:
+        typeof subject.id === 'string' && subject.id.trim()
+          ? subject.id
+          : vc?.subjectDid || vc?.holderDid || '-',
+    };
+
+    return normalizedSubject as ModularCredential['credentialSubject'];
+  }
+
   return {
-    id: vc?.credentialSubject?.id || '-',
-    attributeType: vc?.credentialSubject?.attributeType || 'custom',
-    attributeName: vc?.credentialSubject?.attributeName || 'Credential',
-    attributeValue: vc?.credentialSubject?.attributeValue || '',
-  };
+    id: '-',
+    attributeType: 'custom',
+    attributeName: 'Credential',
+    attributeValue: '',
+  } as any;
 }
 
 function normalizeIssuer(issuer: any): string {
@@ -167,11 +183,18 @@ function normalizeVC(vc: any): ModularCredential {
   }
 
   const id = vc?.id || `vc-${Date.now()}`;
-  const documentId = vc?.documentId || `LEGACY-${vc?.id || Date.now()}`;
-  const documentType = vc?.documentType || 'CUSTOM';
-  const documentName = vc?.documentName || vc?.name || 'Credential Document';
+  const documentId = vc?.documentId || vc?.credentialSubject?.documentId || `LEGACY-${vc?.id || Date.now()}`;
+  const documentType = vc?.documentType || vc?.credentialSubject?.documentType || 'CUSTOM';
+  const documentName =
+    vc?.documentName ||
+    vc?.credentialSubject?.documentName ||
+    vc?.name ||
+    'Credential Document';
+
   const issuanceDate =
     vc?.issuanceDate || vc?.validFrom || new Date().toISOString();
+
+  const expirationDate = vc?.expirationDate || vc?.validUntil || vc?.validTo;
 
   return {
     id,
@@ -181,19 +204,21 @@ function normalizeVC(vc: any): ModularCredential {
     type: normalizeType(vc?.type),
     issuer: normalizeIssuer(vc?.issuer),
     issuanceDate,
-    expirationDate: vc?.expirationDate || vc?.validUntil || vc?.validTo,
-    validFrom: vc?.validFrom,
-    validUntil: vc?.validUntil,
+    expirationDate,
+    validFrom: vc?.validFrom || issuanceDate,
+    validUntil: vc?.validUntil || expirationDate,
     credentialSubject: normalizeCredentialSubject(vc),
+    credentialStatus: vc?.credentialStatus,
+    metadata: vc?.metadata,
     proof: vc?.proof,
     jwt,
-    verificationStatus: vc?.verificationStatus || 'pending_verification',
+    verificationStatus: vc?.verificationStatus || vc?.metadata?.verificationStatus || 'pending_verification',
     verificationResult: vc?.verificationResult,
     verification: vc?.verification,
     verifiedAt: vc?.verifiedAt ?? null,
     importedAt: vc?.importedAt,
     source: vc?.source,
-  };
+  } as ModularCredential;
 }
 
 function toIndexItem(credential: ModularCredential): CredentialIndexItem {
@@ -426,112 +451,54 @@ export async function getCredentials(): Promise<ModularCredential[]> {
 export async function getCredentialById(
   id: string
 ): Promise<ModularCredential | null> {
-  await migrateCredentialsFromAsyncStorageToEncryptedStorage();
+  const credentials = await getCredentials();
 
-  if (!id?.trim()) {
-    return null;
-  }
-
-  const index = await getIndex();
-  const item = index.find((credential) => credential.id === id);
-
-  if (!item) {
-    return null;
-  }
-
-  return await readCredentialFile(item);
+  return credentials.find((credential) => credential.id === id) || null;
 }
 
-export async function saveCredential(vc: any): Promise<ModularCredential> {
-  await migrateCredentialsFromAsyncStorageToEncryptedStorage();
+export async function saveCredential(
+  credential: ModularCredential
+): Promise<void> {
+  if (!credential?.id) {
+    throw new Error('Credential ID tidak valid.');
+  }
 
-  const normalized = normalizeVC(vc);
+  const normalized = normalizeVC(credential);
 
   await writeCredentialFile(normalized);
 
   const index = await getIndex();
-  const updatedIndex = [
-    toIndexItem(normalized),
+  const nextIndex = [
     ...index.filter((item) => item.id !== normalized.id),
+    toIndexItem(normalized),
   ];
 
-  await saveIndex(updatedIndex);
-
-  return normalized;
+  await saveIndex(nextIndex);
 }
 
-export async function updateCredential(
-  id: string,
-  data: Partial<ModularCredential>
-): Promise<ModularCredential> {
-  const existing = await getCredentialById(id);
-
-  if (!existing) {
-    throw new Error('Credential tidak ditemukan');
-  }
-
-  const updated: ModularCredential = {
-    ...existing,
-    ...data,
-    id: existing.id,
-  };
-
-  await writeCredentialFile(updated);
-
+export async function deleteCredentialById(id: string): Promise<void> {
   const index = await getIndex();
-  const updatedIndex = [
-    toIndexItem(updated),
-    ...index.filter((item) => item.id !== id),
-  ];
+  const target = index.find((item) => item.id === id);
 
-  await saveIndex(updatedIndex);
-
-  return updated;
-}
-
-export async function deleteCredentialById(id: string): Promise<boolean> {
-  await migrateCredentialsFromAsyncStorageToEncryptedStorage();
-
-  if (!id?.trim()) {
-    throw new Error('ID credential tidak valid');
+  if (!target) {
+    return;
   }
 
-  const index = await getIndex();
-  const item = index.find((credential) => credential.id === id);
-
-  if (!item) {
-    throw new Error('Credential tidak ditemukan');
-  }
-
-  await deleteCredentialFile(item);
-  await saveIndex(index.filter((credential) => credential.id !== id));
-
-  return true;
+  await deleteCredentialFile(target);
+  await saveIndex(index.filter((item) => item.id !== id));
 }
 
 export async function deleteCredentialsByDocumentId(
   documentId: string
-): Promise<number> {
-  await migrateCredentialsFromAsyncStorageToEncryptedStorage();
-
-  if (!documentId?.trim()) {
-    throw new Error('ID dokumen credential tidak valid');
-  }
-
+): Promise<void> {
   const index = await getIndex();
-  const targetItems = index.filter((item) => item.documentId === documentId);
+  const targets = index.filter((item) => item.documentId === documentId);
 
-  if (targetItems.length === 0) {
-    throw new Error('Dokumen credential tidak ditemukan');
-  }
-
-  for (const item of targetItems) {
-    await deleteCredentialFile(item);
+  for (const target of targets) {
+    await deleteCredentialFile(target);
   }
 
   await saveIndex(index.filter((item) => item.documentId !== documentId));
-
-  return targetItems.length;
 }
 
 export async function clearCredentials(): Promise<void> {
@@ -541,5 +508,5 @@ export async function clearCredentials(): Promise<void> {
     await deleteCredentialFile(item);
   }
 
-  await secureDelete(SECURE_VC_INDEX_KEY);
+  await saveIndex([]);
 }

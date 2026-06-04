@@ -83,16 +83,21 @@ export default function CreateKtpScreen() {
         router.replace('/(tabs)/wallet');
       }, 700);
     } catch (error) {
-      safeLogger.error('Failed to create KTP credential');
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Gagal membuat KTP Digital. Pastikan DID sudah dibuat.';
 
-      setToast({
-        visible: true,
-        message: 'Gagal membuat KTP Digital. Pastikan DID sudah dibuat.',
-        type: 'error',
-      });
-    } finally {
-      setLoading(false);
-    }
+        safeLogger.error(`Failed to create KTP credential: ${message}`);
+
+        setToast({
+          visible: true,
+          message,
+          type: 'error',
+        });
+      } finally {
+        setLoading(false);
+      }
   }
 
   function validateForm() {
