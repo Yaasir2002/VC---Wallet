@@ -1,165 +1,145 @@
-import { CredentialDocument, ModularCredential } from '../types/vc';
+import { getDID } from '../Storage/didStorage';
+import { getVCById } from '../Storage/vcStorage';
+import { MAX_PRESENTATION_QR_BYTES } from '../config/securityLimits';
+import {
+  PresentationMetadata,
+  VerifiableCredentialV2,
+  VerifiablePresentationV2,
+} from '../types/vc';
+import {
+  filterCredentialSubjectAttributes,
+  normalizeToVcV2,
+  VC_V2_CONTEXT,
+} from './credentialV2Service';
+import { signVpJwtWithWallet } from './walletJwtSigner';
 
-export type SelectedAttributeMap = Record<string, boolean>;
-
-export type PresentationAttribute = {
-  id: string;
-  attributeName: string;
-  attributeType: string;
-  attributeValue: string;
-};
-
-export type CredentialPresentationPayload = {
-  type: 'VerifiablePresentation';
-  holder: string;
-  verifiableCredential: {
-    id: string;
-    documentId: string;
-    documentType: string;
-    documentName: string;
-    type: string[];
-    issuer: string;
-    issuanceDate: string;
-    expirationDate?: string;
-    credentialSubject: Record<string, string>;
-  };
-  presentationMetadata: {
-    selectedAttributes: string[];
-    createdAt: string;
-    disclosureMode: 'ui_level_attribute_selection';
-    presentationStatus: 'unsigned_presentation';
-    note: string;
-  };
-};
-
-const MAX_QR_PAYLOAD_LENGTH = 2500;
-
-export function extractPresentationAttributes(
-  document: CredentialDocument
-): PresentationAttribute[] {
-  return document.credentials.map((credential) => ({
-    id: credential.id,
-    attributeName:
-      credential.credentialSubject?.attributeName || 'Credential Attribute',
-    attributeType: credential.credentialSubject?.attributeType || 'custom',
-    attributeValue: sanitizePresentationValue(
-      credential.credentialSubject?.attributeValue
-    ),
-  }));
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
-export function createDefaultSelectedAttributes(
-  attributes: PresentationAttribute[]
-): SelectedAttributeMap {
-  return attributes.reduce<SelectedAttributeMap>((result, attribute) => {
-    result[attribute.id] = true;
-    return result;
-  }, {});
+function createPresentationId(): string {
+  return `urn:uuid:${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function buildCredentialPresentationPayload(
-  document: CredentialDocument,
-  selectedAttributes: SelectedAttributeMap
-): CredentialPresentationPayload {
-  const selectedCredentials = document.credentials.filter(
-    (credential) => selectedAttributes[credential.id]
-  );
+function byteLength(value: string): number {
+  try {
+    return new TextEncoder().encode(value).length;
+  } catch {
+    return value.length;
+  }
+}
 
-  if (selectedCredentials.length === 0) {
-    throw new Error('Pilih minimal satu atribut untuk dipresentasikan.');
+export function buildVerifiablePresentationV2(
+  credential: VerifiableCredentialV2,
+  options?: {
+    holderDid?: string;
+    selectedAttributes?: string[];
+  }
+): VerifiablePresentationV2 {
+  const holderDid =
+    options?.holderDid ||
+    credential.credentialSubject?.id ||
+    credential.metadata?.holder ||
+    '';
+
+  if (!holderDid || typeof holderDid !== 'string' || !holderDid.startsWith('did:')) {
+    throw new Error('Holder DID tidak valid.');
   }
 
-  const mainCredential = getMainCredential(document);
-  const holder = mainCredential?.credentialSubject?.id || '-';
-
-  const selectedClaims = selectedCredentials.reduce<Record<string, string>>(
-    (result, credential) => {
-      const key =
-        credential.credentialSubject?.attributeType ||
-        credential.credentialSubject?.attributeName ||
-        credential.id;
-
-      result[key] = sanitizePresentationValue(
-        credential.credentialSubject?.attributeValue
-      );
-
-      return result;
-    },
-    {}
+  const filteredCredential = filterCredentialSubjectAttributes(
+    normalizeToVcV2(credential),
+    options?.selectedAttributes
   );
+
+  const metadata: PresentationMetadata = {
+    schemaVersion: 'vc-data-model-v2.0',
+    presentationFormat: 'jwt_vp',
+    selectedAttributes: options?.selectedAttributes || [],
+    createdAt: nowIso(),
+  };
 
   return {
-    type: 'VerifiablePresentation',
-    holder,
-    verifiableCredential: {
-      id: mainCredential?.id || document.documentId,
-      documentId: document.documentId,
-      documentType: document.documentType,
-      documentName: document.documentName,
-      type: mainCredential?.type || ['VerifiableCredential'],
-      issuer: mainCredential?.issuer || '-',
-      issuanceDate: mainCredential?.issuanceDate || new Date().toISOString(),
-      expirationDate: mainCredential?.expirationDate,
-      credentialSubject: selectedClaims,
-    },
-    presentationMetadata: {
-      selectedAttributes: selectedCredentials.map(
-        (credential) => credential.credentialSubject?.attributeName || credential.id
-      ),
-      createdAt: new Date().toISOString(),
-      disclosureMode: 'ui_level_attribute_selection',
-      presentationStatus: 'unsigned_presentation',
-      note:
-        'This presentation uses UI-level attribute selection only. It is not cryptographic selective disclosure.',
+    '@context': [VC_V2_CONTEXT],
+    id: createPresentationId(),
+    type: ['VerifiablePresentation'],
+    holder: holderDid,
+    verifiableCredential: [filteredCredential],
+    metadata,
+  };
+}
+
+export function buildPresentationJwtPayload(
+  vp: VerifiablePresentationV2,
+  holderDid: string
+) {
+  const now = Math.floor(Date.now() / 1000);
+  const jti = vp.id || createPresentationId();
+
+  return {
+    iss: holderDid,
+    sub: jti,
+    iat: now,
+    nbf: now,
+    jti,
+    vp: {
+      '@context': [VC_V2_CONTEXT],
+      type: ['VerifiablePresentation'],
+      holder: holderDid,
+      verifiableCredential: vp.verifiableCredential,
     },
   };
 }
 
-export function stringifyPresentationPayload(
-  payload: CredentialPresentationPayload
-): string {
-  const json = JSON.stringify(payload);
-
-  if (json.length > MAX_QR_PAYLOAD_LENGTH) {
-    throw new Error(
-      'Payload QR terlalu besar. Kurangi jumlah atribut yang dipresentasikan.'
-    );
-  }
-
-  return json;
+export async function signPresentationAsJwt(
+  vp: VerifiablePresentationV2,
+  holderDid: string
+): Promise<string> {
+  return signVpJwtWithWallet({
+    holderDid,
+    vp: {
+      '@context': [VC_V2_CONTEXT],
+      type: ['VerifiablePresentation'],
+      holder: holderDid,
+      verifiableCredential: vp.verifiableCredential,
+    },
+  });
 }
 
-function getMainCredential(
-  document: CredentialDocument
-): ModularCredential | undefined {
-  const credentials = document.credentials ?? [];
+export async function createPresentationJwtFromCredential(
+  credentialId: string,
+  selectedAttributes?: string[]
+): Promise<string> {
+  const didData = await getDID();
 
-  return (
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'legalName'
-    ) ||
-    credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'studentId'
-    ) ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
-    ) ||
-    credentials[0]
-  );
-}
-
-function sanitizePresentationValue(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '-';
+  if (!didData?.did) {
+    throw new Error('Wallet signer belum tersedia.');
   }
 
-  const text =
-    typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  const credential = await getVCById(credentialId);
 
-  return text
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]*>/g, '')
-    .trim()
-    .slice(0, 700);
+  if (!credential) {
+    throw new Error('Credential tidak ditemukan.');
+  }
+
+  const vcV2 = normalizeToVcV2(credential);
+  const vp = buildVerifiablePresentationV2(vcV2, {
+    holderDid: didData.did,
+    selectedAttributes,
+  });
+
+  const jwt = await signPresentationAsJwt(vp, didData.did);
+
+  return createQrPayloadFromPresentationJwt(jwt);
+}
+
+export function createQrPayloadFromPresentationJwt(jwt: string): string {
+  if (!jwt || jwt.split('.').length !== 3) {
+    throw new Error('JWT presentation tidak valid.');
+  }
+
+  if (byteLength(jwt) > MAX_PRESENTATION_QR_BYTES) {
+    throw new Error('Payload QR terlalu besar. Kurangi atribut yang dipresentasikan.');
+  }
+
+  return jwt;
 }

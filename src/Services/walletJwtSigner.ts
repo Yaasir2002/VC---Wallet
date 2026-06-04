@@ -8,26 +8,25 @@ import {
   getRecoverableWalletIdentity,
   getWalletPrivateKeySeedHex,
 } from '../Storage/secureWalletStorage';
+import { VC_V2_CONTEXT } from './credentialV2Service';
 
 export type SignVcJwtWithWalletParams = {
   subjectDid: string;
   documentId: string;
   documentType: string;
   documentName: string;
-  issuanceDate: string;
+  validFrom: string;
+  validUntil?: string;
+
+  /**
+   * Compatibility fallback untuk pemanggil lama.
+   * Jangan pakai untuk data baru.
+   */
+  issuanceDate?: string;
   expirationDate?: string;
 
-  /**
-   * Format baru:
-   * satu credentialSubject utuh berisi seluruh data dokumen.
-   * Contoh KTP: fullName, nik, birthPlace, birthDate, gender, address, dst.
-   */
   credentialSubject?: Record<string, unknown>;
 
-  /**
-   * Legacy compatibility.
-   * Dipertahankan agar helper lama createAttributeCredential() tidak langsung rusak.
-   */
   attributeType?: string;
   attributeName?: string;
   attributeValue?: string;
@@ -36,19 +35,12 @@ export type SignVcJwtWithWalletParams = {
 };
 
 export function isJwtString(value: unknown): value is string {
-  if (typeof value !== 'string') {
-    return false;
-  }
+  if (typeof value !== 'string') return false;
 
   const normalized = value.trim();
   const parts = normalized.split('.');
 
-  return (
-    parts.length === 3 &&
-    parts[0].length > 0 &&
-    parts[1].length > 0 &&
-    parts[2].length > 0
-  );
+  return parts.length === 3 && parts.every((part) => part.length > 0);
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -75,18 +67,18 @@ async function getWalletSigner() {
   const identity = await getRecoverableWalletIdentity();
 
   if (!identity?.did) {
-    throw new Error('Wallet identity / DID tidak ditemukan.');
+    throw new Error('Wallet signer belum tersedia.');
   }
 
   if (!identity.did.startsWith('did:key:')) {
-    throw new Error(`Wallet DID harus did:key. DID saat ini: ${identity.did}`);
+    throw new Error('Wallet DID harus did:key agar bisa signing offline.');
   }
 
   const privateKeySeedHex =
     identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
 
   if (!privateKeySeedHex) {
-    throw new Error('Private key seed wallet tidak ditemukan.');
+    throw new Error('Wallet signer belum tersedia.');
   }
 
   return {
@@ -108,7 +100,7 @@ function buildCredentialSubject(params: SignVcJwtWithWalletParams) {
 
   if (!params.attributeType || !params.attributeName || !params.attributeValue) {
     throw new Error(
-      'credentialSubject utuh belum tersedia. Untuk format baru, kirim credentialSubject lengkap.'
+      'credentialSubject utuh belum tersedia. Untuk VC v2.0, kirim credentialSubject lengkap.'
     );
   }
 
@@ -117,20 +109,18 @@ function buildCredentialSubject(params: SignVcJwtWithWalletParams) {
     documentId: params.documentId,
     documentType: params.documentType,
     documentName: params.documentName,
-    attributeType: params.attributeType,
-    attributeName: params.attributeName,
-    attributeValue: params.attributeValue,
+    [params.attributeType]: params.attributeValue,
   };
 }
 
 function buildVcTypes(params: SignVcJwtWithWalletParams) {
-  const types = [
-    'VerifiableCredential',
-    `${params.documentType}Credential`,
-    ...(params.additionalTypes ?? []),
-  ];
-
-  return Array.from(new Set(types.filter(Boolean)));
+  return Array.from(
+    new Set([
+      'VerifiableCredential',
+      `${params.documentType}Credential`,
+      ...(params.additionalTypes ?? []),
+    ].filter(Boolean))
+  );
 }
 
 export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
@@ -140,10 +130,13 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     throw new Error('Subject DID tidak valid.');
   }
 
-  const issuanceTime = new Date(params.issuanceDate).getTime();
+  const validFrom = params.validFrom || params.issuanceDate;
+  const validUntil = params.validUntil || params.expirationDate;
 
-  if (!params.issuanceDate || Number.isNaN(issuanceTime)) {
-    throw new Error('Issuance date tidak valid.');
+  const validFromTime = validFrom ? new Date(validFrom).getTime() : Number.NaN;
+
+  if (!validFrom || Number.isNaN(validFromTime)) {
+    throw new Error('validFrom tidak valid.');
   }
 
   const credentialSubject = buildCredentialSubject(params);
@@ -151,25 +144,32 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
 
   const vcPayload: any = {
     sub: params.subjectDid,
-    nbf: Math.floor(issuanceTime / 1000),
+    nbf: Math.floor(validFromTime / 1000),
     vc: {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
+      '@context': [VC_V2_CONTEXT],
       type: vcTypes,
-      issuer: wallet.did,
-      issuanceDate: params.issuanceDate,
+      issuer: {
+        id: wallet.did,
+        name: 'VC Wallet Issuer',
+      },
+      validFrom,
       credentialSubject,
+      credentialStatus: {
+        type: 'CredentialStatus',
+        status: 'active',
+      },
     },
   };
 
-  if (params.expirationDate) {
-    const expirationTime = new Date(params.expirationDate).getTime();
+  if (validUntil) {
+    const validUntilTime = new Date(validUntil).getTime();
 
-    if (Number.isNaN(expirationTime)) {
-      throw new Error('Expiration date tidak valid.');
+    if (Number.isNaN(validUntilTime)) {
+      throw new Error('validUntil tidak valid.');
     }
 
-    vcPayload.exp = Math.floor(expirationTime / 1000);
-    vcPayload.vc.expirationDate = params.expirationDate;
+    vcPayload.exp = Math.floor(validUntilTime / 1000);
+    vcPayload.vc.validUntil = validUntil;
   }
 
   const jwt = await createVerifiableCredentialJwt(vcPayload, {
@@ -185,6 +185,10 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   return {
     jwt: jwt.trim(),
     issuerDid: wallet.did,
+    issuer: {
+      id: wallet.did,
+      name: 'VC Wallet Issuer',
+    },
     credentialSubject,
     type: vcTypes,
   };
@@ -192,38 +196,43 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
 
 export async function signVpJwtWithWallet(params: {
   holderDid: string;
-  verifiableCredential: string[];
+  vp: {
+    '@context': string[];
+    type: string[];
+    holder: string;
+    verifiableCredential: unknown[];
+  };
 }) {
   const wallet = await getWalletSigner();
 
   if (params.holderDid !== wallet.did) {
-    throw new Error(
-      `Holder DID harus sama dengan DID wallet. holder=${params.holderDid}, wallet=${wallet.did}`
-    );
+    throw new Error('Holder DID harus sama dengan DID wallet.');
   }
 
-  if (!Array.isArray(params.verifiableCredential)) {
-    throw new Error('verifiableCredential harus berupa array VC JWT.');
+  if (!params.vp || !Array.isArray(params.vp.verifiableCredential)) {
+    throw new Error('VP tidak valid.');
   }
 
-  if (params.verifiableCredential.length === 0) {
-    throw new Error('Minimal 1 VC JWT harus dimasukkan ke VP.');
+  if (params.vp.verifiableCredential.length === 0) {
+    throw new Error('Minimal 1 credential harus dimasukkan ke VP.');
   }
 
-  for (const vcJwt of params.verifiableCredential) {
-    if (!isJwtString(vcJwt)) {
-      throw new Error('Ada credential yang bukan VC JWT valid.');
-    }
-  }
+  const now = Math.floor(Date.now() / 1000);
+  const presentationId = `urn:uuid:${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 
   const vpPayload: any = {
+    iss: wallet.did,
+    sub: presentationId,
+    iat: now,
+    nbf: now,
+    jti: presentationId,
     vp: {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
+      '@context': [VC_V2_CONTEXT],
       type: ['VerifiablePresentation'],
       holder: params.holderDid,
-      verifiableCredential: params.verifiableCredential.map((jwt) =>
-        jwt.trim()
-      ),
+      verifiableCredential: params.vp.verifiableCredential,
     },
   };
 
