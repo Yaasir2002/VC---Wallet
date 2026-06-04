@@ -1,27 +1,17 @@
-// File: src/Services/documentCredentialService.ts
-
-import { getDID } from '../Storage/didStorage';
 import { getAllVCs, getVCById, saveVC } from '../Storage/vcStorage';
 import {
   AttributeType,
   CredentialDocument,
   DocumentType,
-  KtpCredentialInput,
+  KtpFormData,
   VerifiableCredentialV2,
 } from '../types/vc';
 import {
   buildKtpCredential,
-  buildCredentialSubject,
-  createCredentialId,
-  createIssuanceDate,
-  groupCredentialsByDocument,
-  normalizeCredentialToV2,
-  normalizeKtpFormData,
-  validateKtpFormData,
-  DEFAULT_ISSUER_DID,
-  VC_EXAMPLES_V2_CONTEXT,
-  VC_V2_CONTEXT,
+  getCredentialDisplayName,
+  normalizeToVcV2,
 } from './credentialV2Service';
+import { getHolderDid } from './walletSigner';
 
 type DocumentAttributeInput = {
   attributeType: AttributeType;
@@ -30,26 +20,39 @@ type DocumentAttributeInput = {
   expirationDate?: string;
 };
 
-/**
- * Legacy compatibility:
- * fungsi lama tetap ada, tapi hasilnya satu credential utuh.
- */
+export type KtpCredentialInput = Partial<KtpFormData> & {
+  fullName?: string;
+  birthPlace?: string;
+  birthDate?: string;
+  gender?: string;
+  address?: string;
+  religion?: string;
+  maritalStatus?: string;
+  occupation?: string;
+  citizenship?: string;
+  validUntil?: string;
+};
+
+export async function createKtpCredential(
+  input: KtpCredentialInput
+): Promise<VerifiableCredentialV2> {
+  const holderDid = await getHolderDid();
+  const credential = buildKtpCredential(input, holderDid);
+
+  await saveVC(credential);
+
+  return credential;
+}
+
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
   documentName: string;
   attributes: DocumentAttributeInput[];
 }): Promise<VerifiableCredentialV2[]> {
-  const didData = await getDID();
-
-  if (!didData?.did) {
-    throw new Error('DID belum dibuat.');
-  }
-
-  const issuanceDate = createIssuanceDate();
-  const documentId = `${params.documentType}-${Date.now()}`;
-
+  const holderDid = await getHolderDid();
+  const now = new Date().toISOString();
   const subject: Record<string, unknown> = {
-    id: didData.did,
+    id: holderDid,
   };
 
   for (const attribute of params.attributes) {
@@ -64,26 +67,28 @@ export async function createDocumentCredentials(params: {
   }
 
   const credential: VerifiableCredentialV2 = {
-    '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+    '@context': [
+      'https://www.w3.org/ns/credentials/v2',
+      'https://www.w3.org/ns/credentials/examples/v2',
+    ],
     type: ['VerifiableCredential'],
-    id: createCredentialId(),
-    issuer: DEFAULT_ISSUER_DID,
-    issuanceDate,
+    id: `urn:uuid:${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    issuer: holderDid,
+    issuanceDate: now,
     credentialSubject: subject,
-    documentId,
+    documentId: `CUSTOM-${Date.now()}`,
     documentType: params.documentType,
     documentName: params.documentName,
-    verificationStatus: 'unsigned',
+    validFrom: now,
+    verificationStatus: 'self_signed',
     metadata: {
-      schemaVersion: 'vc-json-v2',
+      schemaVersion: 'vc-data-model-v2.0',
       source: 'manual',
-      verificationStatus: 'unsigned',
+      verificationStatus: 'self_signed',
       proofStatus: 'none',
-      createdAt: issuanceDate,
-      updatedAt: issuanceDate,
-      documentId,
-      documentType: params.documentType,
-      documentName: params.documentName,
+      createdAt: now,
+      updatedAt: now,
+      originalFormat: 'vc-json-v2',
     },
   };
 
@@ -92,51 +97,53 @@ export async function createDocumentCredentials(params: {
   return [credential];
 }
 
-export async function createKtpCredential(
-  input: KtpCredentialInput
-): Promise<VerifiableCredentialV2> {
-  const didData = await getDID();
-
-  if (!didData?.did) {
-    throw new Error('DID belum dibuat.');
-  }
-
-  validateKtpFormData(input);
-
-  const credential = buildKtpCredential(input, didData.did);
-
-  await saveVC(credential);
-
-  return credential;
-}
-
 export async function getCredentialDocuments(): Promise<CredentialDocument[]> {
   const credentials = await getAllVCs();
-  const normalized = credentials
-    .map((credential) => {
-      try {
-        return normalizeCredentialToV2(credential);
-      } catch {
-        return null;
-      }
-    })
-    .filter((credential): credential is VerifiableCredentialV2 => Boolean(credential));
+  const grouped: Record<string, CredentialDocument> = {};
 
-  return groupCredentialsByDocument(normalized);
+  for (const item of credentials) {
+    const credential = normalizeToVcV2(item);
+    const subject = credential.credentialSubject || {};
+
+    const documentId =
+      credential.documentId ||
+      (typeof subject.documentId === 'string' ? subject.documentId : undefined) ||
+      credential.id;
+
+    const documentType =
+      credential.documentType ||
+      ((typeof subject.documentType === 'string' ? subject.documentType : 'CUSTOM') as DocumentType);
+
+    const documentName =
+      credential.documentName ||
+      (typeof subject.documentName === 'string' ? subject.documentName : undefined) ||
+      getCredentialDisplayName(credential);
+
+    if (!grouped[documentId]) {
+      grouped[documentId] = {
+        documentId,
+        documentType,
+        documentName,
+        credentials: [],
+      };
+    }
+
+    grouped[documentId].credentials.push(credential);
+  }
+
+  return Object.values(grouped);
 }
 
 export async function getCredentialDocumentById(
   documentId: string
 ): Promise<CredentialDocument | null> {
   const documents = await getCredentialDocuments();
-
-  return documents.find((doc) => doc.documentId === documentId) || null;
+  return documents.find((item) => item.documentId === documentId) || null;
 }
 
 export async function getCredentialByIdV2(
   credentialId: string
 ): Promise<VerifiableCredentialV2 | null> {
   const credential = await getVCById(credentialId);
-
-  return credential ? normalizeCredentialToV2(credential) : null;
+  return credential ? normalizeToVcV2(credential) : null;
 }

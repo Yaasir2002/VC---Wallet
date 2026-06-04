@@ -11,7 +11,7 @@ import {
 } from './credentialEncryptionService';
 
 const SECURE_VC_INDEX_KEY = 'SECURE_USER_VERIFIABLE_CREDENTIAL_INDEX';
-const MIGRATION_FLAG_KEY = 'SECURE_VC_STORAGE_MIGRATED_VC_V2';
+const MIGRATION_FLAG_KEY = 'SECURE_VC_STORAGE_MIGRATED_VC_JSON_V2';
 
 const LEGACY_VC_INDEX_KEY = 'USER_VERIFIABLE_CREDENTIAL_INDEX';
 const LEGACY_VC_ITEM_PREFIX = 'USER_VERIFIABLE_CREDENTIAL_ITEM_';
@@ -26,9 +26,7 @@ type CredentialIndexItem = {
   documentType: VerifiableCredentialV2['documentType'];
   documentName: string;
   issuer: string;
-  validFrom: string;
-  validUntil?: string;
-  verificationStatus?: VerifiableCredentialV2['verificationStatus'];
+  issuanceDate: string;
   fileName: string;
 };
 
@@ -57,9 +55,7 @@ async function secureDelete(key: string): Promise<void> {
 }
 
 function safeParseJSON<T>(value: string | null, fallback: T): T {
-  if (!value) {
-    return fallback;
-  }
+  if (!value) return fallback;
 
   try {
     return JSON.parse(value) as T;
@@ -72,9 +68,7 @@ function safeParseJSON<T>(value: string | null, fallback: T): T {
 function safeParseArray(value: string | null): string[] {
   const parsed = safeParseJSON<unknown>(value, []);
 
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
+  if (!Array.isArray(parsed)) return [];
 
   return parsed.filter(
     (item): item is string => typeof item === 'string' && item.trim().length > 0
@@ -93,88 +87,35 @@ function getCredentialFileUri(fileName: string): string {
   return `${VC_DIRECTORY}${fileName}`;
 }
 
-function normalizeVC(value: unknown): VerifiableCredentialV2 {
-  return normalizeToVcV2(value);
-}
-
-function getIssuerId(credential: VerifiableCredentialV2): string {
+function getIssuerText(credential: VerifiableCredentialV2): string {
   const issuer = credential.issuer;
 
-  if (typeof issuer === 'string') {
-    return issuer || '-';
-  }
+  if (typeof issuer === 'string') return issuer;
 
   return issuer?.id || '-';
-}
-
-function getSubjectString(
-  credential: VerifiableCredentialV2,
-  key: string
-): string | undefined {
-  const value = credential.credentialSubject?.[key];
-
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function getDocumentId(credential: VerifiableCredentialV2): string {
-  return (
-    credential.documentId ||
-    credential.metadata?.documentId ||
-    getSubjectString(credential, 'documentId') ||
-    credential.id
-  );
-}
-
-function getDocumentType(
-  credential: VerifiableCredentialV2
-): VerifiableCredentialV2['documentType'] {
-  return (
-    credential.documentType ||
-    credential.metadata?.documentType ||
-    (credential.credentialSubject?.documentType as VerifiableCredentialV2['documentType']) ||
-    'CUSTOM'
-  );
-}
-
-function getDocumentName(credential: VerifiableCredentialV2): string {
-  return (
-    credential.documentName ||
-    credential.metadata?.documentName ||
-    getSubjectString(credential, 'documentName') ||
-    credential.type?.find((type) => type !== 'VerifiableCredential') ||
-    'Credential Document'
-  );
 }
 
 function toIndexItem(credential: VerifiableCredentialV2): CredentialIndexItem {
   return {
     id: credential.id,
-    documentId: getDocumentId(credential),
-    documentType: getDocumentType(credential),
-    documentName: getDocumentName(credential),
-    issuer: getIssuerId(credential),
-    validFrom: credential.validFrom || credential.issuanceDate || new Date().toISOString(),
-    validUntil: credential.validUntil || credential.expirationDate,
-    verificationStatus:
-      credential.verificationStatus || credential.metadata?.verificationStatus,
+    documentId: credential.documentId || credential.id,
+    documentType: credential.documentType || 'CUSTOM',
+    documentName: credential.documentName || 'Credential',
+    issuer: getIssuerText(credential),
+    issuanceDate: credential.issuanceDate,
     fileName: getCredentialFileName(credential.id),
   };
 }
 
 function isValidIndexItem(value: unknown): value is CredentialIndexItem {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
 
   const item = value as Partial<CredentialIndexItem>;
 
   return (
     typeof item.id === 'string' &&
-    item.id.trim().length > 0 &&
     typeof item.documentId === 'string' &&
-    item.documentId.trim().length > 0 &&
-    typeof item.fileName === 'string' &&
-    item.fileName.trim().length > 0
+    typeof item.fileName === 'string'
   );
 }
 
@@ -182,9 +123,7 @@ async function getIndex(): Promise<CredentialIndexItem[]> {
   const raw = await secureGet(SECURE_VC_INDEX_KEY);
   const parsed = safeParseJSON<unknown>(raw, []);
 
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
+  if (!Array.isArray(parsed)) return [];
 
   return parsed.filter(isValidIndexItem);
 }
@@ -197,9 +136,7 @@ async function saveIndex(index: CredentialIndexItem[]): Promise<void> {
   await secureSet(SECURE_VC_INDEX_KEY, JSON.stringify(unique));
 }
 
-async function writeCredentialFile(
-  credential: VerifiableCredentialV2
-): Promise<void> {
+async function writeCredentialFile(credential: VerifiableCredentialV2): Promise<void> {
   await ensureDirectoryExists();
 
   const fileName = getCredentialFileName(credential.id);
@@ -219,9 +156,7 @@ async function readCredentialFile(
   const fileUri = getCredentialFileUri(indexItem.fileName);
   const info = await FileSystem.getInfoAsync(fileUri);
 
-  if (!info.exists) {
-    return null;
-  }
+  if (!info.exists) return null;
 
   try {
     const raw = await FileSystem.readAsStringAsync(fileUri, {
@@ -230,11 +165,7 @@ async function readCredentialFile(
 
     const decrypted = await decryptCredentialPayload(raw);
 
-    if (!decrypted || typeof decrypted !== 'object') {
-      return null;
-    }
-
-    return normalizeVC(decrypted);
+    return normalizeToVcV2(decrypted);
   } catch {
     safeLogger.warn('Failed to read credential file', {
       credentialId: indexItem.id,
@@ -244,9 +175,7 @@ async function readCredentialFile(
   }
 }
 
-async function deleteCredentialFile(
-  indexItem: CredentialIndexItem
-): Promise<void> {
+async function deleteCredentialFile(indexItem: CredentialIndexItem): Promise<void> {
   const fileUri = getCredentialFileUri(indexItem.fileName);
   const info = await FileSystem.getInfoAsync(fileUri);
 
@@ -257,9 +186,7 @@ async function deleteCredentialFile(
   }
 }
 
-async function migrateLegacyAsyncStorageCredentials(): Promise<
-  CredentialIndexItem[]
-> {
+async function migrateLegacyAsyncStorageCredentials(): Promise<CredentialIndexItem[]> {
   const legacyIndexRaw = await AsyncStorage.getItem(LEGACY_VC_INDEX_KEY);
   const legacyIds = safeParseArray(legacyIndexRaw);
   const migratedIndexItems: CredentialIndexItem[] = [];
@@ -269,13 +196,11 @@ async function migrateLegacyAsyncStorageCredentials(): Promise<
       `${LEGACY_VC_ITEM_PREFIX}${legacyId}`
     );
 
-    if (!legacyItemRaw) {
-      continue;
-    }
+    if (!legacyItemRaw) continue;
 
     try {
       const parsed = JSON.parse(legacyItemRaw);
-      const normalized = normalizeVC(parsed);
+      const normalized = normalizeToVcV2(parsed);
 
       await writeCredentialFile(normalized);
       migratedIndexItems.push(toIndexItem(normalized));
@@ -297,9 +222,7 @@ async function migrateLegacyAsyncStorageCredentials(): Promise<
   return migratedIndexItems;
 }
 
-async function migrateLegacySecureStoreCredentials(): Promise<
-  CredentialIndexItem[]
-> {
+async function migrateLegacySecureStoreCredentials(): Promise<CredentialIndexItem[]> {
   const legacySecureIndexRaw = await secureGet(LEGACY_SECURE_VC_INDEX_KEY);
   const legacyIds = safeParseArray(legacySecureIndexRaw);
   const migratedIndexItems: CredentialIndexItem[] = [];
@@ -309,13 +232,11 @@ async function migrateLegacySecureStoreCredentials(): Promise<
       `${LEGACY_SECURE_VC_ITEM_PREFIX}${legacyId}`
     );
 
-    if (!legacyItemRaw) {
-      continue;
-    }
+    if (!legacyItemRaw) continue;
 
     try {
       const parsed = JSON.parse(legacyItemRaw);
-      const normalized = normalizeVC(parsed);
+      const normalized = normalizeToVcV2(parsed);
 
       await writeCredentialFile(normalized);
       migratedIndexItems.push(toIndexItem(normalized));
@@ -336,9 +257,7 @@ export async function migrateCredentialsFromAsyncStorageToEncryptedStorage(): Pr
 
   const migrated = await secureGet(MIGRATION_FLAG_KEY);
 
-  if (migrated === 'true') {
-    return;
-  }
+  if (migrated === 'true') return;
 
   const currentIndex = await getIndex();
   const asyncStorageItems = await migrateLegacyAsyncStorageCredentials();
@@ -367,14 +286,10 @@ export async function getCredentials(): Promise<VerifiableCredentialV2[]> {
   for (const item of index) {
     const credential = await readCredentialFile(item);
 
-    if (!credential) {
-      continue;
-    }
+    if (!credential) continue;
 
-    const normalized = normalizeVC(credential);
-
-    credentials.push(normalized);
-    validIndexItems.push(toIndexItem(normalized));
+    credentials.push(credential);
+    validIndexItems.push(toIndexItem(credential));
   }
 
   if (validIndexItems.length !== index.length) {
@@ -392,57 +307,22 @@ export async function getCredentialById(
   return credentials.find((credential) => credential.id === id) || null;
 }
 
-function createDeduplicationKey(credential: VerifiableCredentialV2): string {
-  const issuer = getIssuerId(credential);
-  const validFrom = credential.validFrom || credential.issuanceDate || '';
-  const subjectId =
-    typeof credential.credentialSubject?.id === 'string'
-      ? credential.credentialSubject.id
-      : '';
-  const documentId = getDocumentId(credential);
-
-  return [issuer, validFrom, subjectId, documentId].join('|');
-}
-
 export async function saveCredential(
   credential: VerifiableCredentialV2
 ): Promise<void> {
-  if (!credential) {
-    throw new Error('Credential tidak valid.');
-  }
-
-  const normalized = normalizeVC(credential);
+  const normalized = normalizeToVcV2(credential);
 
   if (!normalized.id) {
     throw new Error('Credential ID tidak valid.');
   }
 
   await migrateCredentialsFromAsyncStorageToEncryptedStorage();
+  await writeCredentialFile(normalized);
 
   const index = await getIndex();
-  const existingCredentials = await getCredentials();
-  const normalizedDedupKey = createDeduplicationKey(normalized);
-
-  const duplicateCredential = existingCredentials.find((item) => {
-    if (item.id === normalized.id) {
-      return true;
-    }
-
-    return createDeduplicationKey(item) === normalizedDedupKey;
-  });
-
-  const credentialToSave = duplicateCredential
-    ? {
-        ...normalized,
-        id: duplicateCredential.id,
-      }
-    : normalized;
-
-  await writeCredentialFile(credentialToSave);
-
   const nextIndex = [
-    ...index.filter((item) => item.id !== credentialToSave.id),
-    toIndexItem(credentialToSave),
+    ...index.filter((item) => item.id !== normalized.id),
+    toIndexItem(normalized),
   ];
 
   await saveIndex(nextIndex);
@@ -452,17 +332,13 @@ export async function deleteCredentialById(id: string): Promise<void> {
   const index = await getIndex();
   const target = index.find((item) => item.id === id);
 
-  if (!target) {
-    return;
-  }
+  if (!target) return;
 
   await deleteCredentialFile(target);
   await saveIndex(index.filter((item) => item.id !== id));
 }
 
-export async function deleteCredentialsByDocumentId(
-  documentId: string
-): Promise<void> {
+export async function deleteCredentialsByDocumentId(documentId: string): Promise<void> {
   const index = await getIndex();
   const targets = index.filter((item) => item.documentId === documentId);
 

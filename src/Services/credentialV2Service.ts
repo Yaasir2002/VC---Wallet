@@ -1,21 +1,16 @@
-// File: src/Services/credentialV2Service.ts
-
 import * as Crypto from 'expo-crypto';
 
 import {
-  CredentialDocument,
+  CredentialIssuer,
   CredentialSubject,
   DocumentType,
-  KtpCredentialInput,
   KtpFormData,
   VerifiableCredentialV2,
+  VerificationStatus,
 } from '../types/vc';
 
 export const VC_V2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
-export const VC_EXAMPLES_V2_CONTEXT =
-  'https://www.w3.org/ns/credentials/examples/v2';
-
-export const DEFAULT_ISSUER_DID = 'did:web:identitylab.id';
+export const VC_EXAMPLES_V2_CONTEXT = 'https://www.w3.org/ns/credentials/examples/v2';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -41,87 +36,56 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function cleanString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function getStringFromRecord(
-  record: Record<string, unknown>,
-  keys: string[]
-): string {
-  for (const key of keys) {
-    const value = record[key];
-
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return '';
-}
-
-export function normalizeKtpFormData(input: KtpCredentialInput): KtpFormData {
-  const raw = input as Record<string, unknown>;
-
+export function normalizeKtpFormData(input: Partial<KtpFormData> & Record<string, unknown>): KtpFormData {
   return {
-    nama: cleanString(input.nama || input.fullName),
-    nik: cleanString(input.nik),
-    tempatLahir: cleanString(input.tempatLahir || input.birthPlace),
-    tanggalLahir: cleanString(input.tanggalLahir || input.birthDate),
-    jenisKelamin: cleanString(input.jenisKelamin || input.gender),
-    alamat: cleanString(input.alamat || input.address),
-    rtRw: cleanString(input.rtRw),
-    kelurahanDesa: cleanString(input.kelurahanDesa),
-    kecamatan: cleanString(input.kecamatan),
-    agama: cleanString(input.agama || input.religion),
-    statusPerkawinan: cleanString(
-      input.statusPerkawinan || input.maritalStatus
-    ),
-    pekerjaan: cleanString(input.pekerjaan || input.occupation),
-    kewarganegaraan:
-      cleanString(input.kewarganegaraan || input.citizenship) || 'WNI',
-    berlakuHingga:
-      cleanString(input.berlakuHingga || input.validUntil) || 'Seumur Hidup',
+    nama: String(input.nama ?? input.fullName ?? '').trim(),
+    nik: String(input.nik ?? input.NIK ?? '').trim(),
+    tempatLahir: String(input.tempatLahir ?? input.birthPlace ?? '').trim(),
+    tanggalLahir: String(input.tanggalLahir ?? input.birthDate ?? '').trim(),
+    jenisKelamin: String(input.jenisKelamin ?? input.gender ?? '').trim(),
+    alamat: String(input.alamat ?? input.address ?? '').trim(),
+    rtRw: String(input.rtRw ?? input['RT/RW'] ?? '').trim(),
+    kelurahanDesa: String(input.kelurahanDesa ?? input['Kelurahan/Desa'] ?? '').trim(),
+    kecamatan: String(input.kecamatan ?? '').trim(),
+    agama: String(input.agama ?? input.religion ?? '').trim(),
+    statusPerkawinan: String(input.statusPerkawinan ?? input.maritalStatus ?? '').trim(),
+    pekerjaan: String(input.pekerjaan ?? input.occupation ?? '').trim(),
+    kewarganegaraan: String(input.kewarganegaraan ?? input.citizenship ?? 'WNI').trim(),
+    berlakuHingga: String(input.berlakuHingga ?? input.validUntil ?? 'Seumur Hidup').trim(),
+    nim: String(input.nim ?? input.Nim ?? input['Nim '] ?? '').trim() || undefined,
   };
 }
 
-export function validateKtpFormData(input: KtpCredentialInput): KtpFormData {
+export function validateKtpFormData(input: Partial<KtpFormData> & Record<string, unknown>): KtpFormData {
   const data = normalizeKtpFormData(input);
 
   if (!data.nama) throw new Error('Nama wajib diisi.');
   if (!data.nik) throw new Error('NIK wajib diisi.');
-
-  if (!/^[0-9]{16}$/.test(data.nik)) {
-    throw new Error('NIK harus berisi 16 digit angka.');
-  }
-
+  if (!/^[0-9]{16}$/.test(data.nik)) throw new Error('NIK harus berisi 16 digit angka.');
   if (!data.tempatLahir) throw new Error('Tempat lahir wajib diisi.');
   if (!data.tanggalLahir) throw new Error('Tanggal lahir wajib diisi.');
   if (!data.jenisKelamin) throw new Error('Jenis kelamin wajib diisi.');
   if (!data.alamat) throw new Error('Alamat wajib diisi.');
   if (!data.agama) throw new Error('Agama wajib diisi.');
-  if (!data.statusPerkawinan) {
-    throw new Error('Status perkawinan wajib diisi.');
-  }
+  if (!data.statusPerkawinan) throw new Error('Status perkawinan wajib diisi.');
   if (!data.pekerjaan) throw new Error('Pekerjaan wajib diisi.');
   if (!data.kewarganegaraan) throw new Error('Kewarganegaraan wajib diisi.');
 
   return data;
 }
 
-export function buildCredentialSubject(
-  formData: KtpFormData,
-  holderDid: string
-): CredentialSubject {
+export function buildCredentialSubject(formData: KtpFormData, holderDid: string): CredentialSubject {
   const subject: CredentialSubject = {
     id: holderDid,
-
     Nama: formData.nama,
     NIK: formData.nik,
     'Tempat Lahir': formData.tempatLahir,
     'Tanggal Lahir': formData.tanggalLahir,
     'Jenis Kelamin': formData.jenisKelamin,
     Alamat: formData.alamat,
+    'RT/RW': formData.rtRw || '-',
+    'Kelurahan/Desa': formData.kelurahanDesa || '-',
+    Kecamatan: formData.kecamatan || '-',
     Agama: formData.agama,
     'Status Perkawinan': formData.statusPerkawinan,
     Pekerjaan: formData.pekerjaan,
@@ -129,7 +93,7 @@ export function buildCredentialSubject(
     'Berlaku Hingga': formData.berlakuHingga,
 
     /**
-     * Alias kompatibilitas UI lama dan helper lama.
+     * Alias agar UI lama tetap bisa membaca.
      */
     nama: formData.nama,
     nik: formData.nik,
@@ -155,378 +119,248 @@ export function buildCredentialSubject(
     validUntilText: formData.berlakuHingga,
   };
 
-  if (formData.rtRw) {
-    subject['RT/RW'] = formData.rtRw;
-    subject.rtRw = formData.rtRw;
-  }
-
-  if (formData.kelurahanDesa) {
-    subject['Kelurahan/Desa'] = formData.kelurahanDesa;
-    subject.kelurahanDesa = formData.kelurahanDesa;
-  }
-
-  if (formData.kecamatan) {
-    subject.Kecamatan = formData.kecamatan;
-    subject.kecamatan = formData.kecamatan;
+  if (formData.nim) {
+    subject['Nim '] = formData.nim;
+    subject.Nim = formData.nim;
+    subject.nim = formData.nim;
   }
 
   return subject;
 }
 
+export function getIssuerId(issuer: CredentialIssuer | undefined): string {
+  if (!issuer) return '-';
+  if (typeof issuer === 'string') return issuer;
+  return issuer.id || '-';
+}
+
+export function getIssuerText(issuer: CredentialIssuer | undefined): string {
+  if (!issuer) return 'Unknown Issuer';
+  if (typeof issuer === 'string') return issuer;
+  return issuer.name || issuer.id || 'Unknown Issuer';
+}
+
 export function buildKtpCredential(
-  formInput: KtpCredentialInput,
+  formDataInput: Partial<KtpFormData> & Record<string, unknown>,
   holderDid: string
 ): VerifiableCredentialV2 {
-  const formData = validateKtpFormData(formInput);
+  const formData = validateKtpFormData(formDataInput);
   const issuanceDate = createIssuanceDate();
   const id = createCredentialId();
-  const documentId = `KTP-${Date.now()}`;
 
   return {
     '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
     type: ['VerifiableCredential'],
     id,
-    issuer: DEFAULT_ISSUER_DID,
+    issuer: holderDid,
     issuanceDate,
     credentialSubject: buildCredentialSubject(formData, holderDid),
 
-    /**
-     * Field internal aplikasi.
-     */
-    documentId,
+    documentId: id,
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    verificationStatus: 'unsigned',
+    validFrom: issuanceDate,
+    verificationStatus: 'self_signed',
+    credentialStatus: {
+      type: 'KTPDigitalStatus',
+      status: 'active',
+    },
     metadata: {
-      schemaVersion: 'vc-json-v2',
+      schemaVersion: 'vc-data-model-v2.0',
       source: 'manual_ktp_form',
-      verificationStatus: 'unsigned',
+      verificationStatus: 'self_signed',
       proofStatus: 'none',
       createdAt: issuanceDate,
       updatedAt: issuanceDate,
-      documentId,
-      documentType: 'KTP',
-      documentName: 'KTP Digital',
+      originalFormat: 'vc-json-v2',
     },
   };
 }
 
-function normalizeContext(value: unknown): string[] {
-  const inputContexts = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : typeof value === 'string'
-      ? [value]
-      : [];
+export function isVcV2Credential(value: unknown): value is VerifiableCredentialV2 {
+  if (!isRecord(value)) return false;
 
-  const filtered = inputContexts.filter(
-    (item) => !item.includes('2018/credentials/v1')
+  const context = value['@context'];
+
+  return (
+    Array.isArray(context) &&
+    context.includes(VC_V2_CONTEXT) &&
+    Array.isArray(value.type) &&
+    value.type.includes('VerifiableCredential') &&
+    typeof value.id === 'string' &&
+    typeof value.issuanceDate === 'string' &&
+    isRecord(value.credentialSubject)
   );
-
-  return Array.from(
-    new Set([VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT, ...filtered])
-  );
 }
 
-function normalizeType(value: unknown): string[] {
-  const inputTypes = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : typeof value === 'string'
-      ? [value]
-      : [];
+export function normalizeToVcV2(input: unknown): VerifiableCredentialV2 {
+  if (typeof input === 'string') {
+    try {
+      return normalizeToVcV2(JSON.parse(input));
+    } catch {
+      const now = createIssuanceDate();
 
-  const filtered = inputTypes.length > 0 ? inputTypes : ['VerifiableCredential'];
-
-  return Array.from(new Set(['VerifiableCredential', ...filtered]));
-}
-
-function normalizeIssuer(value: unknown): string {
-  if (typeof value === 'string' && value.trim()) {
-    return value.trim();
+      return {
+        '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+        type: ['VerifiableCredential'],
+        id: createCredentialId(),
+        issuer: '-',
+        issuanceDate: now,
+        credentialSubject: {
+          id: '-',
+          raw: input,
+        },
+        documentId: createCredentialId(),
+        documentType: 'CUSTOM',
+        documentName: 'Imported Credential',
+        verificationStatus: 'unsupported_format',
+        metadata: {
+          schemaVersion: 'vc-data-model-v2.0',
+          source: 'import',
+          verificationStatus: 'unsupported_format',
+          proofStatus: 'none',
+          createdAt: now,
+          updatedAt: now,
+          originalFormat: 'unknown',
+        },
+      };
+    }
   }
 
-  if (isRecord(value) && typeof value.id === 'string' && value.id.trim()) {
-    return value.id.trim();
-  }
-
-  return DEFAULT_ISSUER_DID;
-}
-
-function normalizeDocumentType(value: unknown): DocumentType {
-  if (
-    value === 'KTP' ||
-    value === 'KTM' ||
-    value === 'SIM' ||
-    value === 'IJAZAH' ||
-    value === 'CUSTOM'
-  ) {
-    return value;
-  }
-
-  return 'CUSTOM';
-}
-
-function normalizeCredentialSubjectFromLegacy(
-  credential: Record<string, unknown>
-): CredentialSubject {
-  if (isRecord(credential.credentialSubject)) {
-    return credential.credentialSubject as CredentialSubject;
-  }
-
-  const subject: CredentialSubject = {};
-
-  const legacyAttributeName =
-    typeof credential.attributeName === 'string'
-      ? credential.attributeName
-      : undefined;
-
-  const legacyAttributeValue =
-    typeof credential.attributeValue === 'string'
-      ? credential.attributeValue
-      : undefined;
-
-  const legacyAttributeType =
-    typeof credential.attributeType === 'string'
-      ? credential.attributeType
-      : undefined;
-
-  if (legacyAttributeName && legacyAttributeValue) {
-    subject[legacyAttributeName] = legacyAttributeValue;
-  }
-
-  if (legacyAttributeType && legacyAttributeValue) {
-    subject[legacyAttributeType] = legacyAttributeValue;
-  }
-
-  return subject;
-}
-
-export function normalizeCredentialToV2(input: unknown): VerifiableCredentialV2 {
   if (!isRecord(input)) {
-    throw new Error('Credential tidak valid.');
+    const now = createIssuanceDate();
+
+    return {
+      '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+      type: ['VerifiableCredential'],
+      id: createCredentialId(),
+      issuer: '-',
+      issuanceDate: now,
+      credentialSubject: { id: '-' },
+      documentId: createCredentialId(),
+      documentType: 'CUSTOM',
+      documentName: 'Credential',
+      verificationStatus: 'unsupported_format',
+      metadata: {
+        schemaVersion: 'vc-data-model-v2.0',
+        source: 'import',
+        verificationStatus: 'unsupported_format',
+        proofStatus: 'none',
+        createdAt: now,
+        updatedAt: now,
+        originalFormat: 'unknown',
+      },
+    };
   }
 
-  const credential = input as Record<string, unknown>;
-  const subject = normalizeCredentialSubjectFromLegacy(credential);
-  const metadata = isRecord(credential.metadata) ? credential.metadata : {};
+  if (isVcV2Credential(input)) {
+    return input;
+  }
 
-  const id =
-    typeof credential.id === 'string' && credential.id.trim()
-      ? credential.id.trim()
-      : createCredentialId();
+  const now = createIssuanceDate();
+  const subject = isRecord(input.credentialSubject)
+    ? input.credentialSubject
+    : {
+        id: typeof input.subjectDid === 'string' ? input.subjectDid : '-',
+      };
 
   const issuanceDate =
-    typeof credential.issuanceDate === 'string' && credential.issuanceDate.trim()
-      ? credential.issuanceDate.trim()
-      : typeof credential.validFrom === 'string' && credential.validFrom.trim()
-        ? credential.validFrom.trim()
-        : typeof credential.createdAt === 'string' && credential.createdAt.trim()
-          ? credential.createdAt.trim()
-          : createIssuanceDate();
+    typeof input.issuanceDate === 'string'
+      ? input.issuanceDate
+      : typeof input.validFrom === 'string'
+        ? input.validFrom
+        : now;
 
-  const issuer = normalizeIssuer(credential.issuer);
+  const id = typeof input.id === 'string' ? input.id : createCredentialId();
 
-  const documentId =
-    typeof credential.documentId === 'string' && credential.documentId.trim()
-      ? credential.documentId.trim()
-      : typeof metadata.documentId === 'string' && metadata.documentId.trim()
-        ? metadata.documentId.trim()
-        : typeof subject.documentId === 'string' && subject.documentId.trim()
-          ? subject.documentId.trim()
-          : id;
+  const issuer =
+    typeof input.issuer === 'string' || isRecord(input.issuer)
+      ? (input.issuer as CredentialIssuer)
+      : '-';
 
-  const documentType = normalizeDocumentType(
-    credential.documentType || metadata.documentType || subject.documentType
-  );
+  const type = Array.isArray(input.type)
+    ? input.type.filter((item): item is string => typeof item === 'string')
+    : ['VerifiableCredential'];
 
-  const documentName =
-    typeof credential.documentName === 'string' && credential.documentName.trim()
-      ? credential.documentName.trim()
-      : typeof metadata.documentName === 'string' && metadata.documentName.trim()
-        ? metadata.documentName.trim()
-        : typeof subject.documentName === 'string' && subject.documentName.trim()
-          ? subject.documentName.trim()
-          : documentType === 'KTP'
-            ? 'KTP Digital'
-            : 'Credential Document';
+  const documentType = (
+    input.documentType === 'KTP' ||
+    input.documentType === 'KTM' ||
+    input.documentType === 'SIM' ||
+    input.documentType === 'IJAZAH'
+      ? input.documentType
+      : 'CUSTOM'
+  ) as DocumentType;
 
-  const verificationStatus =
-    typeof credential.verificationStatus === 'string' &&
-    credential.verificationStatus.trim()
-      ? credential.verificationStatus.trim()
-      : typeof metadata.verificationStatus === 'string' &&
-          metadata.verificationStatus.trim()
-        ? metadata.verificationStatus.trim()
-        : 'unsigned';
-
-  const proofStatus =
-    typeof metadata.proofStatus === 'string' && metadata.proofStatus.trim()
-      ? metadata.proofStatus.trim()
-      : 'none';
-
-  const createdAt =
-    typeof metadata.createdAt === 'string' && metadata.createdAt.trim()
-      ? metadata.createdAt.trim()
-      : issuanceDate;
-
-  const normalized: VerifiableCredentialV2 = {
-    '@context': normalizeContext(credential['@context']),
-    type: normalizeType(credential.type),
+  return {
+    '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+    type: type.includes('VerifiableCredential') ? type : ['VerifiableCredential', ...type],
     id,
     issuer,
     issuanceDate,
     credentialSubject: subject,
-
-    documentId,
+    documentId:
+      typeof input.documentId === 'string'
+        ? input.documentId
+        : typeof subject.documentId === 'string'
+          ? subject.documentId
+          : id,
     documentType,
-    documentName,
-    verificationStatus,
-    metadata: {
-      schemaVersion: 'vc-json-v2',
-      source:
-        typeof metadata.source === 'string' && metadata.source.trim()
-          ? (metadata.source as any)
-          : 'legacy-migration',
-      verificationStatus: verificationStatus as any,
-      proofStatus: proofStatus as any,
-      createdAt,
-      updatedAt: createIssuanceDate(),
-      documentId,
-      documentType,
-      documentName,
-    },
-
-    jwt: typeof credential.jwt === 'string' ? credential.jwt : undefined,
-    securedCredential:
-      typeof credential.securedCredential === 'string'
-        ? credential.securedCredential
-        : undefined,
-    proof: credential.proof,
-    validFrom:
-      typeof credential.validFrom === 'string' ? credential.validFrom : undefined,
+    documentName:
+      typeof input.documentName === 'string'
+        ? input.documentName
+        : typeof subject.documentName === 'string'
+          ? subject.documentName
+          : documentType === 'KTP'
+            ? 'KTP Digital'
+            : 'Credential',
+    validFrom: issuanceDate,
     validUntil:
-      typeof credential.validUntil === 'string'
-        ? credential.validUntil
-        : undefined,
+      typeof input.validUntil === 'string'
+        ? input.validUntil
+        : typeof input.expirationDate === 'string'
+          ? input.expirationDate
+          : undefined,
     expirationDate:
-      typeof credential.expirationDate === 'string'
-        ? credential.expirationDate
-        : undefined,
+      typeof input.expirationDate === 'string' ? input.expirationDate : undefined,
+    jwt: typeof input.jwt === 'string' ? input.jwt : undefined,
+    securedCredential:
+      typeof input.securedCredential === 'string' ? input.securedCredential : undefined,
+    proof: input.proof,
+    verificationStatus:
+      typeof input.verificationStatus === 'string'
+        ? input.verificationStatus
+        : 'signed_unverified',
+    metadata: {
+      schemaVersion: 'vc-data-model-v2.0',
+      source: 'legacy-migration',
+      verificationStatus:
+        typeof input.verificationStatus === 'string'
+          ? (input.verificationStatus as VerificationStatus)
+          : 'signed_unverified',
+      proofStatus:
+        typeof input.jwt === 'string' || typeof input.securedCredential === 'string'
+          ? 'jwt_signed'
+          : 'none',
+      createdAt: issuanceDate,
+      updatedAt: now,
+      originalFormat: 'legacy',
+      ...(isRecord(input.metadata) ? input.metadata : {}),
+    },
   };
-
-  return normalized;
-}
-
-/**
- * Alias wajib untuk kompatibilitas file lama:
- * - src/Storage/secureCredentialStorage.ts
- * - file lain yang masih import normalizeToVcV2
- */
-export function normalizeToVcV2(input: unknown): VerifiableCredentialV2 {
-  return normalizeCredentialToV2(input);
-}
-
-export function isVcV2Credential(input: unknown): input is VerifiableCredentialV2 {
-  if (!isRecord(input)) return false;
-
-  return (
-    Array.isArray(input['@context']) &&
-    input['@context'].includes(VC_V2_CONTEXT) &&
-    Array.isArray(input.type) &&
-    input.type.includes('VerifiableCredential') &&
-    typeof input.id === 'string' &&
-    typeof input.issuer === 'string' &&
-    typeof input.issuanceDate === 'string' &&
-    isRecord(input.credentialSubject)
-  );
 }
 
 export function getCredentialSubject(credential: unknown): CredentialSubject {
   if (!isRecord(credential)) return {};
-
-  if (isRecord(credential.credentialSubject)) {
-    return credential.credentialSubject as CredentialSubject;
-  }
-
-  return {};
+  if (!isRecord(credential.credentialSubject)) return {};
+  return credential.credentialSubject as CredentialSubject;
 }
 
-export function getCredentialDisplayName(credential: unknown): string {
-  if (!isRecord(credential)) return 'Credential';
-
-  if (typeof credential.documentName === 'string' && credential.documentName.trim()) {
-    return credential.documentName.trim();
-  }
-
-  if (isRecord(credential.metadata)) {
-    const metadataName = credential.metadata.documentName;
-
-    if (typeof metadataName === 'string' && metadataName.trim()) {
-      return metadataName.trim();
-    }
-  }
-
-  const subject = getCredentialSubject(credential);
-
-  const nameFromSubject = getStringFromRecord(subject, [
-    'documentName',
-    'Nama',
-    'nama',
-    'fullName',
-    'NIK',
-    'nik',
-  ]);
-
-  return nameFromSubject || 'Credential';
-}
-
-export function hasCredentialSignature(credential: unknown): boolean {
-  if (!isRecord(credential)) return false;
-
-  const proof = isRecord(credential.proof) ? credential.proof : {};
-
-  const candidates = [
-    credential.jwt,
-    credential.securedCredential,
-    proof.jwt,
-    proof.jws,
-  ];
-
-  return candidates.some(
-    (candidate) =>
-      typeof candidate === 'string' && candidate.trim().split('.').length === 3
+export function getCredentialDisplayName(credential: VerifiableCredentialV2): string {
+  return (
+    credential.documentName ||
+    (typeof credential.credentialSubject?.documentName === 'string'
+      ? credential.credentialSubject.documentName
+      : '') ||
+    (credential.documentType === 'KTP' ? 'KTP Digital' : 'Credential')
   );
-}
-
-export function groupCredentialsByDocument(
-  credentials: VerifiableCredentialV2[]
-): CredentialDocument[] {
-  const grouped: Record<string, CredentialDocument> = {};
-
-  for (const credential of credentials) {
-    const normalized = normalizeCredentialToV2(credential);
-
-    const documentId =
-      normalized.documentId || normalized.metadata?.documentId || normalized.id;
-
-    const documentType =
-      normalized.documentType || normalized.metadata?.documentType || 'CUSTOM';
-
-    const documentName =
-      normalized.documentName ||
-      normalized.metadata?.documentName ||
-      getCredentialDisplayName(normalized);
-
-    if (!grouped[documentId]) {
-      grouped[documentId] = {
-        documentId,
-        documentType,
-        documentName,
-        credentials: [],
-      };
-    }
-
-    grouped[documentId].credentials.push(normalized);
-  }
-
-  return Object.values(grouped);
 }

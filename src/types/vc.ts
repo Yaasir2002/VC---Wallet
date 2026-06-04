@@ -1,4 +1,4 @@
-// File: src/types/vc.ts
+export type DocumentType = 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
 
 export type AttributeType =
   | 'legalName'
@@ -28,8 +28,6 @@ export type AttributeType =
   | 'major'
   | 'custom';
 
-export type DocumentType = 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
-
 export type VerificationStatus =
   | 'verified'
   | 'unsigned'
@@ -52,6 +50,72 @@ export type CredentialSubject = {
   [key: string]: unknown;
 };
 
+export type CredentialIssuer =
+  | string
+  | {
+      id: string;
+      name?: string;
+      [key: string]: unknown;
+    };
+
+export type CredentialMetadata = {
+  schemaVersion: 'vc-data-model-v2.0';
+  source?: 'manual_ktp_form' | 'manual' | 'import' | 'scan' | 'legacy-migration';
+  verificationStatus: VerificationStatus;
+  proofStatus: ProofStatus;
+  createdAt: string;
+  updatedAt: string;
+  originalFormat?: 'vc-json-v2' | 'jwt-vc' | 'legacy' | 'unknown';
+  [key: string]: unknown;
+};
+
+export type VerifiableCredentialV2 = {
+  '@context': string[];
+  type: string[];
+  id: string;
+  issuer: CredentialIssuer;
+  issuanceDate: string;
+  credentialSubject: CredentialSubject;
+
+  /**
+   * Optional compatibility.
+   * Data baru mengikuti format request user: issuanceDate.
+   * validFrom tetap boleh ada sebagai adapter internal, tapi bukan field utama.
+   */
+  validFrom?: string;
+  validUntil?: string;
+  expirationDate?: string;
+
+  credentialStatus?: {
+    type: string;
+    status?: string;
+    [key: string]: unknown;
+  };
+
+  metadata?: CredentialMetadata;
+
+  /**
+   * JWT hasil signing credential/presentation.
+   * Jangan isi fake signature.
+   */
+  jwt?: string;
+  securedCredential?: string;
+  proof?: unknown;
+
+  /**
+   * Compatibility dengan UI lama.
+   */
+  documentId?: string;
+  documentType?: DocumentType;
+  documentName?: string;
+  verificationStatus?: VerificationStatus | string;
+  verificationResult?: unknown;
+  verification?: unknown;
+  verifiedAt?: string | null;
+  importedAt?: string;
+  source?: string;
+};
+
 export type KtpFormData = {
   nama: string;
   nik: string;
@@ -67,65 +131,11 @@ export type KtpFormData = {
   pekerjaan: string;
   kewarganegaraan: string;
   berlakuHingga: string;
-};
-
-export type KtpCredentialInput = Partial<KtpFormData> & {
-  fullName?: string;
-  birthPlace?: string;
-  birthDate?: string;
-  gender?: string;
-  address?: string;
-  religion?: string;
-  maritalStatus?: string;
-  occupation?: string;
-  citizenship?: string;
-  validUntil?: string;
-};
-
-export type CredentialMetadata = {
-  schemaVersion: 'vc-json-v2';
-  source?: 'manual_ktp_form' | 'manual' | 'scan' | 'import' | 'legacy-migration';
-  verificationStatus: VerificationStatus;
-  proofStatus: ProofStatus;
-  createdAt: string;
-  updatedAt: string;
-  documentId?: string;
-  documentType?: DocumentType;
-  documentName?: string;
-  [key: string]: unknown;
-};
-
-export type VerifiableCredentialV2 = {
-  '@context': string[];
-  type: string[];
-  id: string;
-  issuer: string;
-  issuanceDate: string;
-  credentialSubject: CredentialSubject;
 
   /**
-   * Field tambahan internal aplikasi.
-   * Tidak wajib ikut contoh credential, tetapi aman disimpan untuk UI/storage.
+   * Optional kompatibilitas.
    */
-  metadata?: CredentialMetadata;
-  jwt?: string;
-  securedCredential?: string;
-  proof?: unknown;
-
-  /**
-   * Compatibility untuk UI lama.
-   */
-  documentId?: string;
-  documentType?: DocumentType;
-  documentName?: string;
-  verificationStatus?: VerificationStatus | string;
-
-  /**
-   * Fallback legacy.
-   */
-  validFrom?: string;
-  validUntil?: string;
-  expirationDate?: string;
+  nim?: string;
 };
 
 export type CredentialDocument = {
@@ -133,6 +143,11 @@ export type CredentialDocument = {
   documentType: DocumentType;
   documentName: string;
   credentials: VerifiableCredentialV2[];
+};
+
+export type SignedCredentialEnvelope = {
+  credential: VerifiableCredentialV2;
+  jwt: string;
 };
 
 export type SignedPresentationJWT = {

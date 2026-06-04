@@ -1,5 +1,3 @@
-// File: app/credential/create-ktp.tsx
-
 import { useState } from 'react';
 import {
   View,
@@ -80,9 +78,6 @@ export default function CreateKtpScreen() {
         kewarganegaraan: citizenship.trim(),
         berlakuHingga: validUntil.trim() || 'Seumur Hidup',
 
-        /**
-         * Compatibility untuk service lama.
-         */
         fullName: fullName.trim(),
         birthPlace: birthPlace.trim(),
         birthDate: birthDateText,
@@ -125,9 +120,7 @@ export default function CreateKtpScreen() {
   function validateForm() {
     if (!fullName.trim()) return 'Nama lengkap wajib diisi.';
     if (!nik.trim()) return 'NIK wajib diisi.';
-    if (!/^[0-9]{16}$/.test(nik.trim())) {
-      return 'NIK harus berisi 16 digit angka.';
-    }
+    if (!/^[0-9]{16}$/.test(nik.trim())) return 'NIK harus berisi 16 digit angka.';
     if (!birthPlace.trim()) return 'Tempat lahir wajib diisi.';
     if (!birthDate) return 'Tanggal lahir wajib diisi.';
     if (!gender.trim()) return 'Jenis kelamin wajib dipilih.';
