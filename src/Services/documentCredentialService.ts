@@ -7,7 +7,7 @@ import {
   ModularCredential,
 } from '../types/vc';
 import { createAttributeCredential } from './credentialService';
-import { isJwtString } from './walletJwtSigner';
+import { isJwtString, signVcJwtWithWallet } from './walletJwtSigner';
 
 type DocumentAttributeInput = {
   attributeType: AttributeType;
@@ -30,6 +30,47 @@ export type KtpCredentialInput = {
   validUntil?: string;
 };
 
+function createDocumentId(documentType: DocumentType) {
+  return `${documentType}-${Date.now()}`;
+}
+
+function createCredentialId(documentType: DocumentType) {
+  return `${documentType}-VC-${Date.now()}`;
+}
+
+function getNowIso() {
+  return new Date().toISOString();
+}
+
+function getExpirationDateFromValidUntil(validUntil?: string): string | undefined {
+  const normalized = validUntil?.trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.toLowerCase() === 'seumur hidup') {
+    return undefined;
+  }
+
+  const parsed = new Date(normalized);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed.toISOString();
+}
+
+/**
+ * Legacy helper.
+ *
+ * Fungsi ini masih dipertahankan untuk kompatibilitas jika ada screen lama/custom
+ * yang masih memanggil createDocumentCredentials().
+ *
+ * Untuk revisi baru, credential seperti KTP/KTM/SIM/Ijazah sebaiknya dibuat
+ * sebagai satu credential utuh, bukan banyak credential per atribut.
+ */
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
   documentName: string;
@@ -45,7 +86,7 @@ export async function createDocumentCredentials(params: {
     throw new Error('DID harus did:key agar bisa signing dan verify offline.');
   }
 
-  const documentId = `${params.documentType}-${Date.now()}`;
+  const documentId = createDocumentId(params.documentType);
   const createdCredentials: ModularCredential[] = [];
 
   for (const attribute of params.attributes) {
@@ -73,73 +114,82 @@ export async function createDocumentCredentials(params: {
   return createdCredentials;
 }
 
-export async function createKtpCredential(input: KtpCredentialInput) {
-  const attributes: DocumentAttributeInput[] = [
-    {
-      attributeType: 'legalName',
-      attributeName: 'Nama Lengkap',
-      attributeValue: input.fullName,
-    },
-    {
-      attributeType: 'nik',
-      attributeName: 'NIK',
-      attributeValue: input.nik,
-    },
-    {
-      attributeType: 'birthPlace',
-      attributeName: 'Tempat Lahir',
-      attributeValue: input.birthPlace,
-    },
-    {
-      attributeType: 'birthDate',
-      attributeName: 'Tanggal Lahir',
-      attributeValue: input.birthDate,
-    },
-    {
-      attributeType: 'gender',
-      attributeName: 'Jenis Kelamin',
-      attributeValue: input.gender,
-    },
-    {
-      attributeType: 'address',
-      attributeName: 'Alamat',
-      attributeValue: input.address,
-    },
-    {
-      attributeType: 'religion',
-      attributeName: 'Agama',
-      attributeValue: input.religion,
-    },
-    {
-      attributeType: 'maritalStatus',
-      attributeName: 'Status Perkawinan',
-      attributeValue: input.maritalStatus,
-    },
-    {
-      attributeType: 'occupation',
-      attributeName: 'Pekerjaan',
-      attributeValue: input.occupation,
-    },
-    {
-      attributeType: 'citizenship',
-      attributeName: 'Kewarganegaraan',
-      attributeValue: input.citizenship,
-    },
-  ];
+export async function createKtpCredential(
+  input: KtpCredentialInput
+): Promise<ModularCredential> {
+  const didData = await getDID();
 
-  if (input.validUntil) {
-    attributes.push({
-      attributeType: 'validUntil',
-      attributeName: 'Berlaku Hingga',
-      attributeValue: input.validUntil,
-    });
+  if (!didData?.did) {
+    throw new Error('DID belum dibuat.');
   }
 
-  return await createDocumentCredentials({
+  if (!didData.did.startsWith('did:key:')) {
+    throw new Error('DID harus did:key agar bisa signing dan verify offline.');
+  }
+
+  const documentId = createDocumentId('KTP');
+  const issuanceDate = getNowIso();
+  const expirationDate = getExpirationDateFromValidUntil(input.validUntil);
+
+  const credentialSubject = {
+    id: didData.did,
+    documentId,
     documentType: 'KTP',
     documentName: 'KTP Digital',
-    attributes,
-  });
+    fullName: input.fullName,
+    nik: input.nik,
+    birthPlace: input.birthPlace,
+    birthDate: input.birthDate,
+    gender: input.gender,
+    address: input.address,
+    religion: input.religion,
+    maritalStatus: input.maritalStatus,
+    occupation: input.occupation,
+    citizenship: input.citizenship,
+    validUntil: input.validUntil || 'Seumur Hidup',
+  };
+
+  const signed = await signVcJwtWithWallet({
+    subjectDid: didData.did,
+    documentId,
+    documentType: 'KTP',
+    documentName: 'KTP Digital',
+    attributeType: 'ktpDocument' as AttributeType,
+    attributeName: 'KTP Digital',
+    attributeValue: JSON.stringify(credentialSubject),
+    issuanceDate,
+    expirationDate,
+    credentialSubject,
+  } as any);
+
+  if (!isJwtString(signed.jwt)) {
+    throw new Error('KTP Digital gagal dibuat sebagai VC JWT valid.');
+  }
+
+  const credential: ModularCredential = {
+    id: createCredentialId('KTP'),
+    documentId,
+    documentType: 'KTP',
+    documentName: 'KTP Digital',
+    type: signed.type || ['VerifiableCredential', 'KTPCredential'],
+    issuer: signed.issuerDid,
+    issuanceDate,
+    expirationDate,
+    credentialSubject: credentialSubject as any,
+    jwt: signed.jwt,
+    proof: {
+      type: 'JwtProof2020',
+      created: issuanceDate,
+      proofPurpose: 'assertionMethod',
+      verificationMethod: signed.issuerDid,
+      jwt: signed.jwt,
+    },
+    verificationStatus: 'verified',
+  };
+
+  await saveVC(credential);
+
+  return credential;
 }
 
 export async function getCredentialDocuments(): Promise<CredentialDocument[]> {

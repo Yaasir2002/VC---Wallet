@@ -27,8 +27,6 @@ import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
 import LoadingOverlay from '../../../components/ui/LoadingOverlay';
 
-type SelectedAttributeMap = Record<string, boolean>;
-
 type ToastState = {
   visible: boolean;
   message: string;
@@ -45,22 +43,28 @@ const INVALID_PRESENTATION_STATUSES = [
 
 const QR_SAFE_MAX_LENGTH = 2200;
 
-function getCredentialJwt(credential: ModularCredential): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function getCredentialJwt(credential: ModularCredential | null | undefined): string {
+  if (!credential) return '';
+
   const proof = credential.proof as any;
+  const rawCredential = (credential as any)?.rawCredential;
 
-  if (isJwtString(credential.jwt)) {
-    return credential.jwt.trim();
-  }
+  const candidates = [
+    credential.jwt,
+    proof?.jwt,
+    proof?.jws,
+    (credential as any)?.vcJwt,
+    rawCredential?.jwt,
+    rawCredential?.proof?.jwt,
+  ];
 
-  if (isJwtString(proof?.jwt)) {
-    return proof.jwt.trim();
-  }
+  const found = candidates.find((candidate) => isJwtString(candidate));
 
-  if (isJwtString(proof?.jws)) {
-    return proof.jws.trim();
-  }
-
-  return '';
+  return found ? found.trim() : '';
 }
 
 function formatDate(value?: string): string {
@@ -73,11 +77,25 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
-function shorten(value?: string) {
-  if (!value) return '-';
-  if (value.length <= 24) return value;
+function normalizeLabel(key: string): string {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
 
-  return `${value.slice(0, 14)}...${value.slice(-8)}`;
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '-';
+  }
 }
 
 function InfoItem({ label, value }: { label: string; value: string }) {
@@ -94,7 +112,6 @@ export default function CredentialDocumentDetailScreen() {
   const router = useRouter();
 
   const [document, setDocument] = useState<CredentialDocument | null>(null);
-  const [selectedAttributes, setSelectedAttributes] = useState<SelectedAttributeMap>({});
   const [presentationJwt, setPresentationJwt] = useState('');
   const [presentationMeta, setPresentationMeta] =
     useState<SignedPresentationJWT | null>(null);
@@ -107,18 +124,17 @@ export default function CredentialDocumentDetailScreen() {
     type: 'info',
   });
 
-  const credentials = document?.credentials ?? [];
-
   const mainCredential = useMemo(() => {
     if (!document) return null;
 
     return getMainCredential(document);
   }, [document]);
 
-  const selectedCredentials = useMemo(
-    () => credentials.filter((credential) => selectedAttributes[credential.id]),
-    [credentials, selectedAttributes]
-  );
+  const detailItems = useMemo(() => {
+    if (!document || !mainCredential) return [];
+
+    return buildCredentialDetailItems(document, mainCredential);
+  }, [document, mainCredential]);
 
   const qrJwt = presentationJwt.trim();
   const qrJwtParts = qrJwt ? qrJwt.split('.').length : 0;
@@ -145,14 +161,7 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
-      const defaultSelected: SelectedAttributeMap = {};
-
-      for (const credential of data.credentials ?? []) {
-        defaultSelected[credential.id] = isCredentialPresentable(credential);
-      }
-
       setDocument(data);
-      setSelectedAttributes(defaultSelected);
       setPresentationJwt('');
       setPresentationMeta(null);
       setQrWarning('');
@@ -181,69 +190,10 @@ export default function CredentialDocumentDetailScreen() {
     setQrWarning('');
   }
 
-  function handleToggleAttribute(attributeId: string) {
-    resetPresentation();
-
-    const target = credentials.find((credential) => credential.id === attributeId);
-
-    if (!target) {
-      showToast('Credential tidak ditemukan.', 'error');
-      return;
-    }
-
-    if (!isCredentialPresentable(target)) {
-      showToast(getCredentialBlockedReason(target), 'error');
-      return;
-    }
-
-    setSelectedAttributes((current) => ({
-      ...current,
-      [attributeId]: !current[attributeId],
-    }));
-  }
-
-  function selectAll() {
-    resetPresentation();
-
-    const nextSelected: SelectedAttributeMap = {};
-
-    for (const credential of credentials) {
-      nextSelected[credential.id] = isCredentialPresentable(credential);
-    }
-
-    setSelectedAttributes(nextSelected);
-
-    const selectedCount = Object.values(nextSelected).filter(Boolean).length;
-
-    if (selectedCount === 0) {
-      showToast(
-        'Tidak ada atribut yang bisa dipresentasikan. Pastikan credential punya VC JWT valid.',
-        'error'
-      );
-    }
-  }
-
-  function clearSelection() {
-    resetPresentation();
-
-    const nextSelected: SelectedAttributeMap = {};
-
-    for (const credential of credentials) {
-      nextSelected[credential.id] = false;
-    }
-
-    setSelectedAttributes(nextSelected);
-  }
-
   async function handleConfirmAndSignPresentation() {
     try {
-      if (!document) {
+      if (!document || !mainCredential) {
         showToast('Dokumen credential tidak ditemukan.', 'error');
-        return;
-      }
-
-      if (selectedCredentials.length === 0) {
-        showToast('Pilih minimal 1 atribut untuk dipresentasikan.', 'error');
         return;
       }
 
@@ -262,23 +212,14 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
-      const invalidCredential = selectedCredentials.find(
-        (credential) => !isCredentialPresentable(credential)
-      );
-
-      if (invalidCredential) {
-        showToast(
-          `Ada credential yang tidak dapat dipresentasikan. ${getCredentialBlockedReason(
-            invalidCredential
-          )}`,
-          'error'
-        );
+      if (!isCredentialPresentable(mainCredential)) {
+        showToast(getCredentialBlockedReason(mainCredential), 'error');
         return;
       }
 
       const vp = await createSignedPresentationJWT({
         holderDid: didData.did,
-        credentials: selectedCredentials,
+        credentials: [mainCredential],
       });
 
       const vpJwt = vp.jwt.trim();
@@ -295,17 +236,14 @@ export default function CredentialDocumentDetailScreen() {
 
       if (vpJwt.length > QR_SAFE_MAX_LENGTH) {
         setQrWarning(
-          'VP JWT terlalu panjang untuk QR Code. Kurangi jumlah atribut yang dipilih, lalu klik Confirm & Sign Presentation lagi.'
+          'VP JWT terlalu panjang untuk QR Code. Kurangi ukuran data credential atau gunakan Copy JWT.'
         );
       }
 
       setPresentationJwt(vpJwt);
       setPresentationMeta(vp);
 
-      showToast(
-        `${vp.credentialCount} atribut berhasil ditandatangani sebagai VP JWT.`,
-        'success'
-      );
+      showToast('Credential berhasil ditandatangani sebagai VP JWT.', 'success');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
@@ -343,7 +281,7 @@ export default function CredentialDocumentDetailScreen() {
 
   const status = getMainCredentialStatus(document);
   const isValid = status.status === 'VALID';
-  const selectedCount = selectedCredentials.length;
+  const mainCredentialJwt = getCredentialJwt(mainCredential);
 
   return (
     <View style={{ flex: 1 }}>
@@ -391,7 +329,7 @@ export default function CredentialDocumentDetailScreen() {
             <View style={styles.sectionIconBlue}>
               <Ionicons name="document-text-outline" size={22} color="#2563EB" />
             </View>
-            <Text style={styles.sectionTitle}>Credential Parent</Text>
+            <Text style={styles.sectionTitle}>Credential Information</Text>
           </View>
 
           <InfoItem label="Document ID" value={document.documentId} />
@@ -400,107 +338,42 @@ export default function CredentialDocumentDetailScreen() {
           <InfoItem label="Issuer" value={mainCredential.issuer} />
           <InfoItem label="Issuance Date" value={formatDate(mainCredential.issuanceDate)} />
           <InfoItem label="Expiration Date" value={formatDate(mainCredential.expirationDate)} />
-          <InfoItem
-            label="Credential Count"
-            value={String(document.credentials?.length ?? 0)}
-          />
+          <InfoItem label="VC JWT Status" value={mainCredentialJwt ? 'Available' : 'Not Available'} />
         </View>
 
         <View style={styles.sectionCard}>
-          <View style={styles.sectionHeaderBetween}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.sectionTitle}>Daftar Atribut Credential</Text>
-              <Text style={styles.smallText}>
-                Dipilih: {selectedCount} dari {credentials.length}
-              </Text>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionIconBlue}>
+              <Ionicons name="id-card-outline" size={22} color="#2563EB" />
             </View>
-
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={selectAll}>
-                <Text style={styles.smallButtonText}>Semua</Text>
-              </Pressable>
-
-              <Pressable style={styles.smallButtonLight} onPress={clearSelection}>
-                <Text style={styles.smallButtonLightText}>Reset</Text>
-              </Pressable>
-            </View>
+            <Text style={styles.sectionTitle}>Detail Data Credential</Text>
           </View>
 
-          {credentials.map((credential) => {
-            const enabled = Boolean(selectedAttributes[credential.id]);
-            const presentable = isCredentialPresentable(credential);
-            const statusLabel = getCredentialStatusLabel(credential);
-
-            return (
-              <Pressable
-                key={credential.id}
-                style={[
-                  styles.attributeRow,
-                  enabled && styles.attributeRowActive,
-                  !presentable && styles.attributeRowDisabled,
-                ]}
-                onPress={() => handleToggleAttribute(credential.id)}
-              >
-                <View style={[styles.checkCircle, enabled && styles.checkCircleActive]}>
-                  {enabled && <Ionicons name="checkmark" size={18} color="#FFFFFF" />}
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.attributeName, enabled && styles.attributeNameActive]}>
-                    {credential.credentialSubject.attributeName}
-                  </Text>
-
-                  <Text style={[styles.attributeValue, enabled && styles.attributeValueActive]}>
-                    {credential.credentialSubject.attributeValue || '-'}
-                  </Text>
-
-                  <Text style={[styles.attributeMeta, enabled && styles.attributeMetaActive]}>
-                    Type: {credential.credentialSubject.attributeType} • Issuer: {shorten(credential.issuer)}
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.attributeStatus,
-                      enabled && styles.attributeStatusActive,
-                      !presentable && styles.attributeStatusBlocked,
-                    ]}
-                  >
-                    Status: {statusLabel}
-                  </Text>
-                </View>
-
-                <Ionicons
-                  name={enabled ? 'eye-outline' : 'eye-off-outline'}
-                  size={22}
-                  color={enabled ? '#FFFFFF' : '#6B7280'}
-                />
-              </Pressable>
-            );
-          })}
-
-          {selectedCredentials.length > 0 && (
-            <View style={styles.previewBox}>
-              <Text style={styles.previewTitle}>Preview Atribut Terpilih</Text>
-
-              {selectedCredentials.map((credential) => (
-                <View key={credential.id} style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>
-                    {credential.credentialSubject.attributeName}
-                  </Text>
-                  <Text style={styles.previewValue}>
-                    {credential.credentialSubject.attributeValue || '-'}
-                  </Text>
-                </View>
-              ))}
-            </View>
+          {detailItems.length > 0 ? (
+            detailItems.map((item) => (
+              <InfoItem key={item.key} label={item.label} value={item.value} />
+            ))
+          ) : (
+            <Text style={styles.emptyText}>
+              Tidak ada detail data credential yang dapat ditampilkan.
+            </Text>
           )}
+
+          {!mainCredentialJwt ? (
+            <View style={styles.legacyWarningBox}>
+              <Ionicons name="warning-outline" size={24} color="#F97316" />
+              <Text style={styles.legacyWarningText}>
+                Credential lama belum sesuai format baru. Hapus credential ini dan buat ulang sebagai satu credential utuh.
+              </Text>
+            </View>
+          ) : null}
 
           <AnimatedButton
             style={[
               styles.presentButton,
-              selectedCredentials.length === 0 && styles.disabledButton,
+              !isCredentialPresentable(mainCredential) && styles.disabledButton,
             ]}
-            disabled={selectedCredentials.length === 0}
+            disabled={!isCredentialPresentable(mainCredential)}
             onPress={handleConfirmAndSignPresentation}
           >
             <Ionicons name="create-outline" size={22} color="#FFFFFF" />
@@ -525,8 +398,7 @@ export default function CredentialDocumentDetailScreen() {
                   <Text style={styles.qrStatusText}>Status: VP JWT Valid</Text>
                   <Text style={styles.qrStatusText}>JWT Parts: {qrJwtParts}</Text>
                   <Text style={styles.qrStatusText}>
-                    Credential Count:{' '}
-                    {presentationMeta?.credentialCount || selectedCredentials.length}
+                    Credential Count: {presentationMeta?.credentialCount || 1}
                   </Text>
                   <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
                 </View>
@@ -544,15 +416,13 @@ export default function CredentialDocumentDetailScreen() {
                       VP JWT terlalu panjang untuk QR Code
                     </Text>
                     <Text style={styles.qrTooLargeText}>
-                      Kurangi jumlah atribut yang dipilih, lalu klik Confirm & Sign Presentation lagi.
-                      JWT tetap bisa disalin melalui tombol Copy JWT.
+                      Credential ini tetap berhasil ditandatangani, tetapi datanya terlalu besar untuk dimasukkan ke QR. Gunakan Copy JWT atau sederhanakan data credential.
                     </Text>
                   </View>
                 )}
 
                 <Text style={styles.qrNote}>
                   QR ini berisi VP JWT murni dengan format header.payload.signature.
-                  QR ini hanya muncul setelah Confirm & Sign Presentation berhasil.
                 </Text>
 
                 <Text style={styles.jwtLabel}>Preview VP JWT</Text>
@@ -592,13 +462,13 @@ export default function CredentialDocumentDetailScreen() {
             <Text style={styles.sectionTitle}>Proof VC JWT</Text>
           </View>
 
-          {getCredentialJwt(mainCredential) ? (
+          {mainCredentialJwt ? (
             <>
               <InfoItem label="Proof Type" value="JwtProof2020" />
               <InfoItem label="Verification Method" value={mainCredential.issuer || '-'} />
 
               <Text style={styles.infoLabel}>VC JWT</Text>
-              <Text style={styles.jwtText}>{getCredentialJwt(mainCredential)}</Text>
+              <Text style={styles.jwtText}>{mainCredentialJwt}</Text>
             </>
           ) : (
             <View style={styles.emptyProof}>
@@ -637,22 +507,11 @@ function isCredentialPresentable(credential: ModularCredential): boolean {
   return !INVALID_PRESENTATION_STATUSES.includes(credential.verificationStatus ?? '');
 }
 
-function getCredentialStatusLabel(credential: ModularCredential): string {
-  const expiration = checkCredentialExpiration(credential);
-
-  if (!getCredentialJwt(credential)) return 'Tidak punya VC JWT';
-  if (expiration.isExpired) return 'Expired';
-  if (expiration.isNotYetValid) return 'Belum Berlaku';
-  if (credential.verificationStatus === 'verified') return 'Verified JWT';
-
-  return credential.verificationStatus || 'Pending Verification';
-}
-
 function getCredentialBlockedReason(credential: ModularCredential): string {
   const expiration = checkCredentialExpiration(credential);
 
   if (!getCredentialJwt(credential)) {
-    return 'Credential ini tidak punya VC JWT. Buat ulang credential sebagai VC JWT valid.';
+    return 'Credential lama belum sesuai format baru. Hapus credential ini dan buat ulang sebagai satu credential utuh.';
   }
 
   if (expiration.isExpired) {
@@ -692,17 +551,9 @@ function getMainCredential(document: CredentialDocument) {
   const credentials = document.credentials ?? [];
 
   return (
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'legalName'
-    ) ||
-    credentials.find((vc) => vc.credentialSubject?.attributeType === 'nik') ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'studentId'
-    ) ||
-    credentials.find(
-      (vc) => vc.credentialSubject?.attributeType === 'licenseNumber'
-    ) ||
-    credentials[0]
+    credentials.find((credential) => Boolean(getCredentialJwt(credential))) ||
+    credentials[0] ||
+    null
   );
 }
 
@@ -722,6 +573,54 @@ function getMainCredentialStatus(document: CredentialDocument) {
     status: isExpired ? 'EXPIRED' : 'VALID',
     label: isExpired ? 'EXPIRED' : 'VALID',
   };
+}
+
+function buildCredentialDetailItems(
+  document: CredentialDocument,
+  credential: ModularCredential
+) {
+  const subject = credential.credentialSubject || {};
+  const items: Array<{ key: string; label: string; value: string }> = [];
+  const ignoredKeys = new Set([
+    'id',
+    'documentId',
+    'documentType',
+    'documentName',
+  ]);
+
+  if (isRecord(subject)) {
+    Object.entries(subject).forEach(([key, value]) => {
+      if (ignoredKeys.has(key)) return;
+
+      items.push({
+        key,
+        label: normalizeLabel(key),
+        value: stringifyValue(value),
+      });
+    });
+  }
+
+  if (items.length === 0) {
+    const fallbackItems = [
+      ['documentName', document.documentName],
+      ['documentType', document.documentType],
+      ['issuer', credential.issuer],
+      ['issuanceDate', credential.issuanceDate],
+      ['expirationDate', credential.expirationDate],
+    ];
+
+    fallbackItems.forEach(([key, value]) => {
+      if (!value) return;
+
+      items.push({
+        key: String(key),
+        label: normalizeLabel(String(key)),
+        value: stringifyValue(value),
+      });
+    });
+  }
+
+  return items;
 }
 
 const styles = StyleSheet.create({
@@ -828,13 +727,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 14,
   },
-  sectionHeaderBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-    gap: 10,
-  },
   sectionIconBlue: {
     width: 42,
     height: 42,
@@ -864,139 +756,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 20,
   },
-  smallText: {
-    color: '#6B7280',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  inlineActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  smallButton: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  smallButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  smallButtonLight: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  smallButtonLightText: {
-    color: '#2563EB',
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  attributeRow: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    marginBottom: 10,
-  },
-  attributeRowActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
-  },
-  attributeRowDisabled: {
-    opacity: 0.55,
-  },
-  checkCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkCircleActive: {
-    borderColor: '#FFFFFF',
-    backgroundColor: '#1D4ED8',
-  },
-  attributeName: {
-    color: '#111827',
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  attributeNameActive: {
-    color: '#FFFFFF',
-  },
-  attributeValue: {
-    color: '#374151',
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  attributeValueActive: {
-    color: '#E0F2FE',
-  },
-  attributeMeta: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  attributeMetaActive: {
-    color: '#DBEAFE',
-  },
-  attributeStatus: {
-    color: '#2563EB',
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  attributeStatusActive: {
-    color: '#FFFFFF',
-  },
-  attributeStatusBlocked: {
-    color: '#DC2626',
-  },
-  previewBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 18,
-    padding: 14,
-    marginTop: 8,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  previewTitle: {
-    color: '#111827',
-    fontWeight: '900',
-    marginBottom: 8,
-  },
-  previewRow: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  previewLabel: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  previewValue: {
-    color: '#111827',
-    fontWeight: '800',
-  },
   presentButton: {
     backgroundColor: '#2563EB',
     borderRadius: 18,
     paddingVertical: 16,
-    marginTop: 8,
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1009,6 +773,28 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 15,
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  legacyWarningBox: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  legacyWarningText: {
+    color: '#9A3412',
+    fontWeight: '800',
+    flex: 1,
+    lineHeight: 20,
   },
   warningCard: {
     backgroundColor: '#FFF7ED',
