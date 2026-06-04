@@ -1,6 +1,7 @@
 import { ModularCredential } from '../types/vc';
 import { isJwtString, signVpJwtWithWallet } from './walletJwtSigner';
 import { safeLogger } from '../utils/safeLogger';
+import { VC_V2_CONTEXT } from './credentialV2Service';
 
 export type SignedPresentationJWT = {
   jwt: string;
@@ -9,8 +10,12 @@ export type SignedPresentationJWT = {
 };
 
 function getAttributeLabel(credential: ModularCredential): string {
+  const subject = credential.credentialSubject as Record<string, unknown> | undefined;
+
   return (
-    credential.credentialSubject?.attributeName ||
+    (typeof subject?.nama === 'string' ? subject.nama : undefined) ||
+    (typeof subject?.fullName === 'string' ? subject.fullName : undefined) ||
+    (typeof subject?.attributeName === 'string' ? subject.attributeName : undefined) ||
     credential.documentName ||
     credential.id ||
     'Credential'
@@ -40,9 +45,11 @@ function extractCredentialJWT(credential: ModularCredential): string {
 
   const candidates = [
     credential.jwt,
+    (credential as any)?.securedCredential,
     getProofJwt(credential),
     (credential as any)?.vcJwt,
     rawCredential?.jwt,
+    rawCredential?.securedCredential,
     rawCredential?.proof?.jwt,
   ];
 
@@ -68,7 +75,7 @@ export async function createSignedPresentationJWT(params: {
   }
 
   if (!Array.isArray(params.credentials) || params.credentials.length === 0) {
-    throw new Error('Pilih minimal 1 atribut credential.');
+    throw new Error('Pilih minimal 1 credential.');
   }
 
   try {
@@ -82,7 +89,12 @@ export async function createSignedPresentationJWT(params: {
 
     const jwt = await signVpJwtWithWallet({
       holderDid: params.holderDid,
-      verifiableCredential: credentialJWTs,
+      vp: {
+        '@context': [VC_V2_CONTEXT],
+        type: ['VerifiablePresentation'],
+        holder: params.holderDid,
+        verifiableCredential: credentialJWTs,
+      },
     });
 
     if (!isJwtString(jwt)) {
