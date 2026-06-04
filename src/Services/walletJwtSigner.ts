@@ -1,14 +1,11 @@
+// File: src/Services/walletJwtSigner.ts
 import {
   createVerifiableCredentialJwt,
   createVerifiablePresentationJwt,
 } from 'did-jwt-vc';
-import { EdDSASigner } from 'did-jwt';
 
-import {
-  getRecoverableWalletIdentity,
-  getWalletPrivateKeySeedHex,
-} from '../Storage/secureWalletStorage';
 import { VC_V2_CONTEXT } from './credentialV2Service';
+import { getWalletSigner } from './walletSigner';
 
 export type SignVcJwtWithWalletParams = {
   subjectDid: string;
@@ -17,74 +14,25 @@ export type SignVcJwtWithWalletParams = {
   documentName: string;
   validFrom: string;
   validUntil?: string;
+  credentialSubject?: Record<string, unknown>;
+  additionalTypes?: string[];
 
   /**
-   * Compatibility fallback untuk pemanggil lama.
-   * Jangan pakai untuk data baru.
+   * Legacy fallback. Jangan dipakai untuk data baru.
    */
   issuanceDate?: string;
   expirationDate?: string;
-
-  credentialSubject?: Record<string, unknown>;
-
   attributeType?: string;
   attributeName?: string;
   attributeValue?: string;
-
-  additionalTypes?: string[];
 };
 
 export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') return false;
 
-  const normalized = value.trim();
-  const parts = normalized.split('.');
+  const parts = value.trim().split('.');
 
   return parts.length === 3 && parts.every((part) => part.length > 0);
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
-
-  if (!normalized || normalized.length % 2 !== 0) {
-    throw new Error('Private key seed hex tidak valid.');
-  }
-
-  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error('Private key seed harus hexadecimal.');
-  }
-
-  const bytes = new Uint8Array(normalized.length / 2);
-
-  for (let i = 0; i < normalized.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
-  }
-
-  return bytes;
-}
-
-async function getWalletSigner() {
-  const identity = await getRecoverableWalletIdentity();
-
-  if (!identity?.did) {
-    throw new Error('Wallet signer belum tersedia.');
-  }
-
-  if (!identity.did.startsWith('did:key:')) {
-    throw new Error('Wallet DID harus did:key agar bisa signing offline.');
-  }
-
-  const privateKeySeedHex =
-    identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
-
-  if (!privateKeySeedHex) {
-    throw new Error('Wallet signer belum tersedia.');
-  }
-
-  return {
-    did: identity.did,
-    signer: EdDSASigner(hexToBytes(privateKeySeedHex)),
-  };
 }
 
 function buildCredentialSubject(params: SignVcJwtWithWalletParams) {
@@ -132,7 +80,6 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
 
   const validFrom = params.validFrom || params.issuanceDate;
   const validUntil = params.validUntil || params.expirationDate;
-
   const validFromTime = validFrom ? new Date(validFrom).getTime() : Number.NaN;
 
   if (!validFrom || Number.isNaN(validFromTime)) {
@@ -150,12 +97,12 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
       type: vcTypes,
       issuer: {
         id: wallet.did,
-        name: 'VC Wallet Issuer',
+        name: 'Self Issued KTP Digital',
       },
       validFrom,
       credentialSubject,
       credentialStatus: {
-        type: 'CredentialStatus',
+        type: `${params.documentType}DigitalStatus`,
         status: 'active',
       },
     },
@@ -187,7 +134,7 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     issuerDid: wallet.did,
     issuer: {
       id: wallet.did,
-      name: 'VC Wallet Issuer',
+      name: 'Self Issued KTP Digital',
     },
     credentialSubject,
     type: vcTypes,
@@ -209,8 +156,8 @@ export async function signVpJwtWithWallet(params: {
     throw new Error('Holder DID harus sama dengan DID wallet.');
   }
 
-  if (!params.vp || !Array.isArray(params.vp.verifiableCredential)) {
-    throw new Error('VP tidak valid.');
+  if (!Array.isArray(params.vp.verifiableCredential)) {
+    throw new Error('verifiableCredential harus berupa array.');
   }
 
   if (params.vp.verifiableCredential.length === 0) {

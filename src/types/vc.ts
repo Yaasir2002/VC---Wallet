@@ -1,3 +1,4 @@
+// File: src/types/vc.ts
 import { CredentialSecurityStatus } from './verification';
 
 export type AttributeType =
@@ -33,6 +34,7 @@ export type DocumentType = 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
 export type VerificationStatus =
   | 'verified'
   | 'unsigned'
+  | 'self_signed'
   | 'signed_unverified'
   | 'pending_verification'
   | 'invalid'
@@ -43,6 +45,7 @@ export type VerificationStatus =
 export type ProofStatus =
   | 'none'
   | 'present'
+  | 'jwt_signed'
   | 'jwt'
   | 'data_integrity'
   | 'unknown';
@@ -50,6 +53,38 @@ export type ProofStatus =
 export interface CredentialSubject {
   id?: string;
   [key: string]: unknown;
+}
+
+export interface KtpCredentialSubject extends CredentialSubject {
+  id: string;
+  nama: string;
+  nik: string;
+  tempatLahir: string;
+  tanggalLahir: string;
+  jenisKelamin: string;
+  alamat: string;
+  rtRw?: string;
+  kelurahanDesa?: string;
+  kecamatan?: string;
+  agama: string;
+  statusPerkawinan: string;
+  pekerjaan: string;
+  kewarganegaraan: string;
+  berlakuHingga: string;
+
+  /**
+   * Alias kompatibilitas untuk UI lama.
+   */
+  fullName?: string;
+  birthPlace?: string;
+  birthDate?: string;
+  gender?: string;
+  address?: string;
+  religion?: string;
+  maritalStatus?: string;
+  occupation?: string;
+  citizenship?: string;
+  validUntilText?: string;
 }
 
 export interface CredentialIssuer {
@@ -67,7 +102,13 @@ export interface CredentialStatus {
 
 export interface CredentialMetadata {
   schemaVersion: 'vc-data-model-v2.0';
-  source?: 'manual' | 'scan' | 'import' | 'legacy-migration' | 'wallet';
+  source?:
+    | 'manual_ktp_form'
+    | 'manual'
+    | 'scan'
+    | 'import'
+    | 'legacy-migration'
+    | 'wallet';
   verificationStatus: VerificationStatus;
   proofStatus?: ProofStatus;
   createdAt: string;
@@ -75,6 +116,7 @@ export interface CredentialMetadata {
   importedAt?: string;
   originalFormat?: 'vc-v2' | 'vc-v1.1' | 'jwt-vc' | 'legacy-modular' | 'unknown';
   jwt?: string;
+  securedCredential?: string;
   documentId?: string;
   documentType?: DocumentType;
   documentName?: string;
@@ -93,16 +135,16 @@ export interface VerifiableCredentialV2 {
   proof?: unknown;
   metadata?: CredentialMetadata;
   jwt?: string;
+  securedCredential?: string;
 
   /**
-   * Fallback compatibility untuk credential lama.
-   * Jangan dipakai untuk credential baru.
+   * Fallback baca credential lama. Jangan dipakai untuk data baru.
    */
   issuanceDate?: string;
   expirationDate?: string;
 
   /**
-   * Compatibility fields agar screen lama tidak langsung rusak.
+   * Field kompatibilitas UI existing.
    */
   documentId?: string;
   documentType?: DocumentType;
@@ -115,6 +157,13 @@ export interface VerifiableCredentialV2 {
   source?: string;
 }
 
+export interface PresentationMetadata {
+  schemaVersion: 'vc-data-model-v2.0';
+  presentationFormat: 'jwt';
+  selectedAttributes?: string[];
+  createdAt: string;
+}
+
 export interface VerifiablePresentationV2 {
   '@context': string[];
   id?: string;
@@ -124,11 +173,35 @@ export interface VerifiablePresentationV2 {
   metadata?: PresentationMetadata;
 }
 
-export interface PresentationMetadata {
-  schemaVersion: 'vc-data-model-v2.0';
-  presentationFormat: 'jwt_vp' | 'ldp_vp' | 'json_vp';
-  selectedAttributes?: string[];
+export interface SignedCredentialEnvelope {
+  credential: VerifiableCredentialV2;
+  jwt: string;
+  proofStatus: ProofStatus;
+}
+
+export interface JwtPresentationResult {
+  jwt: string;
+  holderDid: string;
+  credentialCount: number;
   createdAt: string;
+  qrPayload: string;
+}
+
+export interface KtpFormData {
+  nama: string;
+  nik: string;
+  tempatLahir: string;
+  tanggalLahir: string;
+  jenisKelamin: string;
+  alamat: string;
+  rtRw: string;
+  kelurahanDesa: string;
+  kecamatan: string;
+  agama: string;
+  statusPerkawinan: string;
+  pekerjaan: string;
+  kewarganegaraan: string;
+  berlakuHingga: string;
 }
 
 export interface CredentialDocument {
@@ -141,7 +214,6 @@ export interface CredentialDocument {
 export type VerifiableCredential = VerifiableCredentialV2;
 
 /**
- * Compatibility alias.
- * Kode lama masih import ModularCredential, tapi model baru adalah VC v2 utuh.
+ * Alias agar file lama tidak langsung rusak.
  */
 export type ModularCredential = VerifiableCredentialV2;

@@ -1,13 +1,21 @@
-import { getDID } from '../Storage/didStorage';
-import { saveVC, getAllVCs, getVCById } from '../Storage/vcStorage';
+// File: src/Services/documentCredentialService.ts
+import { getAllVCs, getVCById } from '../Storage/vcStorage';
 import {
   AttributeType,
-  DocumentType,
   CredentialDocument,
+  DocumentType,
+  KtpFormData,
   VerifiableCredentialV2,
 } from '../types/vc';
-import { buildVcV2Credential, getCredentialDisplayName } from './credentialV2Service';
-import { signVcJwtWithWallet, isJwtString } from './walletJwtSigner';
+import {
+  buildVcV2Credential,
+  getCredentialDisplayName,
+  normalizeToVcV2,
+} from './credentialV2Service';
+import { signAndSaveKtpCredential } from './credentialSigningService';
+import { getHolderDid } from './walletSigner';
+import { signVcJwtWithWallet } from './walletJwtSigner';
+import { saveVC } from '../Storage/vcStorage';
 
 type DocumentAttributeInput = {
   attributeType: AttributeType;
@@ -17,127 +25,99 @@ type DocumentAttributeInput = {
 };
 
 export type KtpCredentialInput = {
-  fullName: string;
+  nama?: string;
   nik: string;
-  birthPlace: string;
-  birthDate: string;
-  gender: string;
-  address: string;
-  religion: string;
-  maritalStatus: string;
-  occupation: string;
-  citizenship: string;
+  tempatLahir?: string;
+  tanggalLahir?: string;
+  jenisKelamin?: string;
+  alamat: string;
+  rtRw?: string;
+  kelurahanDesa?: string;
+  kecamatan?: string;
+  agama: string;
+  statusPerkawinan?: string;
+  pekerjaan: string;
+  kewarganegaraan?: string;
+  berlakuHingga?: string;
+
+  /**
+   * Kompatibilitas form lama.
+   */
+  fullName?: string;
+  birthPlace?: string;
+  birthDate?: string;
+  gender?: string;
+  religion?: string;
+  maritalStatus?: string;
+  occupation?: string;
+  citizenship?: string;
   validUntil?: string;
 };
 
-function createDocumentId(documentType: DocumentType) {
-  return `${documentType}-${Date.now()}`;
-}
-
-function createCredentialId(documentType: DocumentType) {
-  return `urn:uuid:${documentType}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-}
-
-function getNowIso() {
+function nowIso(): string {
   return new Date().toISOString();
 }
 
-function normalizeKtpInput(input: KtpCredentialInput): KtpCredentialInput {
+function createDocumentId(documentType: DocumentType): string {
+  return `${documentType}-${Date.now()}`;
+}
+
+function mapKtpInput(input: KtpCredentialInput): KtpFormData {
   return {
-    fullName: input.fullName?.trim() ?? '',
-    nik: input.nik?.trim() ?? '',
-    birthPlace: input.birthPlace?.trim() ?? '',
-    birthDate: input.birthDate?.trim() ?? '',
-    gender: input.gender?.trim() ?? '',
-    address: input.address?.trim() ?? '',
-    religion: input.religion?.trim() ?? '',
-    maritalStatus: input.maritalStatus?.trim() ?? '',
-    occupation: input.occupation?.trim() ?? '',
-    citizenship: input.citizenship?.trim() || 'WNI',
-    validUntil: input.validUntil?.trim() || 'Seumur Hidup',
+    nama: input.nama ?? input.fullName ?? '',
+    nik: input.nik ?? '',
+    tempatLahir: input.tempatLahir ?? input.birthPlace ?? '',
+    tanggalLahir: input.tanggalLahir ?? input.birthDate ?? '',
+    jenisKelamin: input.jenisKelamin ?? input.gender ?? '',
+    alamat: input.alamat ?? '',
+    rtRw: input.rtRw ?? '',
+    kelurahanDesa: input.kelurahanDesa ?? '',
+    kecamatan: input.kecamatan ?? '',
+    agama: input.agama ?? input.religion ?? '',
+    statusPerkawinan: input.statusPerkawinan ?? input.maritalStatus ?? '',
+    pekerjaan: input.pekerjaan ?? input.occupation ?? '',
+    kewarganegaraan: input.kewarganegaraan ?? input.citizenship ?? 'WNI',
+    berlakuHingga: input.berlakuHingga ?? input.validUntil ?? 'Seumur Hidup',
   };
-}
-
-function validateNormalizedKtpInput(input: KtpCredentialInput) {
-  if (!input.fullName) throw new Error('Nama lengkap wajib diisi.');
-  if (!/^[0-9]{16}$/.test(input.nik)) {
-    throw new Error('NIK harus berisi 16 digit angka.');
-  }
-  if (!input.birthPlace) throw new Error('Tempat lahir wajib diisi.');
-  if (!input.birthDate) throw new Error('Tanggal lahir wajib diisi.');
-  if (!input.gender) throw new Error('Jenis kelamin wajib diisi.');
-  if (!input.address) throw new Error('Alamat wajib diisi.');
-  if (!input.religion) throw new Error('Agama wajib diisi.');
-  if (!input.maritalStatus) throw new Error('Status perkawinan wajib diisi.');
-  if (!input.occupation) throw new Error('Pekerjaan wajib diisi.');
-  if (!input.citizenship) throw new Error('Kewarganegaraan wajib diisi.');
-}
-
-function getValidUntilIso(validUntil?: string): string | undefined {
-  const normalized = validUntil?.trim();
-
-  if (!normalized) return undefined;
-
-  const lower = normalized.toLowerCase();
-
-  if (
-    lower === 'seumur hidup' ||
-    lower === 'berlaku seumur hidup' ||
-    lower === 'lifetime'
-  ) {
-    return undefined;
-  }
-
-  const parsed = new Date(normalized);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return undefined;
-  }
-
-  return parsed.toISOString();
 }
 
 /**
  * Legacy compatibility:
- * fungsi lama dipertahankan, tetapi sekarang menyimpan SATU VC v2.0 per dokumen.
+ * fungsi lama tetap ada, tetapi sekarang menyimpan SATU credential utuh.
  */
 export async function createDocumentCredentials(params: {
   documentType: DocumentType;
   documentName: string;
   attributes: DocumentAttributeInput[];
-}) {
-  const didData = await getDID();
-
-  if (!didData?.did) {
-    throw new Error('DID belum dibuat.');
-  }
-
+}): Promise<VerifiableCredentialV2[]> {
+  const holderDid = await getHolderDid();
   const documentId = createDocumentId(params.documentType);
-  const validFrom = getNowIso();
+  const validFrom = nowIso();
 
   const credentialSubject: Record<string, unknown> = {
-    id: didData.did,
+    id: holderDid,
     documentId,
     documentType: params.documentType,
     documentName: params.documentName,
   };
 
   for (const attribute of params.attributes) {
-    const key = attribute.attributeType === 'custom'
-      ? attribute.attributeName
-      : attribute.attributeType;
+    const key =
+      attribute.attributeType === 'custom'
+        ? attribute.attributeName
+        : attribute.attributeType;
 
-    credentialSubject[key] = attribute.attributeValue;
+    if (key && attribute.attributeValue?.trim()) {
+      credentialSubject[key] = attribute.attributeValue.trim();
+    }
   }
 
   const validUntil = params.attributes
     .map((item) => item.expirationDate)
-    .filter(Boolean)[0];
+    .find(Boolean);
 
   const signed = await signVcJwtWithWallet({
-    subjectDid: didData.did,
+    subjectDid: holderDid,
     documentId,
     documentType: params.documentType,
     documentName: params.documentName,
@@ -148,13 +128,13 @@ export async function createDocumentCredentials(params: {
   });
 
   const credential = buildVcV2Credential({
-    id: createCredentialId(params.documentType),
     type: signed.type,
     issuer: signed.issuer,
     validFrom,
     validUntil,
     credentialSubject,
     jwt: signed.jwt,
+    securedCredential: signed.jwt,
     proof: {
       type: 'JwtProof2020',
       created: validFrom,
@@ -168,12 +148,16 @@ export async function createDocumentCredentials(params: {
     metadata: {
       schemaVersion: 'vc-data-model-v2.0',
       source: 'manual',
-      verificationStatus: 'signed_unverified',
-      proofStatus: 'jwt',
+      verificationStatus: 'self_signed',
+      proofStatus: 'jwt_signed',
       createdAt: validFrom,
       updatedAt: validFrom,
       originalFormat: 'vc-v2',
       jwt: signed.jwt,
+      securedCredential: signed.jwt,
+      documentId,
+      documentType: params.documentType,
+      documentName: params.documentName,
     },
   });
 
@@ -185,99 +169,15 @@ export async function createDocumentCredentials(params: {
 export async function createKtpCredential(
   input: KtpCredentialInput
 ): Promise<VerifiableCredentialV2> {
-  const didData = await getDID();
-
-  if (!didData?.did) {
-    throw new Error('DID belum dibuat.');
-  }
-
-  const normalized = normalizeKtpInput(input);
-  validateNormalizedKtpInput(normalized);
-
-  const documentId = createDocumentId('KTP');
-  const credentialId = createCredentialId('KTP');
-  const validFrom = getNowIso();
-  const validUntil = getValidUntilIso(normalized.validUntil);
-
-  const credentialSubject = {
-    id: didData.did,
-    documentId,
-    documentType: 'KTP',
-    documentName: 'KTP Digital',
-    fullName: normalized.fullName,
-    nik: normalized.nik,
-    birthPlace: normalized.birthPlace,
-    birthDate: normalized.birthDate,
-    gender: normalized.gender,
-    address: normalized.address,
-    religion: normalized.religion,
-    maritalStatus: normalized.maritalStatus,
-    occupation: normalized.occupation,
-    citizenship: normalized.citizenship,
-    validUntilText: normalized.validUntil || 'Seumur Hidup',
-  };
-
-  const signed = await signVcJwtWithWallet({
-    subjectDid: didData.did,
-    documentId,
-    documentType: 'KTP',
-    documentName: 'KTP Digital',
-    validFrom,
-    validUntil,
-    credentialSubject,
-    additionalTypes: ['IdentityCredential', 'KTPCredential'],
-  });
-
-  if (!isJwtString(signed.jwt)) {
-    throw new Error('KTP Digital gagal dibuat sebagai VC JWT valid.');
-  }
-
-  const credential = buildVcV2Credential({
-    id: credentialId,
-    type: signed.type || ['VerifiableCredential', 'KTPCredential'],
-    issuer: signed.issuer,
-    validFrom,
-    validUntil,
-    credentialSubject,
-    jwt: signed.jwt,
-    proof: {
-      type: 'JwtProof2020',
-      created: validFrom,
-      proofPurpose: 'assertionMethod',
-      verificationMethod: signed.issuerDid,
-      jwt: signed.jwt,
-    },
-    documentId,
-    documentType: 'KTP',
-    documentName: 'KTP Digital',
-    metadata: {
-      schemaVersion: 'vc-data-model-v2.0',
-      source: 'manual',
-      verificationStatus: 'signed_unverified',
-      proofStatus: 'jwt',
-      createdAt: validFrom,
-      updatedAt: validFrom,
-      originalFormat: 'vc-v2',
-      jwt: signed.jwt,
-    },
-  });
-
-  await saveVC(credential);
-
-  const savedCredential = await getVCById(credentialId);
-
-  if (!savedCredential) {
-    throw new Error('KTP Digital gagal disimpan ke wallet.');
-  }
-
-  return savedCredential;
+  return signAndSaveKtpCredential(mapKtpInput(input));
 }
 
 export async function getCredentialDocuments(): Promise<CredentialDocument[]> {
-  const credentials = await getAllVCs();
+  const rawCredentials = await getAllVCs();
   const grouped: Record<string, CredentialDocument> = {};
 
-  for (const vc of credentials) {
+  for (const raw of rawCredentials) {
+    const vc = normalizeToVcV2(raw);
     const subject = vc.credentialSubject || {};
 
     const documentId =
@@ -289,8 +189,7 @@ export async function getCredentialDocuments(): Promise<CredentialDocument[]> {
     const documentType =
       vc.documentType ||
       vc.metadata?.documentType ||
-      (subject.documentType as DocumentType) ||
-      'CUSTOM';
+      ((subject.documentType as DocumentType) || 'CUSTOM');
 
     const documentName =
       vc.documentName ||
@@ -319,4 +218,12 @@ export async function getCredentialDocumentById(
   const documents = await getCredentialDocuments();
 
   return documents.find((doc) => doc.documentId === documentId) || null;
+}
+
+export async function getCredentialByIdV2(
+  credentialId: string
+): Promise<VerifiableCredentialV2 | null> {
+  const credential = await getVCById(credentialId);
+
+  return credential ? normalizeToVcV2(credential) : null;
 }
