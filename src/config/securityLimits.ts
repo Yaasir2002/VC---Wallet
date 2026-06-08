@@ -1,8 +1,32 @@
+export const VC_V2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2';
+export const VC_EXAMPLES_V2_CONTEXT_URL =
+  'https://www.w3.org/ns/credentials/examples/v2';
+
+export const VC_TYPE = 'VerifiableCredential';
+export const VP_TYPE = 'VerifiablePresentation';
+export const ENVELOPED_VC_TYPE = 'EnvelopedVerifiableCredential';
+
 export const MAX_QR_PAYLOAD_LENGTH = 12000;
+export const MAX_QR_PAYLOAD_BYTES = 12000;
+
 export const MAX_JWT_LENGTH = 12000;
+export const QR_JWT_MAX_LENGTH = 12000;
+
 export const MAX_CREDENTIAL_IMPORT_SIZE = 20000;
+export const MAX_CREDENTIAL_RESPONSE_BYTES = 20000;
+
 export const MAX_PRESENTATION_CREDENTIALS = 10;
+export const MAX_PRESENTATION_QR_BYTES = 12000;
+export const MAX_PRESENTATION_JWT_BYTES = 12000;
+export const PRESENTATION_QR_WARNING_BYTES = 2500;
+
 export const MAX_JSON_PARSE_DEPTH = 10;
+
+export const DID_DOCUMENT_TIMEOUT_MS = 10000;
+export const DID_DOCUMENT_MAX_BYTES = 20000;
+
+export const TRUSTED_VC_ISSUER_DID = '';
+export const TRUSTED_VC_ISSUER_DID_DOCUMENT_URL = '';
 
 export const SUPPORTED_JWT_ALGS = ['ES256', 'EdDSA'] as const;
 export const SUPPORTED_JWT_ALG = SUPPORTED_JWT_ALGS;
@@ -10,11 +34,35 @@ export const SUPPORTED_JWT_ALG = SUPPORTED_JWT_ALGS;
 export type SupportedJwtAlg = (typeof SUPPORTED_JWT_ALGS)[number];
 
 export const SECURITY_LIMITS = {
+  VC_V2_CONTEXT_URL,
+  VC_EXAMPLES_V2_CONTEXT_URL,
+
+  VC_TYPE,
+  VP_TYPE,
+  ENVELOPED_VC_TYPE,
+
   MAX_QR_PAYLOAD_LENGTH,
+  MAX_QR_PAYLOAD_BYTES,
+
   MAX_JWT_LENGTH,
+  QR_JWT_MAX_LENGTH,
+
   MAX_CREDENTIAL_IMPORT_SIZE,
+  MAX_CREDENTIAL_RESPONSE_BYTES,
+
   MAX_PRESENTATION_CREDENTIALS,
+  MAX_PRESENTATION_QR_BYTES,
+  MAX_PRESENTATION_JWT_BYTES,
+  PRESENTATION_QR_WARNING_BYTES,
+
   MAX_JSON_PARSE_DEPTH,
+
+  DID_DOCUMENT_TIMEOUT_MS,
+  DID_DOCUMENT_MAX_BYTES,
+
+  TRUSTED_VC_ISSUER_DID,
+  TRUSTED_VC_ISSUER_DID_DOCUMENT_URL,
+
   SUPPORTED_JWT_ALGS,
   SUPPORTED_JWT_ALG,
 } as const;

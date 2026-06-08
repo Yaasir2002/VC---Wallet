@@ -157,6 +157,7 @@ function normalizeJwtCredentialPayload(jwt: string): RawCredential {
   }
 
   const issuer = vc.issuer || payload.iss;
+
   const issuanceDate =
     vc.issuanceDate ||
     (typeof payload.iat === 'number'
@@ -193,6 +194,8 @@ function normalizeJwtCredentialPayload(jwt: string): RawCredential {
     expirationDate,
     validFrom,
     jwt,
+    rawJwt: jwt,
+    vcJwt: jwt,
     proof: {
       type: 'JwtProof2020',
       jwt,
@@ -328,8 +331,12 @@ function looksLikeVC(value: any): boolean {
     !Array.isArray(value.credentialSubject);
 
   const hasDate = Boolean(value.issuanceDate || value.validFrom);
+
   const hasProofOrJwt = Boolean(
     value.jwt ||
+      value.rawJwt ||
+      value.vcJwt ||
+      value.securedCredential ||
       value.proof?.jwt ||
       value.proof?.jws ||
       value.proof
@@ -548,7 +555,6 @@ async function buildAttributeCredentials(params: {
         ];
 
   const credentials: ModularCredential[] = [];
-
   const context = normalizeRawCredentialContext(rawCredential);
 
   for (const claim of claims) {
@@ -579,9 +585,24 @@ async function buildAttributeCredentials(params: {
         attributeValue: claim.value,
       },
       proof: rawCredential.proof,
-      jwt: rawCredential.jwt || rawCredential.proof?.jwt,
-      rawJwt: rawCredential.rawJwt,
-      vcJwt: rawCredential.vcJwt,
+      jwt:
+        rawCredential.jwt ||
+        rawCredential.rawJwt ||
+        rawCredential.vcJwt ||
+        rawCredential.securedCredential ||
+        rawCredential.proof?.jwt,
+      rawJwt:
+        rawCredential.rawJwt ||
+        rawCredential.jwt ||
+        rawCredential.vcJwt ||
+        rawCredential.securedCredential ||
+        rawCredential.proof?.jwt,
+      vcJwt:
+        rawCredential.vcJwt ||
+        rawCredential.jwt ||
+        rawCredential.rawJwt ||
+        rawCredential.securedCredential ||
+        rawCredential.proof?.jwt,
       securedCredential: rawCredential.securedCredential,
       verificationStatus: 'pending_verification',
     });
@@ -736,7 +757,27 @@ export async function parseScannedCredential(
   const credentialId =
     rawCredential.id || rawCredential.documentId || rawCredential.jwt;
 
-  if (credentialId && (await isCredentialAlreadySaved(String(credentialId)))) {
+  if (
+    credentialId &&
+    (await isCredentialAlreadySaved({
+      id: String(credentialId),
+      documentId: String(rawCredential.documentId || credentialId),
+      documentType: inferDocumentType(rawCredential),
+      documentName: getCredentialName(rawCredential),
+      type: Array.isArray(rawCredential.type)
+        ? rawCredential.type
+        : [String(rawCredential.type || 'VerifiableCredential')],
+      issuer: getIssuerId(rawCredential.issuer),
+      issuanceDate:
+        rawCredential.issuanceDate ||
+        rawCredential.validFrom ||
+        new Date().toISOString(),
+      credentialSubject:
+        rawCredential.credentialSubject && typeof rawCredential.credentialSubject === 'object'
+          ? rawCredential.credentialSubject
+          : { id: getSubjectId(rawCredential.credentialSubject) },
+    } as ModularCredential))
+  ) {
     throw new Error('Credential ini sudah tersimpan di wallet.');
   }
 

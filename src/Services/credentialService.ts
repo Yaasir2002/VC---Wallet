@@ -1,93 +1,85 @@
-import { AttributeType, ModularCredential } from '../types/vc';
-import { signVcJwtWithWallet, isJwtString } from './walletJwtSigner';
-import { safeLogger } from '../utils/safeLogger';
+import { VerifiableCredentialV2 } from '../types/vc';
+import { signVcJwtWithWallet } from './walletJwtSigner';
 
-export async function createAttributeCredential(params: {
+export type CreateCredentialParams = {
   subjectDid: string;
   documentId: string;
   documentType: 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
   documentName: string;
-  attributeType: AttributeType;
-  attributeName: string;
-  attributeValue: string;
+  attributeType?: string;
+  attributeName?: string;
+  attributeValue?: string;
+  validFrom?: string;
+  validUntil?: string;
+  issuanceDate?: string;
   expirationDate?: string;
-}): Promise<ModularCredential> {
-  if (!params.subjectDid?.startsWith('did:')) {
-    throw new Error('Subject DID tidak valid.');
-  }
+  credentialSubject?: Record<string, unknown>;
+};
 
-  if (!params.documentId) {
-    throw new Error('Document ID belum tersedia.');
-  }
+export async function createCredential(
+  params: CreateCredentialParams
+): Promise<VerifiableCredentialV2> {
+  const issuanceDate =
+    params.issuanceDate || params.validFrom || new Date().toISOString();
 
-  if (!params.documentType) {
-    throw new Error('Document type belum tersedia.');
-  }
+  const expirationDate = params.expirationDate || params.validUntil;
 
-  if (!params.documentName) {
-    throw new Error('Document name belum tersedia.');
-  }
+  const signed = await signVcJwtWithWallet({
+    subjectDid: params.subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    attributeType: params.attributeType,
+    attributeName: params.attributeName,
+    attributeValue: params.attributeValue,
+    validFrom: params.validFrom,
+    validUntil: params.validUntil,
+    issuanceDate,
+    expirationDate,
+    credentialSubject: params.credentialSubject,
+  });
 
-  if (!params.attributeType) {
-    throw new Error('Attribute type belum tersedia.');
-  }
+  const credentialSubject = {
+    id: params.subjectDid,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    ...(params.attributeType ? { attributeType: params.attributeType } : {}),
+    ...(params.attributeName ? { attributeName: params.attributeName } : {}),
+    ...(params.attributeValue ? { attributeValue: params.attributeValue } : {}),
+    ...(params.credentialSubject || {}),
+  };
 
-  if (!params.attributeName || !params.attributeValue) {
-    throw new Error('Nama dan nilai atribut wajib tersedia.');
-  }
-
-  const issuanceDate = new Date().toISOString();
-
-  try {
-    const signed = await signVcJwtWithWallet({
-      subjectDid: params.subjectDid,
-      documentId: params.documentId,
-      documentType: params.documentType,
-      documentName: params.documentName,
-      attributeType: params.attributeType,
-      attributeName: params.attributeName,
-      attributeValue: params.attributeValue,
-      issuanceDate,
-      expirationDate: params.expirationDate,
-    });
-
-    if (!isJwtString(signed.jwt)) {
-      throw new Error('Credential tidak menghasilkan VC JWT valid.');
-    }
-
-    return {
-      id: `vc-${params.documentType}-${params.attributeType}-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`,
-      documentId: params.documentId,
-      documentType: params.documentType,
-      documentName: params.documentName,
-      type: signed.type,
-      issuer: signed.issuerDid,
-      issuanceDate,
-      expirationDate: params.expirationDate,
-      verificationStatus: 'verified',
-      credentialSubject: {
-        id: params.subjectDid,
-        attributeType: params.attributeType,
-        attributeName: params.attributeName,
-        attributeValue: params.attributeValue,
-      },
-      proof: {
-        type: 'JwtProof2020',
-        created: issuanceDate,
-        proofPurpose: 'assertionMethod',
-        verificationMethod: signed.issuerDid,
-        jwt: signed.jwt,
-      },
+  return {
+    '@context': [
+      'https://www.w3.org/ns/credentials/v2',
+      'https://www.w3.org/ns/credentials/examples/v2',
+    ],
+    id: `credential-${params.documentId}-${Date.now()}`,
+    documentId: params.documentId,
+    documentType: params.documentType,
+    documentName: params.documentName,
+    type: ['VerifiableCredential'],
+    issuer: signed.issuer,
+    issuanceDate,
+    expirationDate,
+    validFrom: params.validFrom || issuanceDate,
+    validUntil: params.validUntil || expirationDate,
+    verificationStatus: 'self_signed',
+    credentialSubject,
+    proof: {
+      type: 'JwtProof2020',
+      created: issuanceDate,
+      proofPurpose: 'assertionMethod',
+      verificationMethod: signed.issuerDid,
       jwt: signed.jwt,
-    };
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Gagal membuat VC JWT.';
+    },
+    jwt: signed.jwt,
+  };
+}
 
-    safeLogger.warn('Failed to create signed VC JWT', { message });
-
-    throw new Error(`Gagal membuat VC JWT signed. Detail: ${message}`);
-  }
+export async function createCredentialWithWallet(
+  params: CreateCredentialParams
+): Promise<VerifiableCredentialV2> {
+  return createCredential(params);
 }

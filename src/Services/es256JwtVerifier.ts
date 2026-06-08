@@ -188,3 +188,9 @@ export async function verifyJwtES256(
 ): Promise<ES256JwtVerificationResult> {
   return verifyES256Jwt(jwt);
 }
+
+export async function verifyEs256JwtSignature(
+  jwt: string
+): Promise<ES256JwtVerificationResult> {
+  return verifyES256Jwt(jwt);
+}

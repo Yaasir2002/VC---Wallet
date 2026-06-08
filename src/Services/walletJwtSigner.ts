@@ -16,6 +16,7 @@ export type SignVcJwtWithWalletParams = {
   validFrom?: string;
   validUntil?: string;
   issuanceDate?: string;
+  expirationDate?: string;
   credentialSubject?: Record<string, unknown>;
   additionalTypes?: string[];
   attributeType?: string;
@@ -47,6 +48,9 @@ export async function signCredentialObjectAsJwt(
     id: credential.id,
     issuer: typeof credential.issuer === 'string' ? credential.issuer : wallet.did,
     issuanceDate: credential.issuanceDate,
+    expirationDate: credential.expirationDate,
+    validFrom: credential.validFrom,
+    validUntil: credential.validUntil,
     credentialSubject: credential.credentialSubject,
   };
 
@@ -74,6 +78,8 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   const issuanceDate =
     params.issuanceDate || params.validFrom || new Date().toISOString();
 
+  const validUntil = params.validUntil || params.expirationDate;
+
   const credentialSubject = {
     id: params.subjectDid,
     documentId: params.documentId,
@@ -91,12 +97,13 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     id: createCredentialId(),
     issuer: wallet.did,
     issuanceDate,
+    expirationDate: validUntil,
     credentialSubject,
     documentId: params.documentId,
     documentType: params.documentType as any,
     documentName: params.documentName,
     validFrom: issuanceDate,
-    validUntil: params.validUntil,
+    validUntil,
     verificationStatus: 'self_signed',
     metadata: {
       schemaVersion: 'vc-data-model-v2.0',

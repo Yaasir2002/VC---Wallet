@@ -2,9 +2,12 @@ import { decodeJWT } from './verificationService';
 
 export type VCVerificationResult = {
   verified: boolean;
+  isValid: boolean;
   structurallyValid: boolean;
   signatureVerified: boolean;
   checkedAt: string;
+  status: string;
+  reason?: string;
   issuer?: string;
   subject?: string;
   warning?: string;
@@ -31,9 +34,12 @@ export async function verifyVCJwt(jwt: string): Promise<VCVerificationResult> {
     if (!isJwtString(jwt)) {
       return {
         verified: false,
+        isValid: false,
         structurallyValid: false,
         signatureVerified: false,
         checkedAt,
+        status: 'malformed_credential',
+        reason: 'JWT credential tidak valid.',
         error: 'JWT credential tidak valid.',
       };
     }
@@ -44,12 +50,18 @@ export async function verifyVCJwt(jwt: string): Promise<VCVerificationResult> {
 
     const hasCredentialSubject = Boolean(vc?.credentialSubject);
     const hasIssuer = Boolean(payload.iss || vc?.issuer);
+    const structurallyValid = Boolean(hasCredentialSubject && hasIssuer);
 
     return {
-      verified: hasCredentialSubject && hasIssuer,
-      structurallyValid: hasCredentialSubject && hasIssuer,
+      verified: structurallyValid,
+      isValid: structurallyValid,
+      structurallyValid,
       signatureVerified: false,
       checkedAt,
+      status: structurallyValid ? 'verified' : 'malformed_credential',
+      reason: structurallyValid
+        ? undefined
+        : 'Credential tidak memiliki issuer atau credentialSubject.',
       issuer:
         typeof payload.iss === 'string'
           ? payload.iss
@@ -66,15 +78,18 @@ export async function verifyVCJwt(jwt: string): Promise<VCVerificationResult> {
         'JWT berhasil dibaca secara struktur. Verifikasi signature kriptografis penuh belum dilakukan di service ini.',
     };
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Gagal memverifikasi VC JWT.';
+
     return {
       verified: false,
+      isValid: false,
       structurallyValid: false,
       signatureVerified: false,
       checkedAt,
-      error:
-        error instanceof Error
-          ? error.message
-          : 'Gagal memverifikasi VC JWT.',
+      status: 'invalid',
+      reason: message,
+      error: message,
     };
   }
 }
@@ -82,5 +97,9 @@ export async function verifyVCJwt(jwt: string): Promise<VCVerificationResult> {
 export async function verifyCredentialJwt(
   jwt: string
 ): Promise<VCVerificationResult> {
+  return verifyVCJwt(jwt);
+}
+
+export async function verifyVC(jwt: string): Promise<VCVerificationResult> {
   return verifyVCJwt(jwt);
 }
