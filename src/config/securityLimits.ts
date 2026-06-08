@@ -16,7 +16,8 @@ export const VC_TYPE = 'VerifiableCredential';
 export const VP_TYPE = 'VerifiablePresentation';
 export const ENVELOPED_VC_TYPE = 'EnvelopedVerifiableCredential';
 
-export const SUPPORTED_JWT_ALG = 'ES256';
+export const SUPPORTED_JWT_ALGS = ['ES256', 'EdDSA'] as const;
+export type SupportedJwtAlg = (typeof SUPPORTED_JWT_ALGS)[number];
 
 export const MAX_PRESENTATION_JWT_BYTES = 12000;
 export const MAX_PRESENTATION_QR_BYTES = 12000;

@@ -1,4 +1,4 @@
-// File: src/services/didWebResolver.ts
+// File: src/Services/didWebResolver.ts
 
 import {
   DID_DOCUMENT_MAX_BYTES,
@@ -8,16 +8,18 @@ import {
 } from '../config/securityLimits';
 import { isRecord } from '../utils/safeJson';
 
+export type SupportedPublicKeyJwk = JsonWebKey & {
+  kty: string;
+  crv: string;
+  x: string;
+  y?: string;
+};
+
 export type DidDocumentVerificationMethod = {
   id: string;
   type?: string;
   controller?: string;
-  publicKeyJwk?: JsonWebKey & {
-    crv?: string;
-    kty?: string;
-    x?: string;
-    y?: string;
-  };
+  publicKeyJwk?: SupportedPublicKeyJwk;
   [key: string]: unknown;
 };
 
@@ -32,12 +34,7 @@ export type DidDocument = {
 export type ResolvedDidPublicKey = {
   didDocument: DidDocument;
   verificationMethod: DidDocumentVerificationMethod;
-  publicKeyJwk: JsonWebKey & {
-    kty: string;
-    crv: string;
-    x: string;
-    y: string;
-  };
+  publicKeyJwk: SupportedPublicKeyJwk;
 };
 
 function getDidWebUrl(did: string): string {
@@ -111,24 +108,25 @@ function collectVerificationMethods(
   return Array.from(methods.values());
 }
 
-function assertP256PublicKeyJwk(
+function assertSupportedPublicKeyJwk(
   jwk: unknown
-): asserts jwk is JsonWebKey & {
-  kty: string;
-  crv: string;
-  x: string;
-  y: string;
-} {
+): asserts jwk is SupportedPublicKeyJwk {
   if (!isRecord(jwk)) {
     throw new Error('public_key_not_found');
   }
 
-  if (
-    jwk.kty !== 'EC' ||
-    jwk.crv !== 'P-256' ||
-    typeof jwk.x !== 'string' ||
-    typeof jwk.y !== 'string'
-  ) {
+  const isP256 =
+    jwk.kty === 'EC' &&
+    jwk.crv === 'P-256' &&
+    typeof jwk.x === 'string' &&
+    typeof jwk.y === 'string';
+
+  const isEd25519 =
+    jwk.kty === 'OKP' &&
+    jwk.crv === 'Ed25519' &&
+    typeof jwk.x === 'string';
+
+  if (!isP256 && !isEd25519) {
     throw new Error('unsupported_public_key');
   }
 }
@@ -202,7 +200,7 @@ export async function resolveDidWebPublicKey(
 
   const publicKeyJwk = verificationMethod.publicKeyJwk;
 
-  assertP256PublicKeyJwk(publicKeyJwk);
+  assertSupportedPublicKeyJwk(publicKeyJwk);
 
   return {
     didDocument,

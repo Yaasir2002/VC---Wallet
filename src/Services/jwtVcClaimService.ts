@@ -2,7 +2,7 @@
 
 import {
   QR_JWT_MAX_LENGTH,
-  SUPPORTED_JWT_ALG,
+  SUPPORTED_JWT_ALGS,
   TRUSTED_VC_ISSUER_DID,
   VC_TYPE,
   VC_V2_CONTEXT_URL,
@@ -16,7 +16,7 @@ import { DecodedJwt, JwtHeader } from '../types/jwt';
 import { base64UrlToJson } from '../utils/base64url';
 import { isRecord } from '../utils/safeJson';
 import { resolveDidWebPublicKey } from './didWebResolver';
-import { verifyEs256JwtSignature } from './es256JwtVerifier';
+import { verifyJwtSignature } from './jwtSignatureVerifier';
 
 export type VerifiedJwtVcClaim = {
   claimedCredential: ClaimedJwtCredential;
@@ -74,7 +74,11 @@ function assertJwtHeader(header: JwtHeader): void {
     throw new Error('Header JWT tidak valid.');
   }
 
-  if (header.alg !== SUPPORTED_JWT_ALG) {
+  if (typeof header.alg !== 'string' || header.alg.trim().length === 0) {
+    throw new Error('unsupported_algorithm');
+  }
+
+  if (!SUPPORTED_JWT_ALGS.includes(header.alg as any)) {
     throw new Error('unsupported_algorithm');
   }
 
@@ -82,6 +86,10 @@ function assertJwtHeader(header: JwtHeader): void {
     throw new Error('JWT tidak memiliki key id.');
   }
 
+  /**
+   * Pada contoh JWT terbaru, issuer utama ada di payload.iss dan payload.issuer.
+   * Header EdDSA bisa tidak membawa iss, jadi header.iss hanya divalidasi jika ada.
+   */
   if (
     typeof header.iss === 'string' &&
     header.iss !== TRUSTED_VC_ISSUER_DID
@@ -115,6 +123,17 @@ function assertVcV2Payload(payload: JwtVcV2Payload): void {
     throw new Error('untrusted_issuer');
   }
 
+  /**
+   * Beberapa issuer juga menaruh iss di payload JWT.
+   * Jika ada, harus sama dengan issuer VC.
+   */
+  if (
+    typeof payload.iss === 'string' &&
+    payload.iss !== TRUSTED_VC_ISSUER_DID
+  ) {
+    throw new Error('untrusted_issuer');
+  }
+
   if (!isRecord(payload.credentialSubject)) {
     throw new Error('Credential subject tidak valid.');
   }
@@ -138,6 +157,7 @@ function buildPreview(payload: JwtVcV2Payload): CredentialPreviewClaim {
       : 'VerifiableCredential';
 
   const subject = payload.credentialSubject;
+
   const subjectName =
     typeof subject.Nama === 'string'
       ? subject.Nama
@@ -172,7 +192,7 @@ export async function verifyJwtVcClaimFromQr(
     decoded.header.kid
   );
 
-  const signatureValid = verifyEs256JwtSignature({
+  const signatureValid = await verifyJwtSignature({
     header: decoded.header,
     encodedSignature: decoded.parts.encodedSignature,
     signingInput: decoded.parts.signingInput,
@@ -187,14 +207,24 @@ export async function verifyJwtVcClaimFromQr(
 
   const claimedCredential: ClaimedJwtCredential = {
     id: decoded.payload.id,
+
+    /**
+     * Ini yang penting untuk flow presentation.
+     * JWT asli dari QR disimpan sebagai vcJwt,
+     * lalu nanti dibungkus menjadi EnvelopedVerifiableCredential.
+     */
     vcJwt: decoded.rawJwt,
     rawJwt: decoded.rawJwt,
+
     decodedHeader: decoded.header,
     decodedCredential: decoded.payload,
+
     verificationStatus: 'signature_verified',
     signatureVerified: true,
+
     issuer: decoded.payload.issuer,
     credentialSubject: decoded.payload.credentialSubject,
+
     source: 'qr_jwt_claim',
     importedAt,
   };
