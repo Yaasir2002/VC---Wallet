@@ -1,6 +1,3 @@
-import { Resolver } from 'did-resolver';
-import { getResolver as getEthrResolver } from 'ethr-did-resolver';
-
 export type DIDDocument = {
   id: string;
   verificationMethod?: VerificationMethod[];
@@ -113,46 +110,13 @@ async function resolveDidWeb(did: string): Promise<DIDResolutionResult> {
   }
 }
 
-async function resolveDidEthr(did: string): Promise<DIDResolutionResult> {
-  try {
-    const ethrResolverRegistry = {
-      ...getEthrResolver({
-        networks: [
-          {
-            name: 'mainnet',
-            rpcUrl: 'https://cloudflare-eth.com',
-          },
-        ],
-      }),
-    } as any;
-
-    const resolver = new Resolver(ethrResolverRegistry);
-
-    const result = await resolver.resolve(did);
-
-    if (result.didResolutionMetadata?.error) {
-      return {
-        did,
-        didDocument: null,
-        error: String(result.didResolutionMetadata.error),
-      };
-    }
-
-    return {
-      did,
-      didDocument: (result.didDocument as DIDDocument) ?? null,
-      error: result.didDocument ? undefined : 'DID document tidak ditemukan',
-    };
-  } catch (error) {
-    return {
-      did,
-      didDocument: null,
-      error:
-        error instanceof Error
-          ? error.message
-          : 'Gagal resolve did:ethr',
-    };
-  }
+function resolveDidEthr(did: string): DIDResolutionResult {
+  return {
+    did,
+    didDocument: null,
+    error:
+      'did:ethr dinonaktifkan untuk mengurangi dependency Ethereum di aplikasi mobile. Aktifkan kembali ethr-did-resolver jika benar-benar diperlukan.',
+  };
 }
 
 function resolveDidExample(did: string): DIDResolutionResult {

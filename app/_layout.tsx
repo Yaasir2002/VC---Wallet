@@ -1,5 +1,4 @@
 import 'react-native-get-random-values';
-import '@ethersproject/shims';
 import 'react-native-url-polyfill/auto';
 
 import { Buffer } from 'buffer';
@@ -97,16 +96,16 @@ function AuthGate() {
       }
 
       if (
-          onboardingDone &&
-          profileExists &&
-          didExists &&
-          !pinExists &&
-          !isCreatePinRoute &&
-          !isBackupMnemonicRoute
-        ) {
-          router.replace('/auth/create-pin');
-          return;
-        }
+        onboardingDone &&
+        profileExists &&
+        didExists &&
+        !pinExists &&
+        !isCreatePinRoute &&
+        !isBackupMnemonicRoute
+      ) {
+        router.replace('/auth/create-pin');
+        return;
+      }
 
       if (
         onboardingDone &&
