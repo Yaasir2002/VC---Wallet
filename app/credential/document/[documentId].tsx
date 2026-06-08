@@ -20,6 +20,7 @@ import {
   createSignedPresentationJWT,
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
+import { getDID } from '../../../src/Storage/didStorage';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
@@ -178,6 +179,7 @@ export default function CredentialDocumentDetailScreen() {
   const [qrWarning, setQrWarning] = useState('');
   const [loading, setLoading] = useState(false);
   const [showFullIssuerJwt, setShowFullIssuerJwt] = useState(false);
+  const [showFullPresentationJwt, setShowFullPresentationJwt] = useState(false);
 
   const [toast, setToast] = useState<ToastState>({
     visible: false,
@@ -216,6 +218,12 @@ export default function CredentialDocumentDetailScreen() {
   const qrJwt = presentationJwt.trim();
   const isPresentationJwtValid = isJwtString(qrJwt);
 
+  const presentationJwtPreview = isPresentationJwtValid
+    ? showFullPresentationJwt
+      ? qrJwt
+      : shortenJwt(qrJwt)
+    : '';
+
   const loadDocument = useCallback(async () => {
     try {
       if (!documentId) {
@@ -239,6 +247,7 @@ export default function CredentialDocumentDetailScreen() {
       setPresentationMeta(null);
       setQrWarning('');
       setShowFullIssuerJwt(false);
+      setShowFullPresentationJwt(false);
     } catch {
       Alert.alert('Error', 'Gagal mengambil detail dokumen credential');
     } finally {
@@ -265,12 +274,31 @@ export default function CredentialDocumentDetailScreen() {
         return;
       }
 
+      const issuerJwt = getCredentialJwtFromStoredCredential(mainCredential);
+
+      if (!issuerJwt) {
+        showToast(
+          'Raw VC JWT dari issuer tidak tersedia. Credential ini belum bisa dibuat menjadi VP JWT.',
+          'error'
+        );
+        return;
+      }
+
+      const didData = await getDID();
+
+      if (!didData?.did || !didData.did.startsWith('did:')) {
+        showToast('Holder DID tidak ditemukan. Silakan buka ulang wallet.', 'error');
+        return;
+      }
+
       setLoading(true);
       setQrWarning('');
       setPresentationJwt('');
       setPresentationMeta(null);
+      setShowFullPresentationJwt(false);
 
       const result = await createSignedPresentationJWT({
+        holderDid: didData.did,
         credentials: [mainCredential],
       });
 
@@ -283,7 +311,7 @@ export default function CredentialDocumentDetailScreen() {
       setPresentationJwt(signedJwt);
       setPresentationMeta(result);
       setQrWarning('');
-      showToast('VP berhasil ditandatangani dan siap dipindai.', 'success');
+      showToast('VP JWT berhasil ditandatangani dan siap dipindai.', 'success');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
@@ -417,11 +445,12 @@ export default function CredentialDocumentDetailScreen() {
               <View style={styles.sectionIconBlue}>
                 <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
               </View>
-              <Text style={styles.sectionTitle}>Signed Presentation QR</Text>
+              <Text style={styles.sectionTitle}>Signed VP JWT QR</Text>
             </View>
 
             <Text style={styles.presentationDescription}>
-              QR ini berisi signed VP JWT untuk dibagikan kepada verifier.
+              QR ini berisi VP JWT yang ditandatangani holder. Di dalam VP
+              terdapat VC JWT asli dari issuer dalam format EnvelopedVerifiableCredential.
             </Text>
 
             <View style={styles.qrBox}>
@@ -430,7 +459,7 @@ export default function CredentialDocumentDetailScreen() {
 
             <View style={styles.jwtPreviewBox}>
               <Text style={styles.jwtPreviewText} selectable>
-                {shortenJwt(qrJwt)}
+                {presentationJwtPreview}
               </Text>
             </View>
 
@@ -446,10 +475,26 @@ export default function CredentialDocumentDetailScreen() {
               </Text>
             </View>
 
-            <Pressable style={styles.fullWidthCopyButton} onPress={handleCopyPresentationJWT}>
-              <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.copyJwtButtonText}>Copy Signed VP JWT</Text>
-            </Pressable>
+            <View style={styles.jwtButtonRow}>
+              <Pressable
+                style={styles.outlineJwtButton}
+                onPress={() => setShowFullPresentationJwt((current) => !current)}
+              >
+                <Ionicons
+                  name={showFullPresentationJwt ? 'eye-off-outline' : 'eye-outline'}
+                  size={16}
+                  color="#2563EB"
+                />
+                <Text style={styles.outlineJwtButtonText}>
+                  {showFullPresentationJwt ? 'Hide JWT' : 'Show Full JWT'}
+                </Text>
+              </Pressable>
+
+              <Pressable style={styles.copyJwtButton} onPress={handleCopyPresentationJWT}>
+                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.copyJwtButtonText}>Copy VP JWT</Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
 
@@ -923,17 +968,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: '#2563EB',
     paddingVertical: 11,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  fullWidthCopyButton: {
-    marginTop: 14,
-    borderRadius: 14,
-    backgroundColor: '#2563EB',
-    paddingVertical: 12,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',

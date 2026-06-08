@@ -1,7 +1,11 @@
 import { createJWT } from 'did-jwt';
 
 import { VerifiableCredentialV2 } from '../types/vc';
-import { createCredentialId, VC_EXAMPLES_V2_CONTEXT, VC_V2_CONTEXT } from './credentialV2Service';
+import {
+  createCredentialId,
+  VC_EXAMPLES_V2_CONTEXT,
+  VC_V2_CONTEXT,
+} from './credentialV2Service';
 import { getWalletSigner } from './walletSigner';
 
 export type SignVcJwtWithWalletParams = {
@@ -18,8 +22,15 @@ export type SignVcJwtWithWalletParams = {
 
 export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') return false;
-  const parts = value.trim().split('.');
-  return parts.length === 3 && parts.every((part) => part.length > 0);
+
+  const trimmed = value.trim();
+  const parts = trimmed.split('.');
+
+  return (
+    trimmed.length > 0 &&
+    parts.length === 3 &&
+    parts.every((part) => part.trim().length > 0)
+  );
 }
 
 export async function signCredentialObjectAsJwt(
@@ -42,7 +53,7 @@ export async function signCredentialObjectAsJwt(
     alg: wallet.alg,
     header: {
       alg: wallet.alg,
-      iss: wallet.did,
+      typ: 'JWT',
       kid: wallet.kid,
     } as any,
   } as any);
@@ -56,7 +67,8 @@ export async function signCredentialObjectAsJwt(
 
 export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   const wallet = await getWalletSigner();
-  const issuanceDate = params.issuanceDate || params.validFrom || new Date().toISOString();
+  const issuanceDate =
+    params.issuanceDate || params.validFrom || new Date().toISOString();
 
   const credentialSubject = {
     id: params.subjectDid,
@@ -68,7 +80,7 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
 
   const credential: VerifiableCredentialV2 = {
     '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
-    type: ['VerifiableCredential'],
+    type: ['VerifiableCredential', ...(params.additionalTypes || [])],
     id: createCredentialId(),
     issuer: wallet.did,
     issuanceDate,
@@ -106,29 +118,50 @@ export async function signVpJwtWithWallet(params: {
   holderDid: string;
   vp?: {
     '@context': string[];
-    type: string[];
-    holder: string;
+    type: string | string[];
+    holder?: string;
     verifiableCredential: unknown[];
   };
   verifiableCredential?: unknown[];
 }) {
   const wallet = await getWalletSigner();
 
+  if (!params.holderDid?.startsWith('did:')) {
+    throw new Error('Holder DID tidak valid.');
+  }
+
   if (params.holderDid !== wallet.did) {
     throw new Error('Holder DID harus sama dengan DID wallet.');
   }
 
-  const credentials =
-    params.vp?.verifiableCredential || params.verifiableCredential || [];
+  const vp = params.vp || {
+    '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+    type: 'VerifiablePresentation',
+    holder: params.holderDid,
+    verifiableCredential: params.verifiableCredential || [],
+  };
+
+  const credentials = vp.verifiableCredential || [];
 
   if (!Array.isArray(credentials) || credentials.length === 0) {
     throw new Error('Minimal 1 credential harus dimasukkan ke presentation.');
   }
 
+  const now = Math.floor(Date.now() / 1000);
+
   const payload = {
-    '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
-    type: ['VerifiableCredential'],
-    ...(credentials[0] as Record<string, unknown>),
+    iss: wallet.did,
+    sub: wallet.did,
+    holder: wallet.did,
+    iat: now,
+    nbf: now,
+    jti: `urn:uuid:vp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    vp: {
+      '@context': vp['@context'] || [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+      type: vp.type || 'VerifiablePresentation',
+      holder: vp.holder || wallet.did,
+      verifiableCredential: credentials,
+    },
   };
 
   const jwt = await createJWT(payload, {
@@ -137,7 +170,7 @@ export async function signVpJwtWithWallet(params: {
     alg: wallet.alg,
     header: {
       alg: wallet.alg,
-      iss: wallet.did,
+      typ: 'JWT',
       kid: wallet.kid,
     } as any,
   } as any);
