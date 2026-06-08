@@ -21,6 +21,7 @@ import {
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
 import { getDID } from '../../../src/Storage/didStorage';
+import { getDocumentIcon } from '../../../src/utils/credentialUtils';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
@@ -55,6 +56,18 @@ function isJwtString(value: unknown): value is string {
   );
 }
 
+function stringifyValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '-';
+  }
+}
+
 function getIssuerText(issuer: unknown): string {
   if (!issuer) return 'Unknown Issuer';
   if (typeof issuer === 'string') return issuer;
@@ -72,58 +85,26 @@ function normalizeLabel(key: string): string {
     Nama: 'Nama',
     nama: 'Nama',
     fullName: 'Nama',
+    attributeName: 'Nama Atribut',
+    attributeValue: 'Nilai Atribut',
+    attributeType: 'Tipe Atribut',
     NIK: 'NIK',
     nik: 'NIK',
-    'Tempat Lahir': 'Tempat Lahir',
-    tempatLahir: 'Tempat Lahir',
-    birthPlace: 'Tempat Lahir',
-    'Tanggal Lahir': 'Tanggal Lahir',
-    tanggalLahir: 'Tanggal Lahir',
-    birthDate: 'Tanggal Lahir',
-    'Jenis Kelamin': 'Jenis Kelamin',
-    jenisKelamin: 'Jenis Kelamin',
-    gender: 'Jenis Kelamin',
-    Alamat: 'Alamat',
-    alamat: 'Alamat',
-    address: 'Alamat',
-    'RT/RW': 'RT/RW',
-    rtRw: 'RT/RW',
-    'Kelurahan/Desa': 'Kelurahan/Desa',
-    kelurahanDesa: 'Kelurahan/Desa',
-    Kecamatan: 'Kecamatan',
-    kecamatan: 'Kecamatan',
-    Agama: 'Agama',
-    agama: 'Agama',
-    'Status Perkawinan': 'Status Perkawinan',
-    statusPerkawinan: 'Status Perkawinan',
-    maritalStatus: 'Status Perkawinan',
-    Pekerjaan: 'Pekerjaan',
-    pekerjaan: 'Pekerjaan',
-    occupation: 'Pekerjaan',
-    Kewarganegaraan: 'Kewarganegaraan',
-    kewarganegaraan: 'Kewarganegaraan',
-    citizenship: 'Kewarganegaraan',
-    'Berlaku Hingga': 'Berlaku Hingga',
-    berlakuHingga: 'Berlaku Hingga',
-    validUntilText: 'Berlaku Hingga',
-    'Nim ': 'NIM',
     Nim: 'NIM',
     nim: 'NIM',
+    studentId: 'NIM',
+    documentId: 'Document ID',
+    documentType: 'Document Type',
+    documentName: 'Document Name',
+    birthDate: 'Tanggal Lahir',
+    tanggalLahir: 'Tanggal Lahir',
+    address: 'Alamat',
+    alamat: 'Alamat',
+    validUntilText: 'Berlaku Hingga',
+    berlakuHingga: 'Berlaku Hingga',
   };
 
   return labels[key] || key;
-}
-
-function stringifyValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '-';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '-';
-  }
 }
 
 function shortenJwt(jwt: string): string {
@@ -157,6 +138,119 @@ function getCredentialJwtFromStoredCredential(
   const jwt = candidates.find((value) => isJwtString(value));
 
   return typeof jwt === 'string' ? jwt.trim() : null;
+}
+
+function getMainCredential(document: CredentialDocument): ModularCredential | null {
+  if (Array.isArray(document.credentials) && document.credentials.length > 0) {
+    return document.credentials[0];
+  }
+
+  return null;
+}
+
+function getDetailTitle(document: CredentialDocument): string {
+  if (document.documentName) return document.documentName;
+
+  if (document.documentType === 'KTP') return 'KTP (Kartu Tanda Penduduk)';
+  if (document.documentType === 'KTM') return 'KTM (Kartu Tanda Mahasiswa)';
+  if (document.documentType === 'SIM') return 'SIM (Surat Izin Mengemudi)';
+  if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
+
+  return 'Credential Document';
+}
+
+function getMainCredentialStatus(credential: ModularCredential) {
+  if (
+    credential.verificationStatus === 'signature_verified' ||
+    credential.signatureVerified === true ||
+    credential.metadata?.verificationStatus === 'signature_verified'
+  ) {
+    return { status: 'VALID', label: 'VALID' };
+  }
+
+  const validUntil =
+    credential.credentialSubject?.['Berlaku Hingga'] ||
+    credential.credentialSubject?.berlakuHingga ||
+    credential.credentialSubject?.validUntilText ||
+    credential.validUntil ||
+    credential.expirationDate;
+
+  if (!validUntil) {
+    return { status: 'VALID', label: 'VALID' };
+  }
+
+  const normalized = String(validUntil).trim().toLowerCase();
+
+  if (
+    normalized === 'seumur hidup' ||
+    normalized === 'berlaku seumur hidup' ||
+    normalized === 'lifetime'
+  ) {
+    return { status: 'VALID', label: 'VALID' };
+  }
+
+  const date = new Date(String(validUntil));
+
+  if (Number.isNaN(date.getTime())) {
+    return { status: 'VALID', label: 'VALID' };
+  }
+
+  const expired = date < new Date();
+
+  return {
+    status: expired ? 'EXPIRED' : 'VALID',
+    label: expired ? 'EXPIRED' : 'VALID',
+  };
+}
+
+function buildCredentialDetailItems(
+  document: CredentialDocument,
+  credential: ModularCredential
+): DetailItem[] {
+  const subject = credential.credentialSubject || {};
+  const hiddenKeys = new Set(['id']);
+
+  const subjectItems = Object.entries(subject)
+    .filter(([key]) => !hiddenKeys.has(key))
+    .map(([key, value]) => ({
+      key,
+      label: normalizeLabel(key),
+      value: stringifyValue(value),
+    }))
+    .filter((item) => item.value !== '-');
+
+  const baseItems: DetailItem[] = [
+    {
+      key: 'documentId',
+      label: 'Document ID',
+      value: document.documentId || credential.documentId || credential.id || '-',
+    },
+    {
+      key: 'documentType',
+      label: 'Document Type',
+      value: document.documentType || credential.documentType || '-',
+    },
+    {
+      key: 'issuer',
+      label: 'Issuer',
+      value: getIssuerText(credential.issuer),
+    },
+    {
+      key: 'issuanceDate',
+      label: 'Issuance Date',
+      value: stringifyValue(credential.issuanceDate),
+    },
+  ];
+
+  if (credential.expirationDate || credential.validUntil) {
+    baseItems.push({
+      key: 'expirationDate',
+      label: 'Expiration Date',
+      value: stringifyValue(credential.expirationDate || credential.validUntil),
+    });
+  }
+
+  return [...baseItems, ...subjectItems];
 }
 
 function InfoItem({ label, value }: { label: string; value: string }) {
@@ -406,33 +500,70 @@ export default function CredentialDocumentDetailScreen() {
         </View>
 
         <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionIconBlue}>
-              <Ionicons name="id-card-outline" size={22} color="#2563EB" />
-            </View>
-            <Text style={styles.sectionTitle}>Detail Data Credential</Text>
-          </View>
+          <Text style={styles.sectionTitle}>Detail Credential</Text>
 
-          {detailItems.length > 0 ? (
-            detailItems.map((item) => (
-              <InfoItem key={item.key} label={item.label} value={item.value} />
-            ))
-          ) : (
-            <Text style={styles.emptyText}>
-              Tidak ada detail data credential yang dapat ditampilkan.
-            </Text>
-          )}
+          {detailItems.map((item) => (
+            <InfoItem key={item.key} label={item.label} value={item.value} />
+          ))}
+        </View>
+
+        {shouldShowIssuerJwtCard ? (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Issuer VC JWT</Text>
+                <Text style={styles.sectionSubtitle}>
+                  JWT asli dari issuer yang akan dimasukkan ke VP JWT.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.jwtBox}>
+              <Text style={styles.jwtText} selectable>
+                {issuerJwtPreview}
+              </Text>
+            </View>
+
+            <View style={styles.rowActions}>
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => setShowFullIssuerJwt((current) => !current)}
+              >
+                <Ionicons
+                  name={showFullIssuerJwt ? 'contract-outline' : 'expand-outline'}
+                  size={18}
+                  color="#2563EB"
+                />
+                <Text style={styles.secondaryButtonText}>
+                  {showFullIssuerJwt ? 'Ringkas' : 'Lihat Full'}
+                </Text>
+              </Pressable>
+
+              <Pressable style={styles.secondaryButton} onPress={handleCopyCredentialJWT}>
+                <Ionicons name="copy-outline" size={18} color="#2563EB" />
+                <Text style={styles.secondaryButtonText}>Copy JWT</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Present Credential</Text>
+          <Text style={styles.sectionSubtitle}>
+            Buat Verifiable Presentation JWT dari credential ini agar dapat discan oleh verifier.
+          </Text>
 
           <AnimatedButton
-            style={styles.presentButton}
+            style={styles.primaryButton}
             onPress={handleConfirmAndSignPresentation}
+            disabled={loading}
           >
-            <Ionicons name="create-outline" size={22} color="#FFFFFF" />
-            <Text style={styles.presentButtonText}>Sign Presentation</Text>
+            <Ionicons name="qr-code-outline" size={22} color="#FFFFFF" />
+            <Text style={styles.primaryButtonText}>Buat Signed VP JWT</Text>
           </AnimatedButton>
         </View>
 
-        {qrWarning && !presentationJwt ? (
+        {qrWarning ? (
           <View style={styles.warningCard}>
             <Ionicons name="warning-outline" size={22} color="#F97316" />
             <Text style={styles.warningText}>{qrWarning}</Text>
@@ -440,30 +571,23 @@ export default function CredentialDocumentDetailScreen() {
         ) : null}
 
         {presentationJwt ? (
-          <View style={styles.presentationCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconBlue}>
-                <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
-              </View>
-              <Text style={styles.sectionTitle}>Signed VP JWT QR</Text>
-            </View>
-
-            <Text style={styles.presentationDescription}>
-              QR ini berisi VP JWT yang ditandatangani holder. Di dalam VP
-              terdapat VC JWT asli dari issuer dalam format EnvelopedVerifiableCredential.
+          <View style={styles.qrCard}>
+            <Text style={styles.sectionTitle}>Signed VP JWT QR</Text>
+            <Text style={styles.sectionSubtitle}>
+              QR ini berisi Verifiable Presentation JWT yang sudah ditandatangani holder.
             </Text>
 
             <View style={styles.qrBox}>
-              <QRCode value={qrJwt} size={220} />
+              <QRCode value={qrJwt} size={230} />
             </View>
 
-            <View style={styles.jwtPreviewBox}>
-              <Text style={styles.jwtPreviewText} selectable>
+            <View style={styles.jwtBox}>
+              <Text style={styles.jwtText} selectable>
                 {presentationJwtPreview}
               </Text>
             </View>
 
-            <View style={styles.presentationMetaBox}>
+            <View style={styles.metaBox}>
               <Text style={styles.metaText}>
                 Holder DID: {presentationMeta?.holderDid || '-'}
               </Text>
@@ -475,66 +599,26 @@ export default function CredentialDocumentDetailScreen() {
               </Text>
             </View>
 
-            <View style={styles.jwtButtonRow}>
+            <View style={styles.rowActions}>
               <Pressable
-                style={styles.outlineJwtButton}
-                onPress={() => setShowFullPresentationJwt((current) => !current)}
+                style={styles.secondaryButton}
+                onPress={() =>
+                  setShowFullPresentationJwt((current) => !current)
+                }
               >
                 <Ionicons
-                  name={showFullPresentationJwt ? 'eye-off-outline' : 'eye-outline'}
-                  size={16}
+                  name={showFullPresentationJwt ? 'contract-outline' : 'expand-outline'}
+                  size={18}
                   color="#2563EB"
                 />
-                <Text style={styles.outlineJwtButtonText}>
-                  {showFullPresentationJwt ? 'Hide JWT' : 'Show Full JWT'}
+                <Text style={styles.secondaryButtonText}>
+                  {showFullPresentationJwt ? 'Ringkas' : 'Lihat Full'}
                 </Text>
               </Pressable>
 
-              <Pressable style={styles.copyJwtButton} onPress={handleCopyPresentationJWT}>
-                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.copyJwtButtonText}>Copy VP JWT</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {shouldShowIssuerJwtCard ? (
-          <View style={styles.issuerJwtCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconGreen}>
-                <Ionicons name="ribbon-outline" size={22} color="#16A34A" />
-              </View>
-              <Text style={styles.sectionTitle}>Issuer JWT Credential</Text>
-            </View>
-
-            <Text style={styles.issuerJwtDescription}>
-              Raw VC JWT asli dari issuer yang tersimpan bersama credential ini.
-            </Text>
-
-            <View style={styles.jwtPreviewBox}>
-              <Text style={styles.jwtPreviewText} selectable>
-                {issuerJwtPreview}
-              </Text>
-            </View>
-
-            <View style={styles.jwtButtonRow}>
-              <Pressable
-                style={styles.outlineJwtButton}
-                onPress={() => setShowFullIssuerJwt((current) => !current)}
-              >
-                <Ionicons
-                  name={showFullIssuerJwt ? 'eye-off-outline' : 'eye-outline'}
-                  size={16}
-                  color="#2563EB"
-                />
-                <Text style={styles.outlineJwtButtonText}>
-                  {showFullIssuerJwt ? 'Hide JWT' : 'Show Full JWT'}
-                </Text>
-              </Pressable>
-
-              <Pressable style={styles.copyJwtButton} onPress={handleCopyCredentialJWT}>
-                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.copyJwtButtonText}>Copy JWT</Text>
+              <Pressable style={styles.secondaryButton} onPress={handleCopyPresentationJWT}>
+                <Ionicons name="copy-outline" size={18} color="#2563EB" />
+                <Text style={styles.secondaryButtonText}>Copy VP JWT</Text>
               </Pressable>
             </View>
           </View>
@@ -547,183 +631,10 @@ export default function CredentialDocumentDetailScreen() {
         visible={toast.visible}
         message={toast.message}
         type={toast.type}
-        onHide={() => setToast({ ...toast, visible: false })}
+        onHide={() => setToast((current) => ({ ...current, visible: false }))}
       />
     </View>
   );
-}
-
-function getDetailTitle(document: CredentialDocument) {
-  if (document.documentType === 'KTP') return 'KTP (Kartu Tanda Penduduk)';
-  if (document.documentType === 'KTM') return 'KTM (Kartu Tanda Mahasiswa)';
-  if (document.documentType === 'SIM') return 'SIM (Surat Izin Mengemudi)';
-  if (document.documentType === 'IJAZAH') return 'Ijazah Digital';
-
-  return document.documentName || 'Credential Document';
-}
-
-function getDocumentIcon(documentType: string): any {
-  if (documentType === 'KTP') return 'id-card-outline';
-  if (documentType === 'KTM') return 'school-outline';
-  if (documentType === 'SIM') return 'car-outline';
-  if (documentType === 'IJAZAH') return 'school-outline';
-
-  return 'document-text-outline';
-}
-
-function getMainCredential(document: CredentialDocument): ModularCredential | null {
-  const credentials = document.credentials ?? [];
-
-  return (
-    credentials.find((credential) => {
-      const subject = credential.credentialSubject || {};
-
-      return Boolean(subject.Nama || subject.nama || subject.NIK || subject.nik);
-    }) ||
-    credentials[0] ||
-    null
-  );
-}
-
-function getMainCredentialStatus(credential: ModularCredential) {
-  if (
-    credential.verificationStatus === 'signature_verified' ||
-    credential.signatureVerified === true ||
-    credential.metadata?.verificationStatus === 'signature_verified'
-  ) {
-    return { status: 'VALID', label: 'Signature Verified' };
-  }
-
-  const validUntil =
-    credential.credentialSubject?.['Berlaku Hingga'] ||
-    credential.credentialSubject?.berlakuHingga ||
-    credential.credentialSubject?.validUntilText;
-
-  if (!validUntil) {
-    return { status: 'VALID', label: 'VALID' };
-  }
-
-  const normalized = String(validUntil).trim().toLowerCase();
-
-  if (
-    normalized === 'seumur hidup' ||
-    normalized === 'berlaku seumur hidup' ||
-    normalized === 'lifetime'
-  ) {
-    return { status: 'VALID', label: 'VALID' };
-  }
-
-  const date = new Date(String(validUntil));
-
-  if (Number.isNaN(date.getTime())) {
-    return { status: 'VALID', label: 'VALID' };
-  }
-
-  const expired = date < new Date();
-
-  return {
-    status: expired ? 'EXPIRED' : 'VALID',
-    label: expired ? 'EXPIRED' : 'VALID',
-  };
-}
-
-function buildCredentialDetailItems(
-  document: CredentialDocument,
-  credential: ModularCredential
-): DetailItem[] {
-  const decodedCredential = isRecord(credential.decodedCredential)
-    ? credential.decodedCredential
-    : credential;
-
-  const subject = isRecord(decodedCredential.credentialSubject)
-    ? decodedCredential.credentialSubject
-    : credential.credentialSubject || {};
-
-  const items: DetailItem[] = [];
-
-  const preferredOrder = [
-    'Nama',
-    'nama',
-    'fullName',
-    'NIK',
-    'nik',
-    'Tempat Lahir',
-    'tempatLahir',
-    'Tanggal Lahir',
-    'tanggalLahir',
-    'Jenis Kelamin',
-    'jenisKelamin',
-    'Alamat',
-    'alamat',
-    'RT/RW',
-    'rtRw',
-    'Kelurahan/Desa',
-    'kelurahanDesa',
-    'Kecamatan',
-    'kecamatan',
-    'Agama',
-    'agama',
-    'Status Perkawinan',
-    'statusPerkawinan',
-    'Pekerjaan',
-    'pekerjaan',
-    'Kewarganegaraan',
-    'kewarganegaraan',
-    'Berlaku Hingga',
-    'berlakuHingga',
-    'Nim ',
-    'Nim',
-    'nim',
-  ];
-
-  const ignoredKeys = new Set([
-    'id',
-    'documentId',
-    'documentType',
-    'documentName',
-  ]);
-
-  const addedLabels = new Set<string>();
-
-  function pushItem(key: string, value: unknown) {
-    if (ignoredKeys.has(key)) return;
-    if (value === undefined || value === null || value === '') return;
-
-    const label = normalizeLabel(key);
-
-    if (addedLabels.has(label)) return;
-
-    items.push({
-      key,
-      label,
-      value: stringifyValue(value),
-    });
-
-    addedLabels.add(label);
-  }
-
-  for (const key of preferredOrder) {
-    pushItem(key, subject[key]);
-  }
-
-  Object.entries(subject).forEach(([key, value]) => {
-    pushItem(key, value);
-  });
-
-  if (items.length > 0) return items;
-
-  return [
-    {
-      key: 'documentName',
-      label: 'Nama Dokumen',
-      value: document.documentName,
-    },
-    {
-      key: 'documentType',
-      label: 'Jenis Dokumen',
-      value: document.documentType,
-    },
-  ];
 }
 
 const styles = StyleSheet.create({
@@ -733,25 +644,26 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 42,
   },
   loadingContainer: {
     flex: 1,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+    padding: 24,
   },
   loadingText: {
-    fontSize: 15,
-    color: '#6B7280',
+    marginTop: 12,
+    color: '#64748B',
+    fontSize: 14,
     fontWeight: '700',
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 22,
+    marginBottom: 18,
   },
   backText: {
     fontSize: 15,
@@ -759,17 +671,17 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   headerCard: {
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    padding: 24,
+    borderRadius: 26,
+    padding: 22,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     marginBottom: 16,
+    alignItems: 'center',
   },
   documentIcon: {
-    width: 82,
-    height: 82,
+    width: 78,
+    height: 78,
     borderRadius: 24,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
@@ -777,15 +689,23 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   documentTitle: {
-    fontSize: 22,
-    color: '#111827',
+    fontSize: 24,
     fontWeight: '900',
+    color: '#111827',
     textAlign: 'center',
   },
   documentSubtitle: {
-    marginTop: 6,
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
     color: '#64748B',
-    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  issuerText: {
+    marginTop: 8,
+    color: '#64748B',
+    fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -811,13 +731,6 @@ const styles = StyleSheet.create({
   statusTextExpired: {
     color: '#991B1B',
   },
-  issuerText: {
-    marginTop: 10,
-    color: '#475569',
-    fontSize: 13,
-    textAlign: 'center',
-    fontWeight: '700',
-  },
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -826,54 +739,30 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     marginBottom: 16,
   },
-  issuerJwtCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    marginBottom: 16,
-  },
-  presentationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    marginBottom: 16,
-  },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 14,
   },
-  sectionIconBlue: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionIconGreen: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: '#DCFCE7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   sectionTitle: {
-    flex: 1,
-    fontSize: 17,
-    color: '#111827',
+    fontSize: 18,
     fontWeight: '900',
+    color: '#111827',
+  },
+  sectionSubtitle: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    lineHeight: 18,
   },
   infoItem: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
   infoLabel: {
     color: '#64748B',
@@ -883,103 +772,11 @@ const styles = StyleSheet.create({
   },
   infoValue: {
     color: '#111827',
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 21,
-  },
-  emptyText: {
-    color: '#94A3B8',
     fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
   },
-  issuerJwtDescription: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '700',
-    marginBottom: 12,
-  },
-  presentationDescription: {
-    color: '#64748B',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '700',
-    marginBottom: 14,
-  },
-  qrBox: {
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 14,
-  },
-  jwtPreviewBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-  },
-  jwtPreviewText: {
-    color: '#0F172A',
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  presentationMetaBox: {
-    marginTop: 12,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    gap: 4,
-  },
-  metaText: {
-    color: '#475569',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  jwtButtonRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
-  },
-  outlineJwtButton: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  outlineJwtButtonText: {
-    color: '#2563EB',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  copyJwtButton: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: '#2563EB',
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  copyJwtButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  presentButton: {
+  primaryButton: {
     marginTop: 16,
     backgroundColor: '#2563EB',
     borderRadius: 18,
@@ -989,10 +786,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  presentButtonText: {
+  primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '900',
+  },
+  rowActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#DBEAFE',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  secondaryButtonText: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  jwtBox: {
+    marginTop: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+  },
+  jwtText: {
+    color: '#0F172A',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   warningCard: {
     backgroundColor: '#FFF7ED',
@@ -1009,6 +841,36 @@ const styles = StyleSheet.create({
     color: '#C2410C',
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '700',
+  },
+  qrCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginBottom: 16,
+  },
+  qrBox: {
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 16,
+    marginBottom: 14,
+  },
+  metaBox: {
+    marginTop: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    gap: 4,
+  },
+  metaText: {
+    color: '#475569',
+    fontSize: 12,
     fontWeight: '700',
   },
 });

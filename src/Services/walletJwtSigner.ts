@@ -52,6 +52,17 @@ export async function signCredentialObjectAsJwt(
     validFrom: credential.validFrom,
     validUntil: credential.validUntil,
     credentialSubject: credential.credentialSubject,
+    vc: {
+      '@context': credential['@context'],
+      type: credential.type,
+      id: credential.id,
+      issuer: typeof credential.issuer === 'string' ? credential.issuer : wallet.did,
+      issuanceDate: credential.issuanceDate,
+      expirationDate: credential.expirationDate,
+      validFrom: credential.validFrom,
+      validUntil: credential.validUntil,
+      credentialSubject: credential.credentialSubject,
+    },
   };
 
   const jwt = await createJWT(payload, {
@@ -124,7 +135,20 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     issuer: wallet.did,
     credentialSubject,
     type: credential.type,
-    vc: credential,
+    vc: {
+      ...credential,
+      jwt,
+      rawJwt: jwt,
+      vcJwt: jwt,
+      securedCredential: jwt,
+      proof: {
+        type: 'JwtProof2020',
+        jwt,
+        created: issuanceDate,
+        proofPurpose: 'assertionMethod',
+        verificationMethod: wallet.kid,
+      },
+    },
   };
 }
 

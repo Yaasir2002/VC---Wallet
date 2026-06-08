@@ -19,13 +19,18 @@ function getAttributeLabel(credential: ModularCredential): string {
     (typeof subject.Nama === 'string' ? subject.Nama : undefined) ||
     (typeof subject.nama === 'string' ? subject.nama : undefined) ||
     (typeof subject.fullName === 'string' ? subject.fullName : undefined) ||
+    (typeof subject.attributeName === 'string' ? subject.attributeName : undefined) ||
     credential.documentName ||
     credential.id ||
     'Credential'
   );
 }
 
-function getIssuerJwtFromCredential(credential: ModularCredential): string | null {
+export function getCredentialJwtFromStoredCredential(
+  credential: ModularCredential | null | undefined
+): string | null {
+  if (!credential) return null;
+
   const normalized = normalizeToVcV2(credential);
 
   const proofJwt =
@@ -85,7 +90,7 @@ export async function createSignedPresentationJWT(params: {
 
   try {
     const issuerCredentialJwts = params.credentials
-      .map((credential) => getIssuerJwtFromCredential(credential))
+      .map((credential) => getCredentialJwtFromStoredCredential(credential))
       .filter((jwt): jwt is string => Boolean(jwt));
 
     if (issuerCredentialJwts.length === 0) {

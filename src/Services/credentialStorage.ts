@@ -3,6 +3,11 @@
 import { saveVC, getAllVCs, getVCById } from '../Storage/vcStorage';
 import { ClaimedJwtCredential } from '../types/credential';
 import { VerifiableCredentialV2 } from '../types/vc';
+import { isJwtString } from './walletJwtSigner';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
 
 export async function isCredentialIdAlreadySaved(
   credentialId: string
@@ -22,21 +27,22 @@ export function getCredentialJwtFromStoredCredential(
 ): string | null {
   if (!credential) return null;
 
+  const proofJwt =
+    isRecord(credential.proof) && isJwtString(credential.proof.jwt)
+      ? credential.proof.jwt
+      : null;
+
   const candidates = [
     credential.vcJwt,
     credential.rawJwt,
     credential.jwt,
     credential.securedCredential,
+    proofJwt,
   ];
 
-  const jwt = candidates.find(
-    (value) =>
-      typeof value === 'string' &&
-      value.trim().split('.').length === 3 &&
-      value.trim().length > 0
-  );
+  const jwt = candidates.find((value) => isJwtString(value));
 
-  return jwt ? jwt.trim() : null;
+  return typeof jwt === 'string' ? jwt.trim() : null;
 }
 
 export async function saveClaimedJwtCredential(
@@ -54,6 +60,13 @@ export async function saveClaimedJwtCredential(
 
   const credentialToSave: VerifiableCredentialV2 & Record<string, unknown> = {
     ...decoded,
+
+    '@context': Array.isArray(decoded['@context'])
+      ? decoded['@context']
+      : [
+          'https://www.w3.org/ns/credentials/v2',
+          'https://www.w3.org/ns/credentials/examples/v2',
+        ],
 
     id: claimed.id,
     issuer: claimed.issuer,
@@ -76,7 +89,9 @@ export async function saveClaimedJwtCredential(
     documentType: 'CUSTOM',
     documentName:
       Array.isArray(decoded.type) && decoded.type.length > 1
-        ? decoded.type.filter((item) => item !== 'VerifiableCredential').join(', ')
+        ? decoded.type
+            .filter((item) => item !== 'VerifiableCredential')
+            .join(', ')
         : 'Verified Credential',
 
     source: 'qr_jwt_claim',
