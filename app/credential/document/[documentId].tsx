@@ -20,13 +20,10 @@ import {
   createSignedPresentationJWT,
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
-import { isJwtString } from '../../../src/Services/walletJwtSigner';
-import { MAX_PRESENTATION_QR_BYTES } from '../../../src/config/securityLimits';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
 import LoadingOverlay from '../../../components/ui/LoadingOverlay';
-import PresentationQrView from '../../../components/PresentationQrView';
 
 type ToastState = {
   visible: boolean;
@@ -198,6 +195,24 @@ export default function CredentialDocumentDetailScreen() {
     return buildCredentialDetailItems(document, mainCredential);
   }, [document, mainCredential]);
 
+  const credentialJwt = useMemo(
+    () => getCredentialJwtFromStoredCredential(mainCredential),
+    [mainCredential]
+  );
+
+  const issuerSignatureVerified =
+    mainCredential?.verificationStatus === 'signature_verified' ||
+    mainCredential?.signatureVerified === true ||
+    mainCredential?.metadata?.verificationStatus === 'signature_verified';
+
+  const shouldShowIssuerJwtCard = Boolean(credentialJwt && issuerSignatureVerified);
+
+  const issuerJwtPreview = credentialJwt
+    ? showFullIssuerJwt
+      ? credentialJwt
+      : shortenJwt(credentialJwt)
+    : '';
+
   const qrJwt = presentationJwt.trim();
   const isPresentationJwtValid = isJwtString(qrJwt);
 
@@ -263,13 +278,12 @@ export default function CredentialDocumentDetailScreen() {
         throw new Error('JWT hasil signing tidak valid.');
       }
 
-      if (byteLength(result.jwt) > MAX_PRESENTATION_QR_BYTES) {
-        throw new Error('Payload QR terlalu besar.');
-      }
+      const signedJwt = result.jwt.trim();
 
-      setPresentationJwt(result.jwt);
+      setPresentationJwt(signedJwt);
       setPresentationMeta(result);
-      showToast('Credential berhasil ditandatangani sebagai JWT.', 'success');
+      setQrWarning('');
+      showToast('VP berhasil ditandatangani dan siap dipindai.', 'success');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
@@ -281,7 +295,17 @@ export default function CredentialDocumentDetailScreen() {
     }
   }
 
-  async function handleCopyJWT() {
+  async function handleCopyCredentialJWT() {
+    if (!credentialJwt) {
+      showToast('Issuer JWT Credential tidak tersedia.', 'error');
+      return;
+    }
+
+    await Clipboard.setStringAsync(credentialJwt);
+    showToast('Issuer JWT Credential berhasil disalin.', 'success');
+  }
+
+  async function handleCopyPresentationJWT() {
     if (!isPresentationJwtValid) {
       showToast('Signed VP JWT tidak valid sehingga tidak bisa disalin.', 'error');
       return;
@@ -371,29 +395,6 @@ export default function CredentialDocumentDetailScreen() {
             </Text>
           )}
 
-          <View style={styles.jwtActionCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.jwtActionTitle}>Credential JWT</Text>
-              <Text style={styles.jwtActionSubtitle}>
-                {credentialJwt
-                  ? 'JWT credential tersedia dan bisa disalin.'
-                  : 'JWT credential tidak tersedia.'}
-              </Text>
-            </View>
-
-            <Pressable
-              style={[
-                styles.smallCopyButton,
-                !credentialJwt ? styles.disabledButton : null,
-              ]}
-              onPress={handleCopyCredentialJWT}
-              disabled={!credentialJwt}
-            >
-              <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.smallCopyButtonText}>Copy JWT</Text>
-            </Pressable>
-          </View>
-
           <AnimatedButton
             style={styles.presentButton}
             onPress={handleConfirmAndSignPresentation}
@@ -411,54 +412,86 @@ export default function CredentialDocumentDetailScreen() {
         ) : null}
 
         {presentationJwt ? (
-          <View style={styles.qrCard}>
-            <Text style={styles.qrTitle}>Signed JWT QR</Text>
-
-            <View style={styles.qrStatusBox}>
-              <Text style={styles.qrStatusText}>Status: JWT Valid</Text>
-              <Text style={styles.qrStatusText}>
-                JWT Parts: {qrJwt.split('.').length}
-              </Text>
-              <Text style={styles.qrStatusText}>
-                Credential Count: {presentationMeta?.credentialCount || 1}
-              </Text>
-              <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
+          <View style={styles.presentationCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIconBlue}>
+                <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
+              </View>
+              <Text style={styles.sectionTitle}>Signed Presentation QR</Text>
             </View>
 
-            {canRenderQr ? (
-              <View style={styles.qrBox}>
-                <QRCode value={qrJwt} size={220} />
-              </View>
-            ) : (
-              <View style={styles.warningCard}>
-                <Ionicons name="warning-outline" size={22} color="#F97316" />
-                <Text style={styles.warningText}>Payload QR terlalu besar.</Text>
-              </View>
-            )}
-
-            <Text style={styles.qrNote}>
-              QR ini berisi JWT compact: header.payload.signature.
+            <Text style={styles.presentationDescription}>
+              QR ini berisi signed VP JWT untuk dibagikan kepada verifier.
             </Text>
 
-            <Text style={styles.jwtLabel}>Preview JWT</Text>
-            <Text style={styles.jwtPreview} numberOfLines={4}>
-              {qrJwt}
-            </Text>
+            <View style={styles.qrBox}>
+              <QRCode value={qrJwt} size={220} />
+            </View>
+
+            <View style={styles.jwtPreviewBox}>
+              <Text style={styles.jwtPreviewText} selectable>
+                {shortenJwt(qrJwt)}
+              </Text>
+            </View>
+
+            <View style={styles.presentationMetaBox}>
+              <Text style={styles.metaText}>
+                Holder DID: {presentationMeta?.holderDid || '-'}
+              </Text>
+              <Text style={styles.metaText}>
+                Credential Count: {presentationMeta?.credentialCount || 1}
+              </Text>
+              <Text style={styles.metaText}>
+                Algorithm: {presentationMeta?.algorithm || '-'}
+              </Text>
+            </View>
+
+            <Pressable style={styles.fullWidthCopyButton} onPress={handleCopyPresentationJWT}>
+              <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.copyJwtButtonText}>Copy Signed VP JWT</Text>
+            </Pressable>
           </View>
         ) : null}
 
-        {presentationJwt ? (
-          <View style={styles.sectionCard}>
-            <View style={styles.jwtHeader}>
-              <Text style={styles.sectionTitle}>JWT Lengkap</Text>
-
-              <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
-                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.copyButtonText}>Copy JWT</Text>
-              </AnimatedButton>
+        {shouldShowIssuerJwtCard ? (
+          <View style={styles.issuerJwtCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIconGreen}>
+                <Ionicons name="ribbon-outline" size={22} color="#16A34A" />
+              </View>
+              <Text style={styles.sectionTitle}>Issuer JWT Credential</Text>
             </View>
 
-            <Text style={styles.jwtText}>{qrJwt}</Text>
+            <Text style={styles.issuerJwtDescription}>
+              Raw VC JWT asli dari issuer yang tersimpan bersama credential ini.
+            </Text>
+
+            <View style={styles.jwtPreviewBox}>
+              <Text style={styles.jwtPreviewText} selectable>
+                {issuerJwtPreview}
+              </Text>
+            </View>
+
+            <View style={styles.jwtButtonRow}>
+              <Pressable
+                style={styles.outlineJwtButton}
+                onPress={() => setShowFullIssuerJwt((current) => !current)}
+              >
+                <Ionicons
+                  name={showFullIssuerJwt ? 'eye-off-outline' : 'eye-outline'}
+                  size={16}
+                  color="#2563EB"
+                />
+                <Text style={styles.outlineJwtButtonText}>
+                  {showFullIssuerJwt ? 'Hide JWT' : 'Show Full JWT'}
+                </Text>
+              </Pressable>
+
+              <Pressable style={styles.copyJwtButton} onPress={handleCopyCredentialJWT}>
+                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.copyJwtButtonText}>Copy JWT</Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
       </ScrollView>
@@ -724,8 +757,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   statusText: {
-    fontWeight: '900',
     fontSize: 12,
+    fontWeight: '900',
   },
   statusTextValid: {
     color: '#166534',
@@ -734,11 +767,11 @@ const styles = StyleSheet.create({
     color: '#991B1B',
   },
   issuerText: {
-    color: '#64748B',
-    fontWeight: '700',
-    textAlign: 'center',
     marginTop: 10,
-    lineHeight: 20,
+    color: '#475569',
+    fontSize: 13,
+    textAlign: 'center',
+    fontWeight: '700',
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
@@ -746,6 +779,23 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  issuerJwtCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginBottom: 16,
+  },
+  presentationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -797,112 +847,124 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  warningCard: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  warningText: {
-    color: '#9A3412',
-    fontWeight: '800',
-    flex: 1,
-    lineHeight: 20,
-  },
-  qrCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  qrTitle: {
-    color: '#111827',
-    fontSize: 18,
-    fontWeight: '900',
+  issuerJwtDescription: {
+    color: '#64748B',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
     marginBottom: 12,
   },
-  qrStatusBox: {
-    alignSelf: 'stretch',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-  },
-  qrStatusText: {
-    color: '#166534',
-    fontWeight: '900',
+  presentationDescription: {
+    color: '#64748B',
     fontSize: 13,
-    marginBottom: 2,
+    lineHeight: 19,
+    fontWeight: '700',
+    marginBottom: 14,
   },
   qrBox: {
+    alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     padding: 16,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
   },
-  qrNote: {
-    color: '#64748B',
+  jwtPreviewBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+  },
+  jwtPreviewText: {
+    color: '#0F172A',
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '700',
-    textAlign: 'center',
+  },
+  presentationMetaBox: {
     marginTop: 12,
-    lineHeight: 18,
-  },
-  jwtLabel: {
-    color: '#111827',
-    fontWeight: '900',
-    fontSize: 13,
-    marginTop: 14,
-    alignSelf: 'stretch',
-  },
-  jwtPreview: {
-    color: '#334155',
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 8,
-    alignSelf: 'stretch',
+    gap: 4,
   },
-  jwtHeader: {
+  metaText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  jwtButtonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
+    gap: 10,
+    marginTop: 14,
   },
-  copyButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 12,
-    paddingVertical: 8,
+  outlineJwtButton: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 11,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  copyButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
+  outlineJwtButtonText: {
+    color: '#2563EB',
     fontSize: 12,
+    fontWeight: '900',
   },
-  jwtText: {
-    color: '#334155',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+  copyJwtButton: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: '#2563EB',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  fullWidthCopyButton: {
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  copyJwtButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  presentButton: {
+    marginTop: 16,
+    backgroundColor: '#2563EB',
+    borderRadius: 18,
+    paddingVertical: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  presentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 16,
     padding: 12,
     flexDirection: 'row',
     gap: 10,
