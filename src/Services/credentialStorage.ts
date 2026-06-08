@@ -1,19 +1,42 @@
-// File: src/services/credentialStorage.ts
+// File: src/Services/credentialStorage.ts
 
-import { saveVC, getAllVCs } from '../Storage/vcStorage';
+import { saveVC, getAllVCs, getVCById } from '../Storage/vcStorage';
 import { ClaimedJwtCredential } from '../types/credential';
 import { VerifiableCredentialV2 } from '../types/vc';
-
-function getCredentialIssuerText(issuer: VerifiableCredentialV2['issuer']): string {
-  if (typeof issuer === 'string') return issuer;
-  return issuer?.id || '-';
-}
 
 export async function isCredentialIdAlreadySaved(
   credentialId: string
 ): Promise<boolean> {
   const credentials = await getAllVCs();
   return credentials.some((credential) => credential.id === credentialId);
+}
+
+export async function getStoredCredentialById(
+  credentialId: string
+): Promise<VerifiableCredentialV2 | null> {
+  return getVCById(credentialId);
+}
+
+export function getCredentialJwtFromStoredCredential(
+  credential: VerifiableCredentialV2 | null | undefined
+): string | null {
+  if (!credential) return null;
+
+  const candidates = [
+    credential.vcJwt,
+    credential.rawJwt,
+    credential.jwt,
+    credential.securedCredential,
+  ];
+
+  const jwt = candidates.find(
+    (value) =>
+      typeof value === 'string' &&
+      value.trim().split('.').length === 3 &&
+      value.trim().length > 0
+  );
+
+  return jwt ? jwt.trim() : null;
 }
 
 export async function saveClaimedJwtCredential(
@@ -27,17 +50,20 @@ export async function saveClaimedJwtCredential(
 
   const decoded = claimed.decodedCredential;
   const now = claimed.importedAt;
+  const issuanceDate = decoded.issuanceDate || decoded.validFrom || now;
 
   const credentialToSave: VerifiableCredentialV2 & Record<string, unknown> = {
     ...decoded,
 
     id: claimed.id,
     issuer: claimed.issuer,
+    issuanceDate,
     credentialSubject: claimed.credentialSubject,
 
+    vcJwt: claimed.vcJwt,
     rawJwt: claimed.rawJwt,
-    jwt: claimed.rawJwt,
-    securedCredential: claimed.rawJwt,
+    jwt: claimed.vcJwt,
+    securedCredential: claimed.vcJwt,
 
     decodedHeader: claimed.decodedHeader,
     decodedCredential: claimed.decodedCredential,
@@ -55,11 +81,12 @@ export async function saveClaimedJwtCredential(
 
     source: 'qr_jwt_claim',
     importedAt: now,
+    verifiedAt: now,
 
     proof: {
       type: 'JwtProof2020',
-      jwt: claimed.rawJwt,
-      created: decoded.issuanceDate || decoded.validFrom || now,
+      jwt: claimed.vcJwt,
+      created: issuanceDate,
       proofPurpose: 'assertionMethod',
       verificationMethod: claimed.decodedHeader.kid,
       verificationStatus: 'signature_verified',
@@ -67,14 +94,15 @@ export async function saveClaimedJwtCredential(
 
     metadata: {
       schemaVersion: 'vc-data-model-v2.0',
-      source: 'scan',
+      source: 'qr_jwt_claim',
       verificationStatus: 'signature_verified',
       proofStatus: 'jwt_signed',
-      createdAt: decoded.issuanceDate || decoded.validFrom || now,
+      createdAt: issuanceDate,
       updatedAt: now,
       originalFormat: 'jwt-vc',
       rawJwtStored: true,
-      issuer: getCredentialIssuerText(claimed.issuer),
+      vcJwtStored: true,
+      issuer: claimed.issuer,
     },
   };
 

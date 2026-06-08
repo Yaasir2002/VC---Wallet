@@ -1,3 +1,5 @@
+// File: src/types/vc.ts
+
 export type DocumentType = 'KTP' | 'KTM' | 'SIM' | 'IJAZAH' | 'CUSTOM';
 
 export type AttributeType =
@@ -30,11 +32,14 @@ export type AttributeType =
 
 export type VerificationStatus =
   | 'verified'
+  | 'signature_verified'
   | 'unsigned'
   | 'self_signed'
   | 'signed_unverified'
   | 'pending_verification'
   | 'invalid'
+  | 'invalid_signature'
+  | 'invalid_jwt'
   | 'expired'
   | 'untrusted_issuer'
   | 'unsupported_format';
@@ -60,7 +65,7 @@ export type CredentialIssuer =
 
 export type CredentialMetadata = {
   schemaVersion: 'vc-data-model-v2.0';
-  source?: 'manual_ktp_form' | 'manual' | 'import' | 'scan' | 'legacy-migration';
+  source?: 'manual_ktp_form' | 'manual' | 'import' | 'scan' | 'legacy-migration' | 'qr_jwt_claim';
   verificationStatus: VerificationStatus;
   proofStatus: ProofStatus;
   createdAt: string;
@@ -77,11 +82,6 @@ export type VerifiableCredentialV2 = {
   issuanceDate: string;
   credentialSubject: CredentialSubject;
 
-  /**
-   * Optional compatibility.
-   * Data baru mengikuti format request user: issuanceDate.
-   * validFrom tetap boleh ada sebagai adapter internal, tapi bukan field utama.
-   */
   validFrom?: string;
   validUntil?: string;
   expirationDate?: string;
@@ -95,20 +95,24 @@ export type VerifiableCredentialV2 = {
   metadata?: CredentialMetadata;
 
   /**
-   * JWT hasil signing credential/presentation.
-   * Jangan isi fake signature.
+   * JWT credential asli hasil claim dari issuer.
+   * vcJwt wajib dipakai untuk VP EnvelopedVerifiableCredential.
    */
+  vcJwt?: string;
+  rawJwt?: string;
   jwt?: string;
   securedCredential?: string;
+
+  decodedHeader?: Record<string, unknown>;
+  decodedCredential?: Record<string, unknown>;
+
   proof?: unknown;
 
-  /**
-   * Compatibility dengan UI lama.
-   */
   documentId?: string;
   documentType?: DocumentType;
   documentName?: string;
   verificationStatus?: VerificationStatus | string;
+  signatureVerified?: boolean;
   verificationResult?: unknown;
   verification?: unknown;
   verifiedAt?: string | null;
@@ -131,10 +135,6 @@ export type KtpFormData = {
   pekerjaan: string;
   kewarganegaraan: string;
   berlakuHingga: string;
-
-  /**
-   * Optional kompatibilitas.
-   */
   nim?: string;
 };
 
@@ -152,8 +152,12 @@ export type SignedCredentialEnvelope = {
 
 export type SignedPresentationJWT = {
   jwt: string;
+  vpJwt?: string;
+  qrPayload?: string;
   holderDid: string;
   credentialCount: number;
+  createdAt?: string;
+  algorithm?: string;
 };
 
 export type VerifiableCredential = VerifiableCredentialV2;

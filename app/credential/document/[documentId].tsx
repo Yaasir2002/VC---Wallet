@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
 
 import { CredentialDocument, ModularCredential } from '../../../src/types/vc';
@@ -20,12 +19,14 @@ import {
   createSignedPresentationJWT,
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
-import { isJwtString } from '../../../src/Services/walletJwtSigner';
-import { MAX_PRESENTATION_QR_BYTES } from '../../../src/config/securityLimits';
+import { isJwtString } from '../../../src/Services/walletSigner';
+import { preparePresentationJwtForQr } from '../../../src/Services/qrPresentationService';
+import { getCredentialJwtFromStoredCredential } from '../../../src/Services/credentialStorage';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
 import AppToast from '../../../components/ui/AppToast';
 import LoadingOverlay from '../../../components/ui/LoadingOverlay';
+import PresentationQrView from '../../../components/PresentationQrView';
 
 type ToastState = {
   visible: boolean;
@@ -45,7 +46,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getIssuerText(issuer: unknown): string {
   if (!issuer) return 'Unknown Issuer';
-
   if (typeof issuer === 'string') return issuer;
 
   if (isRecord(issuer)) {
@@ -54,14 +54,6 @@ function getIssuerText(issuer: unknown): string {
   }
 
   return 'Unknown Issuer';
-}
-
-function byteLength(value: string): number {
-  try {
-    return new TextEncoder().encode(value).length;
-  } catch {
-    return value.length;
-  }
 }
 
 function normalizeLabel(key: string): string {
@@ -159,10 +151,18 @@ export default function CredentialDocumentDetailScreen() {
     return buildCredentialDetailItems(document, mainCredential);
   }, [document, mainCredential]);
 
+  const credentialJwt = useMemo(
+    () => getCredentialJwtFromStoredCredential(mainCredential),
+    [mainCredential]
+  );
+
+  const issuerSignatureVerified =
+    mainCredential?.verificationStatus === 'signature_verified' ||
+    mainCredential?.signatureVerified === true ||
+    mainCredential?.metadata?.verificationStatus === 'signature_verified';
+
   const qrJwt = presentationJwt.trim();
   const isPresentationJwtValid = isJwtString(qrJwt);
-  const canRenderQr =
-    isPresentationJwtValid && byteLength(qrJwt) <= MAX_PRESENTATION_QR_BYTES;
 
   const loadDocument = useCallback(async () => {
     try {
@@ -218,10 +218,6 @@ export default function CredentialDocumentDetailScreen() {
       setPresentationMeta(null);
 
       const result = await createSignedPresentationJWT({
-        holderDid:
-          typeof mainCredential.credentialSubject?.id === 'string'
-            ? mainCredential.credentialSubject.id
-            : '',
         credentials: [mainCredential],
       });
 
@@ -229,16 +225,15 @@ export default function CredentialDocumentDetailScreen() {
         throw new Error('JWT hasil signing tidak valid.');
       }
 
-      if (byteLength(result.jwt) > MAX_PRESENTATION_QR_BYTES) {
-        throw new Error('Payload QR terlalu besar.');
-      }
+      const qrPayload = preparePresentationJwtForQr(result.jwt);
 
-      setPresentationJwt(result.jwt);
+      setPresentationJwt(qrPayload.jwt);
       setPresentationMeta(result);
-      showToast('Credential berhasil ditandatangani sebagai JWT.', 'success');
+      setQrWarning(qrPayload.warning || '');
+      showToast('VP berhasil ditandatangani dan siap dipindai.', 'success');
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Gagal membuat JWT.';
+        error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
 
       setQrWarning(message);
       showToast(message, 'error');
@@ -247,14 +242,24 @@ export default function CredentialDocumentDetailScreen() {
     }
   }
 
-  async function handleCopyJWT() {
+  async function handleCopyCredentialJWT() {
+    if (!credentialJwt) {
+      showToast('JWT credential tidak tersedia.', 'error');
+      return;
+    }
+
+    await Clipboard.setStringAsync(credentialJwt);
+    showToast('Credential JWT berhasil disalin.', 'success');
+  }
+
+  async function handleCopyPresentationJWT() {
     if (!isPresentationJwtValid) {
-      showToast('JWT tidak valid sehingga tidak bisa disalin.', 'error');
+      showToast('Signed VP JWT tidak valid sehingga tidak bisa disalin.', 'error');
       return;
     }
 
     await Clipboard.setStringAsync(qrJwt);
-    showToast('JWT berhasil disalin.', 'success');
+    showToast('Signed VP JWT berhasil disalin.', 'success');
   }
 
   if (!document || !mainCredential) {
@@ -268,7 +273,7 @@ export default function CredentialDocumentDetailScreen() {
   }
 
   const status = getMainCredentialStatus(mainCredential);
-  const isValid = status.status === 'VALID';
+  const isValid = issuerSignatureVerified || status.status === 'VALID';
 
   return (
     <View style={{ flex: 1 }}>
@@ -288,7 +293,11 @@ export default function CredentialDocumentDetailScreen() {
           </View>
 
           <Text style={styles.documentTitle}>{getDetailTitle(document)}</Text>
-          <Text style={styles.documentSubtitle}>Credential JSON VC v2</Text>
+          <Text style={styles.documentSubtitle}>
+            {issuerSignatureVerified
+              ? 'JWT VC Claim • Issuer Signature Verified'
+              : 'Credential JSON VC v2'}
+          </Text>
 
           <View
             style={[
@@ -302,12 +311,16 @@ export default function CredentialDocumentDetailScreen() {
                 isValid ? styles.statusTextValid : styles.statusTextExpired,
               ]}
             >
-              {status.label}
+              {issuerSignatureVerified ? 'Signature Verified' : status.label}
             </Text>
           </View>
 
           <Text style={styles.issuerText} numberOfLines={2}>
             Issuer: {getIssuerText(mainCredential.issuer)}
+          </Text>
+
+          <Text style={styles.issuerText} numberOfLines={2}>
+            Verification Status: {String(mainCredential.verificationStatus || '-')}
           </Text>
         </View>
 
@@ -329,16 +342,39 @@ export default function CredentialDocumentDetailScreen() {
             </Text>
           )}
 
+          <View style={styles.jwtActionCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.jwtActionTitle}>Credential JWT</Text>
+              <Text style={styles.jwtActionSubtitle}>
+                {credentialJwt
+                  ? 'JWT credential tersedia dan bisa disalin.'
+                  : 'JWT credential tidak tersedia.'}
+              </Text>
+            </View>
+
+            <Pressable
+              style={[
+                styles.smallCopyButton,
+                !credentialJwt ? styles.disabledButton : null,
+              ]}
+              onPress={handleCopyCredentialJWT}
+              disabled={!credentialJwt}
+            >
+              <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.smallCopyButtonText}>Copy JWT</Text>
+            </Pressable>
+          </View>
+
           <AnimatedButton
             style={styles.presentButton}
             onPress={handleConfirmAndSignPresentation}
           >
             <Ionicons name="create-outline" size={22} color="#FFFFFF" />
-            <Text style={styles.presentButtonText}>Confirm & Sign Presentation</Text>
+            <Text style={styles.presentButtonText}>Sign Presentation</Text>
           </AnimatedButton>
         </View>
 
-        {qrWarning ? (
+        {qrWarning && !presentationJwt ? (
           <View style={styles.warningCard}>
             <Ionicons name="warning-outline" size={22} color="#F97316" />
             <Text style={styles.warningText}>{qrWarning}</Text>
@@ -346,55 +382,14 @@ export default function CredentialDocumentDetailScreen() {
         ) : null}
 
         {presentationJwt ? (
-          <View style={styles.qrCard}>
-            <Text style={styles.qrTitle}>Signed JWT QR</Text>
-
-            <View style={styles.qrStatusBox}>
-              <Text style={styles.qrStatusText}>Status: JWT Valid</Text>
-              <Text style={styles.qrStatusText}>
-                JWT Parts: {qrJwt.split('.').length}
-              </Text>
-              <Text style={styles.qrStatusText}>
-                Credential Count: {presentationMeta?.credentialCount || 1}
-              </Text>
-              <Text style={styles.qrStatusText}>JWT Length: {qrJwt.length}</Text>
-            </View>
-
-            {canRenderQr ? (
-              <View style={styles.qrBox}>
-                <QRCode value={qrJwt} size={220} />
-              </View>
-            ) : (
-              <View style={styles.warningCard}>
-                <Ionicons name="warning-outline" size={22} color="#F97316" />
-                <Text style={styles.warningText}>Payload QR terlalu besar.</Text>
-              </View>
-            )}
-
-            <Text style={styles.qrNote}>
-              QR ini berisi JWT compact: header.payload.signature.
-            </Text>
-
-            <Text style={styles.jwtLabel}>Preview JWT</Text>
-            <Text style={styles.jwtPreview} numberOfLines={4}>
-              {qrJwt}
-            </Text>
-          </View>
-        ) : null}
-
-        {presentationJwt ? (
-          <View style={styles.sectionCard}>
-            <View style={styles.jwtHeader}>
-              <Text style={styles.sectionTitle}>JWT Lengkap</Text>
-
-              <AnimatedButton style={styles.copyButton} onPress={handleCopyJWT}>
-                <Ionicons name="copy-outline" size={16} color="#FFFFFF" />
-                <Text style={styles.copyButtonText}>Copy JWT</Text>
-              </AnimatedButton>
-            </View>
-
-            <Text style={styles.jwtText}>{qrJwt}</Text>
-          </View>
+          <PresentationQrView
+            jwt={qrJwt}
+            holderDid={presentationMeta?.holderDid}
+            credentialCount={presentationMeta?.credentialCount || 1}
+            algorithm={presentationMeta?.algorithm}
+            warning={qrWarning || undefined}
+            onCopy={handleCopyPresentationJWT}
+          />
         ) : null}
       </ScrollView>
 
@@ -443,6 +438,14 @@ function getMainCredential(document: CredentialDocument): ModularCredential | nu
 }
 
 function getMainCredentialStatus(credential: ModularCredential) {
+  if (
+    credential.verificationStatus === 'signature_verified' ||
+    credential.signatureVerified === true ||
+    credential.metadata?.verificationStatus === 'signature_verified'
+  ) {
+    return { status: 'VALID', label: 'Signature Verified' };
+  }
+
   const validUntil =
     credential.credentialSubject?.['Berlaku Hingga'] ||
     credential.credentialSubject?.berlakuHingga ||
@@ -480,7 +483,14 @@ function buildCredentialDetailItems(
   document: CredentialDocument,
   credential: ModularCredential
 ): DetailItem[] {
-  const subject = credential.credentialSubject || {};
+  const decodedCredential = isRecord(credential.decodedCredential)
+    ? credential.decodedCredential
+    : credential;
+
+  const subject = isRecord(decodedCredential.credentialSubject)
+    ? decodedCredential.credentialSubject
+    : credential.credentialSubject || {};
+
   const items: DetailItem[] = [];
 
   const preferredOrder = [
@@ -619,21 +629,23 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   documentTitle: {
+    fontSize: 22,
     color: '#111827',
-    fontSize: 24,
     fontWeight: '900',
     textAlign: 'center',
   },
   documentSubtitle: {
-    color: '#6B7280',
-    fontWeight: '800',
     marginTop: 6,
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   statusBadge: {
+    marginTop: 14,
+    borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 999,
-    marginTop: 12,
   },
   statusValid: {
     backgroundColor: '#DCFCE7',
@@ -642,8 +654,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   statusText: {
-    fontWeight: '900',
     fontSize: 12,
+    fontWeight: '900',
   },
   statusTextValid: {
     color: '#166534',
@@ -652,19 +664,19 @@ const styles = StyleSheet.create({
     color: '#991B1B',
   },
   issuerText: {
-    color: '#64748B',
-    fontWeight: '700',
-    textAlign: 'center',
     marginTop: 10,
-    lineHeight: 20,
+    color: '#475569',
+    fontSize: 13,
+    textAlign: 'center',
+    fontWeight: '700',
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -681,152 +693,100 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sectionTitle: {
+    flex: 1,
+    fontSize: 17,
     color: '#111827',
-    fontSize: 16,
     fontWeight: '900',
   },
   infoItem: {
-    marginBottom: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   infoLabel: {
-    color: '#6B7280',
+    color: '#64748B',
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '800',
     marginBottom: 4,
-    textTransform: 'uppercase',
   },
   infoValue: {
     color: '#111827',
-    fontSize: 14,
-    fontWeight: '700',
-    lineHeight: 20,
-  },
-  presentButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 18,
-    paddingVertical: 16,
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  presentButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
     fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
   },
   emptyText: {
-    color: '#6B7280',
-    fontWeight: '700',
+    color: '#94A3B8',
+    fontSize: 14,
     lineHeight: 20,
   },
-  warningCard: {
-    backgroundColor: '#FFF7ED',
+  jwtActionCard: {
+    marginTop: 18,
+    backgroundColor: '#F8FAFC',
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
     flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  warningText: {
-    color: '#9A3412',
-    fontWeight: '800',
-    flex: 1,
-    lineHeight: 20,
-  },
-  qrCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    gap: 12,
   },
-  qrTitle: {
+  jwtActionTitle: {
     color: '#111827',
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '900',
-    marginBottom: 12,
   },
-  qrStatusBox: {
-    alignSelf: 'stretch',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-  },
-  qrStatusText: {
-    color: '#166534',
-    fontWeight: '900',
-    fontSize: 13,
-    marginBottom: 2,
-  },
-  qrBox: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  qrNote: {
+  jwtActionSubtitle: {
     color: '#64748B',
     fontSize: 12,
     fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 18,
+    marginTop: 4,
   },
-  jwtLabel: {
-    color: '#111827',
-    fontWeight: '900',
-    fontSize: 13,
-    marginTop: 14,
-    alignSelf: 'stretch',
-  },
-  jwtPreview: {
-    color: '#334155',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 8,
-    alignSelf: 'stretch',
-  },
-  jwtHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
-  copyButton: {
+  smallCopyButton: {
+    borderRadius: 14,
     backgroundColor: '#2563EB',
-    borderRadius: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  copyButtonText: {
+  smallCopyButtonText: {
     color: '#FFFFFF',
-    fontWeight: '900',
     fontSize: 12,
+    fontWeight: '900',
   },
-  jwtText: {
-    color: '#334155',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+  disabledButton: {
+    opacity: 0.45,
+  },
+  presentButton: {
+    marginTop: 16,
+    backgroundColor: '#2563EB',
+    borderRadius: 18,
+    paddingVertical: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  presentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  warningCard: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 16,
     padding: 12,
-    fontSize: 11,
-    lineHeight: 16,
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  warningText: {
+    flex: 1,
+    color: '#C2410C',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
 });

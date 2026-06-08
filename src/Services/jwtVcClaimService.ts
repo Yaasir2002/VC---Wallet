@@ -1,4 +1,4 @@
-// File: src/services/jwtVcClaimService.ts
+// File: src/Services/jwtVcClaimService.ts
 
 import {
   QR_JWT_MAX_LENGTH,
@@ -75,7 +75,7 @@ function assertJwtHeader(header: JwtHeader): void {
   }
 
   if (header.alg !== SUPPORTED_JWT_ALG) {
-    throw new Error('Algoritma JWT tidak didukung.');
+    throw new Error('unsupported_algorithm');
   }
 
   if (typeof header.kid !== 'string' || header.kid.trim().length === 0) {
@@ -86,7 +86,7 @@ function assertJwtHeader(header: JwtHeader): void {
     typeof header.iss === 'string' &&
     header.iss !== TRUSTED_VC_ISSUER_DID
   ) {
-    throw new Error('Issuer credential tidak dipercaya.');
+    throw new Error('untrusted_issuer');
   }
 }
 
@@ -112,7 +112,7 @@ function assertVcV2Payload(payload: JwtVcV2Payload): void {
   }
 
   if (payload.issuer !== TRUSTED_VC_ISSUER_DID) {
-    throw new Error('Issuer credential tidak dipercaya.');
+    throw new Error('untrusted_issuer');
   }
 
   if (!isRecord(payload.credentialSubject)) {
@@ -133,7 +133,9 @@ function buildPreview(payload: JwtVcV2Payload): CredentialPreviewClaim {
   );
 
   const credentialType =
-    credentialTypes.length > 0 ? credentialTypes.join(', ') : 'VerifiableCredential';
+    credentialTypes.length > 0
+      ? credentialTypes.join(', ')
+      : 'VerifiableCredential';
 
   const subject = payload.credentialSubject;
   const subjectName =
@@ -178,13 +180,14 @@ export async function verifyJwtVcClaimFromQr(
   });
 
   if (!signatureValid) {
-    throw new Error('Signature credential tidak valid.');
+    throw new Error('invalid_signature');
   }
 
   const importedAt = new Date().toISOString();
 
   const claimedCredential: ClaimedJwtCredential = {
     id: decoded.payload.id,
+    vcJwt: decoded.rawJwt,
     rawJwt: decoded.rawJwt,
     decodedHeader: decoded.header,
     decodedCredential: decoded.payload,

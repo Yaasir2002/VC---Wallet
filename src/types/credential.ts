@@ -22,6 +22,7 @@ export type JwtVcV2Payload = {
 
 export type ClaimedJwtCredential = {
   id: string;
+  vcJwt: string;
   rawJwt: string;
   decodedHeader: JwtHeader;
   decodedCredential: JwtVcV2Payload;
