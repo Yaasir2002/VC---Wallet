@@ -36,6 +36,9 @@ export type ParsedScannedCredential = {
   importedAt: string;
 };
 
+const VC_V2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
+const VC_EXAMPLES_V2_CONTEXT = 'https://www.w3.org/ns/credentials/examples/v2';
+
 const ALLOWED_DEEP_LINK_PREFIXES = [
   'openid-credential-offer://',
   'openid-vc://',
@@ -181,6 +184,9 @@ function normalizeJwtCredentialPayload(jwt: string): RawCredential {
 
   return {
     ...vc,
+    '@context': Array.isArray(vc['@context'])
+      ? vc['@context']
+      : [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
     id: vc.id || payload.jti || `jwt-vc-${Date.now()}`,
     issuer,
     issuanceDate,
@@ -455,8 +461,7 @@ function inferDocumentType(vc: RawCredential): DocumentType {
     relevantText.includes('ktm') ||
     relevantText.includes('student') ||
     relevantText.includes('nim') ||
-    relevantText.includes('prodi') ||
-    relevantText.includes('angkatan')
+    relevantText.includes('mahasiswa')
   ) {
     return 'KTM';
   }
@@ -465,77 +470,46 @@ function inferDocumentType(vc: RawCredential): DocumentType {
     return 'SIM';
   }
 
-  if (relevantText.includes('ijazah') || relevantText.includes('school')) {
+  if (
+    relevantText.includes('ijazah') ||
+    relevantText.includes('diploma') ||
+    relevantText.includes('degree')
+  ) {
     return 'IJAZAH';
   }
 
   return 'CUSTOM';
 }
 
-async function createStableCredentialId(vc: RawCredential): Promise<string> {
-  if (typeof vc.id === 'string' && vc.id.trim()) {
-    return vc.id;
-  }
-
-  const source = JSON.stringify({
-    issuer: vc.issuer,
-    issuanceDate: vc.issuanceDate || vc.validFrom,
-    credentialSubject: vc.credentialSubject,
-    proof: vc.proof,
-    jwt: vc.jwt,
-  });
-
-  const hash = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    source
-  );
-
-  return `qr-vc-${hash.slice(0, 24)}`;
-}
-
-async function createDocumentId(
-  vc: RawCredential,
-  documentType: DocumentType,
-  baseCredentialId: string
-): Promise<string> {
-  if (typeof vc.documentId === 'string' && vc.documentId.trim()) {
-    return vc.documentId;
-  }
-
-  const source = JSON.stringify({
-    id: vc.id,
-    issuer: vc.issuer,
-    subject: vc.credentialSubject?.id,
-    issuanceDate: vc.issuanceDate || vc.validFrom,
-    type: vc.type,
-  });
-
-  const hash = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    source
-  );
-
-  return `${documentType}-QR-${baseCredentialId
-    .replace(/[^a-zA-Z0-9-_]/g, '')
-    .slice(-12)}-${hash.slice(0, 12)}`;
-}
-
 async function createAttributeCredentialId(
   baseCredentialId: string,
-  claimLabel: string,
-  claimValue: string
+  label: string,
+  value: string
 ): Promise<string> {
-  const hash = await Crypto.digestStringAsync(
+  const digest = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    `${baseCredentialId}:${claimLabel}:${claimValue}`
+    `${baseCredentialId}:${label}:${value}`
   );
 
-  return `${baseCredentialId}-${claimLabel
-    .replace(/[^a-zA-Z0-9-_]/g, '_')
-    .slice(0, 32)}-${hash.slice(0, 8)}`;
+  return `${baseCredentialId}#${digest.slice(0, 16)}`;
 }
 
-async function buildModularCredentialsFromClaims(params: {
+function normalizeRawCredentialContext(rawCredential: RawCredential): string[] {
+  if (Array.isArray(rawCredential['@context'])) {
+    const contexts = rawCredential['@context']
+      .filter((item: unknown) => typeof item === 'string')
+      .map((item: string) => item.trim())
+      .filter(Boolean);
+
+    if (contexts.length > 0) {
+      return contexts;
+    }
+  }
+
+  return [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT];
+}
+
+async function buildAttributeCredentials(params: {
   rawCredential: RawCredential;
   baseCredentialId: string;
   documentId: string;
@@ -575,6 +549,8 @@ async function buildModularCredentialsFromClaims(params: {
 
   const credentials: ModularCredential[] = [];
 
+  const context = normalizeRawCredentialContext(rawCredential);
+
   for (const claim of claims) {
     const id = await createAttributeCredentialId(
       baseCredentialId,
@@ -583,6 +559,7 @@ async function buildModularCredentialsFromClaims(params: {
     );
 
     credentials.push({
+      '@context': context,
       id,
       documentId,
       documentType,
@@ -603,6 +580,9 @@ async function buildModularCredentialsFromClaims(params: {
       },
       proof: rawCredential.proof,
       jwt: rawCredential.jwt || rawCredential.proof?.jwt,
+      rawJwt: rawCredential.rawJwt,
+      vcJwt: rawCredential.vcJwt,
+      securedCredential: rawCredential.securedCredential,
       verificationStatus: 'pending_verification',
     });
   }
@@ -613,36 +593,32 @@ async function buildModularCredentialsFromClaims(params: {
 async function normalizeCredential(
   rawCredential: RawCredential
 ): Promise<ParsedScannedCredential> {
-  if (!looksLikeVC(rawCredential)) {
-    throw new Error('QR tidak berisi Verifiable Credential yang valid');
-  }
-
+  const issuer = getIssuerId(rawCredential.issuer);
+  const subject = getSubjectId(rawCredential.credentialSubject);
   const credentialName = getCredentialName(rawCredential);
-  const issuer = sanitizeText(getIssuerId(rawCredential.issuer));
-  const subject = sanitizeText(getSubjectId(rawCredential.credentialSubject));
-  const issuanceDate = sanitizeText(
-    rawCredential.issuanceDate || rawCredential.validFrom
-  );
-  const expirationDate =
-    rawCredential.expirationDate ||
-    rawCredential.validUntil ||
-    rawCredential.validTo;
-
-  const mainClaims = getMainClaims(rawCredential.credentialSubject);
-  const baseCredentialId = await createStableCredentialId(rawCredential);
   const documentType = inferDocumentType(rawCredential);
-  const documentId = await createDocumentId(
-    rawCredential,
-    documentType,
-    baseCredentialId
-  );
+  const documentName = rawCredential.documentName || credentialName;
+  const documentId =
+    rawCredential.documentId ||
+    rawCredential.id ||
+    `qr-document-${Date.now()}`;
+  const baseCredentialId =
+    rawCredential.id ||
+    rawCredential.documentId ||
+    `qr-credential-${Date.now()}`;
+  const issuanceDate =
+    rawCredential.issuanceDate ||
+    rawCredential.validFrom ||
+    new Date().toISOString();
+  const expirationDate = rawCredential.expirationDate || rawCredential.validUntil;
+  const mainClaims = getMainClaims(rawCredential.credentialSubject);
 
-  const normalizedCredentials = await buildModularCredentialsFromClaims({
+  const normalizedCredentials = await buildAttributeCredentials({
     rawCredential,
     baseCredentialId,
     documentId,
     documentType,
-    documentName: credentialName,
+    documentName,
     issuer,
     subject,
     issuanceDate,
@@ -650,24 +626,20 @@ async function normalizeCredential(
     mainClaims,
   });
 
-  const normalizedCredential = normalizedCredentials[0];
-
-  if (!normalizedCredential) {
-    throw new Error('Credential tidak memiliki atribut yang dapat disimpan');
+  if (normalizedCredentials.length === 0) {
+    throw new Error('Credential tidak memiliki data subject yang dapat disimpan');
   }
 
   return {
     rawCredential,
-    normalizedCredential,
+    normalizedCredential: normalizedCredentials[0],
     normalizedCredentials,
     preview: {
       credentialName,
       issuer,
       subject,
       issuanceDate,
-      expirationDate: expirationDate
-        ? sanitizeText(expirationDate)
-        : undefined,
+      expirationDate,
       mainClaims,
     },
     verificationStatus: 'pending_verification',
@@ -676,142 +648,118 @@ async function normalizeCredential(
   };
 }
 
-async function resolveQRPayload(qrData: string): Promise<any> {
-  const trimmed = qrData.trim();
+async function parseCredentialOffer(value: any): Promise<RawCredential> {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
 
-  if (!trimmed) {
-    throw new Error('QR kosong');
-  }
+    validateQrPayloadSize(trimmed);
 
-  if (isJwtCredentialString(trimmed)) {
-    return normalizeJwtCredentialPayload(trimmed);
-  }
-
-  const directJSON = tryParseJSON(trimmed);
-
-  if (directJSON) {
-    return directJSON;
-  }
-
-  const decodedBase64 = tryDecodeBase64(trimmed);
-
-  if (decodedBase64) {
-    if (isJwtCredentialString(decodedBase64)) {
-      return normalizeJwtCredentialPayload(decodedBase64);
+    if (isJwtCredentialString(trimmed)) {
+      return normalizeJwtCredentialPayload(trimmed);
     }
 
-    const decodedJSON = tryParseJSON(decodedBase64);
+    const json = tryParseJSON(trimmed);
 
-    if (decodedJSON) {
-      return decodedJSON;
+    if (looksLikeVC(json)) {
+      return {
+        ...json,
+        '@context': Array.isArray(json['@context'])
+          ? json['@context']
+          : [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+      };
     }
+
+    const decoded = tryDecodeBase64(trimmed);
+
+    if (decoded) {
+      return parseCredentialOffer(decoded);
+    }
+
+    if (isCredentialOfferUri(trimmed)) {
+      const offer = extractCredentialOfferFromUri(trimmed);
+
+      if (!offer) {
+        throw new Error('QR credential offer tidak valid');
+      }
+
+      return parseCredentialOffer(offer);
+    }
+
+    if (isHttpUrl(trimmed)) {
+      const fetched = await fetchJSONWithTimeout(trimmed);
+      return parseCredentialOffer(fetched);
+    }
+
+    throw new Error('QR tidak berisi credential yang valid');
   }
 
-  if (isHttpUrl(trimmed)) {
-    return await fetchJSONWithTimeout(trimmed);
+  if (looksLikeVC(value)) {
+    return {
+      ...value,
+      '@context': Array.isArray(value['@context'])
+        ? value['@context']
+        : [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+    };
   }
 
-  if (isCredentialOfferUri(trimmed)) {
-    const offer = extractCredentialOfferFromUri(trimmed);
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const credential =
+      value.credential ||
+      value.verifiableCredential ||
+      value.vc ||
+      value.data ||
+      value.payload;
 
-    if (!offer) {
-      throw new Error('Credential offer tidak valid');
+    if (credential) {
+      return parseCredentialOffer(credential);
     }
 
-    if (typeof offer === 'string' && isJwtCredentialString(offer)) {
-      return normalizeJwtCredentialPayload(offer);
-    }
+    const offerUri =
+      value.credential_offer_uri ||
+      value.credentialOfferUri ||
+      value.offer_uri;
 
-    if (typeof offer === 'string' && isHttpUrl(offer)) {
-      return await fetchJSONWithTimeout(offer);
-    }
-
-    if (typeof offer === 'object') {
-      if (offer.jwt && isJwtCredentialString(offer.jwt)) {
-        return normalizeJwtCredentialPayload(offer.jwt);
-      }
-
-      if (offer.rawJwt && isJwtCredentialString(offer.rawJwt)) {
-        return normalizeJwtCredentialPayload(offer.rawJwt);
-      }
-
-      if (offer.vcJwt && isJwtCredentialString(offer.vcJwt)) {
-        return normalizeJwtCredentialPayload(offer.vcJwt);
-      }
-
-      if (offer.credential) {
-        return offer.credential;
-      }
-
-      if (offer.credential_offer_uri && isHttpUrl(offer.credential_offer_uri)) {
-        return await fetchJSONWithTimeout(offer.credential_offer_uri);
-      }
-
-      if (offer.verifiableCredential) {
-        return offer.verifiableCredential;
-      }
-
-      return offer;
+    if (typeof offerUri === 'string') {
+      const fetched = await fetchJSONWithTimeout(offerUri);
+      return parseCredentialOffer(fetched);
     }
   }
 
-  throw new Error('QR tidak berisi credential yang valid');
+  throw new Error('Data QR tidak dikenali sebagai credential');
 }
 
-export async function parseCredentialFromQR(
-  qrData: string
+export async function parseScannedCredential(
+  value: string
 ): Promise<ParsedScannedCredential> {
-  validateQrPayloadSize(qrData);
+  const rawCredential = await parseCredentialOffer(value);
 
-  const payload = await resolveQRPayload(qrData);
+  const credentialId =
+    rawCredential.id || rawCredential.documentId || rawCredential.jwt;
 
-  if (payload?.verifiableCredential) {
-    return await normalizeCredential(payload.verifiableCredential);
+  if (credentialId && (await isCredentialAlreadySaved(String(credentialId)))) {
+    throw new Error('Credential ini sudah tersimpan di wallet.');
   }
 
-  if (payload?.credential) {
-    return await normalizeCredential(payload.credential);
-  }
-
-  return await normalizeCredential(payload);
+  return normalizeCredential(rawCredential);
 }
 
-export async function saveScannedCredential(
-  parsedCredential: ParsedScannedCredential
-): Promise<ModularCredential> {
-  const credentialsToSave =
-    parsedCredential.normalizedCredentials?.length > 0
-      ? parsedCredential.normalizedCredentials
-      : [parsedCredential.normalizedCredential];
-
-  let firstSavedCredential: ModularCredential | null = null;
-  let savedCount = 0;
-
-  for (const credential of credentialsToSave) {
-    const isDuplicate = await isCredentialAlreadySaved(credential);
-
-    if (isDuplicate) {
-      continue;
-    }
-
-    const result = await importCredentialSecurely({
-      ...credential,
-      source: parsedCredential.source,
-      importedAt: parsedCredential.importedAt,
-      rawCredential: parsedCredential.rawCredential,
-      parsedCredential: parsedCredential.preview,
-    });
-
-    if (!firstSavedCredential) {
-      firstSavedCredential = result.credential;
-    }
-
-    savedCount += 1;
+export async function importScannedCredential(
+  parsed: ParsedScannedCredential
+): Promise<ParsedScannedCredential> {
+  for (const credential of parsed.normalizedCredentials) {
+    await importCredentialSecurely(credential);
   }
 
-  if (!firstSavedCredential || savedCount === 0) {
-    throw new Error('Semua atribut credential sudah tersimpan sebelumnya');
-  }
+  return {
+    ...parsed,
+    verificationStatus: 'verified',
+    importedAt: new Date().toISOString(),
+  };
+}
 
-  return firstSavedCredential;
+export async function parseAndImportScannedCredential(
+  value: string
+): Promise<ParsedScannedCredential> {
+  const parsed = await parseScannedCredential(value);
+  return importScannedCredential(parsed);
 }

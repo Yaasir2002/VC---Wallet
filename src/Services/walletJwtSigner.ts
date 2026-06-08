@@ -18,6 +18,9 @@ export type SignVcJwtWithWalletParams = {
   issuanceDate?: string;
   credentialSubject?: Record<string, unknown>;
   additionalTypes?: string[];
+  attributeType?: string;
+  attributeName?: string;
+  attributeValue?: string;
 };
 
 export function isJwtString(value: unknown): value is string {
@@ -67,6 +70,7 @@ export async function signCredentialObjectAsJwt(
 
 export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   const wallet = await getWalletSigner();
+
   const issuanceDate =
     params.issuanceDate || params.validFrom || new Date().toISOString();
 
@@ -75,6 +79,9 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     documentId: params.documentId,
     documentType: params.documentType,
     documentName: params.documentName,
+    ...(params.attributeType ? { attributeType: params.attributeType } : {}),
+    ...(params.attributeName ? { attributeName: params.attributeName } : {}),
+    ...(params.attributeValue ? { attributeValue: params.attributeValue } : {}),
     ...(params.credentialSubject || {}),
   };
 

@@ -32,6 +32,57 @@ function shorten(value?: string) {
   return `${value.slice(0, 12)}...${value.slice(-6)}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function toDisplayText(value: unknown, fallback = '-'): string {
+  if (value === null || value === undefined || value === '') return fallback;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function issuerToText(issuer: unknown): string {
+  if (!issuer) return '-';
+
+  if (typeof issuer === 'string') {
+    return issuer.trim() || '-';
+  }
+
+  if (isRecord(issuer)) {
+    if (typeof issuer.name === 'string' && issuer.name.trim()) {
+      return issuer.name.trim();
+    }
+
+    if (typeof issuer.id === 'string' && issuer.id.trim()) {
+      return issuer.id.trim();
+    }
+  }
+
+  return '-';
+}
+
+function subjectText(
+  credentialSubject: Record<string, unknown> | undefined,
+  key: string,
+  fallback = '-'
+): string {
+  return toDisplayText(credentialSubject?.[key], fallback);
+}
+
 export default function PresentCredentialScreen() {
   const router = useRouter();
 
@@ -95,7 +146,12 @@ export default function PresentCredentialScreen() {
   }, [loadCredentials]);
 
   function hasCredentialJwt(vc: ModularCredential): boolean {
-    return isJwtString(vc.jwt) || isJwtString(vc.proof?.jwt);
+    const proofJwt =
+      isRecord(vc.proof) && typeof vc.proof.jwt === 'string'
+        ? vc.proof.jwt
+        : undefined;
+
+    return isJwtString(vc.jwt) || isJwtString(proofJwt);
   }
 
   function toggleCredential(id: string) {
@@ -400,7 +456,7 @@ export default function PresentCredentialScreen() {
                         selected && styles.optionTitleActive,
                       ]}
                     >
-                      {vc.credentialSubject.attributeName}
+                      {subjectText(vc.credentialSubject, 'attributeName')}
                     </Text>
 
                     <Text
@@ -409,7 +465,7 @@ export default function PresentCredentialScreen() {
                         selected && styles.optionValueActive,
                       ]}
                     >
-                      {vc.credentialSubject.attributeValue || '-'}
+                      {subjectText(vc.credentialSubject, 'attributeValue')}
                     </Text>
 
                     <Text
@@ -465,10 +521,10 @@ export default function PresentCredentialScreen() {
             {selectedCredentials.map((vc) => (
               <View key={vc.id} style={styles.previewRow}>
                 <Text style={styles.previewLabel}>
-                  {vc.credentialSubject.attributeName}
+                  {subjectText(vc.credentialSubject, 'attributeName')}
                 </Text>
                 <Text style={styles.previewValue}>
-                  {vc.credentialSubject.attributeValue || '-'}
+                  {subjectText(vc.credentialSubject, 'attributeValue')}
                 </Text>
               </View>
             ))}

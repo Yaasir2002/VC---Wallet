@@ -15,19 +15,44 @@ import { VerifiableCredential } from '../../src/types/vc';
 import { importCredentialSecurely } from '../../src/Services/credentialImportService';
 import { SECURITY_LIMITS } from '../../src/config/securityLimits';
 
+const VC_V2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
+const VC_EXAMPLES_V2_CONTEXT = 'https://www.w3.org/ns/credentials/examples/v2';
+
+const MAX_CREDENTIAL_RESPONSE_BYTES =
+  'MAX_CREDENTIAL_RESPONSE_BYTES' in SECURITY_LIMITS &&
+  typeof SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES === 'number'
+    ? SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES
+    : 'MAX_CREDENTIAL_IMPORT_SIZE' in SECURITY_LIMITS &&
+        typeof SECURITY_LIMITS.MAX_CREDENTIAL_IMPORT_SIZE === 'number'
+      ? SECURITY_LIMITS.MAX_CREDENTIAL_IMPORT_SIZE
+      : 20000;
+
 export default function ImportCredentialScreen() {
   const router = useRouter();
   const [jsonInput, setJsonInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  function validateVC(data: any): data is VerifiableCredential {
-    return (
-      data &&
-      typeof data === 'object' &&
-      data.credentialSubject &&
-      data.type &&
-      data.issuer &&
-      (data.issuanceDate || data.validFrom || data.jwt || data.proof?.jwt)
+  function validateVC(data: unknown): data is VerifiableCredential {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return false;
+    }
+
+    const credential = data as Record<string, unknown>;
+    const proof = credential.proof;
+
+    const proofJwt =
+      proof && typeof proof === 'object' && !Array.isArray(proof)
+        ? (proof as Record<string, unknown>).jwt
+        : undefined;
+
+    return Boolean(
+      credential.credentialSubject &&
+        credential.type &&
+        credential.issuer &&
+        (credential.issuanceDate ||
+          credential.validFrom ||
+          credential.jwt ||
+          proofJwt)
     );
   }
 
@@ -75,22 +100,24 @@ export default function ImportCredentialScreen() {
     try {
       setLoading(true);
 
-      if (!jsonInput.trim()) {
+      const trimmedInput = jsonInput.trim();
+
+      if (!trimmedInput) {
         Alert.alert('Validasi Gagal', 'JSON credential tidak boleh kosong');
         return;
       }
 
-      // Size guard: reject payloads that are too large before attempting parse
-      const byteLength = new TextEncoder().encode(jsonInput.trim()).byteLength;
-      if (byteLength > SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES) {
+      const byteLength = new TextEncoder().encode(trimmedInput).byteLength;
+
+      if (byteLength > MAX_CREDENTIAL_RESPONSE_BYTES) {
         Alert.alert(
           'Payload Terlalu Besar',
-          `Credential JSON melebihi batas ${SECURITY_LIMITS.MAX_CREDENTIAL_RESPONSE_BYTES / 1024}KB yang diizinkan.`
+          `Credential JSON melebihi batas ${MAX_CREDENTIAL_RESPONSE_BYTES / 1024}KB yang diizinkan.`
         );
         return;
       }
 
-      const parsedData = JSON.parse(jsonInput);
+      const parsedData = JSON.parse(trimmedInput);
 
       if (!validateVC(parsedData)) {
         Alert.alert(
@@ -130,6 +157,7 @@ export default function ImportCredentialScreen() {
 
   function handleUseExample() {
     const exampleVC: VerifiableCredential = {
+      '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
       id: `vc-import-${Date.now()}`,
       type: ['VerifiableCredential', 'IdentityCredential'],
       issuer: 'did:example:issuer-government',

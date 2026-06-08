@@ -597,17 +597,19 @@ export async function verifyPresentationJWT(
     }
 
     return {
-      valid: false,
-      structurallyValid: true,
-      signatureVerified: false,
-      kind: 'unknown',
-      holderDid,
-      decoded,
-      rawJwt: jwt,
-      credentials: [],
-      warning: 'JWT ditemukan dan berhasil di-decode, tetapi payload tidak memiliki field vp atau vc.',
-      ...didInfo,
-    };
+        valid: false,
+        structurallyValid: true,
+        signatureVerified: false,
+        kind: 'unknown',
+        holderDid,
+        decoded,
+        rawJwt: jwt,
+        credentials: [],
+        ...didInfo,
+        warning:
+          didInfo.warning ||
+          'JWT ditemukan dan berhasil di-decode, tetapi payload tidak memiliki field vp atau vc.',
+      };
   } catch (error) {
     return {
       valid: false,

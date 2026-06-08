@@ -115,16 +115,18 @@ async function resolveDidWeb(did: string): Promise<DIDResolutionResult> {
 
 async function resolveDidEthr(did: string): Promise<DIDResolutionResult> {
   try {
-    const resolver = new Resolver({
-          ...getEthrResolver({
-            networks: [
-              {
-                name: 'mainnet',
-                rpcUrl: 'https://cloudflare-eth.com',
-              },
-            ],
-          }),
-        });
+    const ethrResolverRegistry = {
+      ...getEthrResolver({
+        networks: [
+          {
+            name: 'mainnet',
+            rpcUrl: 'https://cloudflare-eth.com',
+          },
+        ],
+      }),
+    } as any;
+
+    const resolver = new Resolver(ethrResolverRegistry);
 
     const result = await resolver.resolve(did);
 

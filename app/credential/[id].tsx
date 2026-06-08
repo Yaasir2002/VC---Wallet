@@ -67,6 +67,53 @@ function getText(value: unknown, fallback = '-'): string {
   return fallback;
 }
 
+function toDisplayText(value: unknown, fallback = '-'): string {
+  if (value === null || value === undefined || value === '') return fallback;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || fallback;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function issuerToText(issuer: unknown): string {
+  if (!issuer) return '-';
+
+  if (typeof issuer === 'string') {
+    return issuer.trim() || '-';
+  }
+
+  if (isRecord(issuer)) {
+    if (typeof issuer.name === 'string' && issuer.name.trim()) {
+      return issuer.name.trim();
+    }
+
+    if (typeof issuer.id === 'string' && issuer.id.trim()) {
+      return issuer.id.trim();
+    }
+  }
+
+  return '-';
+}
+
+function subjectText(
+  credentialSubject: Record<string, unknown> | undefined,
+  key: string,
+  fallback = '-'
+): string {
+  return toDisplayText(credentialSubject?.[key], fallback);
+}
+
 function getProof(proof: unknown): CredentialProof | null {
   if (!isRecord(proof)) return null;
 
@@ -477,11 +524,11 @@ export default function CredentialDetailScreen() {
           </View>
 
           <InfoItem label="Credential ID" value={credential.id} />
-          <InfoItem label="Document ID" value={credential.documentId} />
-          <InfoItem label="Document Type" value={credential.documentType} />
-          <InfoItem label="Document Name" value={credential.documentName} />
+          <InfoItem label="Document ID" value={toDisplayText(credential.documentId)} />
+          <InfoItem label="Document Type" value={toDisplayText(credential.documentType)} />
+          <InfoItem label="Document Name" value={toDisplayText(credential.documentName)} />
           <InfoItem label="Type" value={credential.type.join(', ')} />
-          <InfoItem label="Issuer" value={credential.issuer} />
+          <InfoItem label="Issuer" value={issuerToText(credential.issuer)} />
           <InfoItem label="Issuance Date" value={formatDate(credential.issuanceDate)} />
           <InfoItem label="Expiration Date" value={formatDate(credential.expirationDate)} />
           <InfoItem
@@ -538,15 +585,16 @@ export default function CredentialDetailScreen() {
 
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.optionTitle, selected && styles.optionTitleActive]}>
-                    {item.credentialSubject.attributeName}
+                    {subjectText(item.credentialSubject, 'attributeName')}
                   </Text>
 
                   <Text style={[styles.optionValue, selected && styles.optionValueActive]}>
-                    {item.credentialSubject.attributeValue || '-'}
+                    {subjectText(item.credentialSubject, 'attributeValue')}
                   </Text>
 
                   <Text style={[styles.optionMeta, selected && styles.optionMetaActive]}>
-                    Type: {item.credentialSubject.attributeType} • Issuer: {shorten(item.issuer)}
+                    Type: {subjectText(item.credentialSubject, 'attributeType')} • Issuer:{' '}
+                    {shorten(issuerToText(item.issuer))}
                   </Text>
 
                   <Text
@@ -576,10 +624,10 @@ export default function CredentialDetailScreen() {
               {selectedCredentials.map((item) => (
                 <View key={item.id} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>
-                    {item.credentialSubject.attributeName}
+                    {subjectText(item.credentialSubject, 'attributeName')}
                   </Text>
                   <Text style={styles.previewValue}>
-                    {item.credentialSubject.attributeValue || '-'}
+                    {subjectText(item.credentialSubject, 'attributeValue')}
                   </Text>
                 </View>
               ))}
@@ -676,7 +724,7 @@ export default function CredentialDetailScreen() {
               <InfoItem label="Proof Purpose" value={proof?.proofPurpose || 'assertionMethod'} />
               <InfoItem
                 label="Verification Method"
-                value={proof?.verificationMethod || credential.issuer || '-'}
+                value={toDisplayText(proof?.verificationMethod || issuerToText(credential.issuer))}
               />
 
               <Text style={styles.label}>VC JWT</Text>

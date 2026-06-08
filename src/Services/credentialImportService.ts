@@ -1,7 +1,14 @@
-import { saveCredential } from '../Storage/secureCredentialStorage';
-import { ModularCredential } from '../types/vc';
-import { CredentialVerificationResult } from '../types/verification';
-import { verifyCredential } from './vcVerificationService';
+import { ModularCredential, VerifiableCredentialV2 } from '../types/vc';
+import { saveVC } from '../Storage/vcStorage';
+import {
+  VCVerificationResult,
+  verifyCredentialJwt,
+} from './vcVerificationService';
+
+export type CredentialVerificationResult = VCVerificationResult & {
+  isVerified: boolean;
+  checkedAt: string;
+};
 
 export type ImportCredentialResult = {
   credential: ModularCredential;
@@ -10,73 +17,101 @@ export type ImportCredentialResult = {
 
 export type VerifyOnlyResult = {
   verification: CredentialVerificationResult;
-  pendingCredential: ModularCredential;
 };
 
-/**
- * Verifies a raw credential WITHOUT saving it.
- *
- * Use this to show a preview + verification result to the user BEFORE
- * they confirm. Then call confirmAndSaveCredential() if the user agrees.
- *
- * This implements the correct flow:
- *   scan/import → verify → preview → user confirms → save
- */
-export async function verifyCredentialForPreview(
-  rawCredential: any
+function normalizeVerification(
+  verification: VCVerificationResult
+): CredentialVerificationResult {
+  return {
+    ...verification,
+    isVerified: verification.verified,
+    checkedAt: verification.checkedAt || new Date().toISOString(),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function getJwtFromCredential(credential: VerifiableCredentialV2): string | null {
+  const proofJwt =
+    isRecord(credential.proof) && typeof credential.proof.jwt === 'string'
+      ? credential.proof.jwt
+      : null;
+
+  const candidates = [
+    credential.vcJwt,
+    credential.rawJwt,
+    credential.jwt,
+    credential.securedCredential,
+    proofJwt,
+  ];
+
+  const jwt = candidates.find(
+    (item) => typeof item === 'string' && item.trim().split('.').length === 3
+  );
+
+  return typeof jwt === 'string' ? jwt.trim() : null;
+}
+
+export async function verifyCredentialOnly(
+  credential: VerifiableCredentialV2
 ): Promise<VerifyOnlyResult> {
-  const verification = await verifyCredential(rawCredential);
+  const jwt = getJwtFromCredential(credential);
 
-  const pendingCredential: ModularCredential = {
-    ...rawCredential,
-    verificationStatus: verification.status,
-    verificationResult: verification,
-    verification,
+  const verification = jwt
+    ? await verifyCredentialJwt(jwt)
+    : {
+        verified: false,
+        structurallyValid: true,
+        signatureVerified: false,
+        checkedAt: new Date().toISOString(),
+        warning: 'Credential JSON tidak memiliki JWT.',
+      };
+
+  return {
+    verification: normalizeVerification(verification),
+  };
+}
+
+export async function importCredential(
+  credential: VerifiableCredentialV2
+): Promise<ImportCredentialResult> {
+  const { verification } = await verifyCredentialOnly(credential);
+
+  const credentialToSave: VerifiableCredentialV2 = {
+    ...credential,
     verifiedAt: verification.isVerified ? verification.checkedAt : null,
-    importedAt: rawCredential?.importedAt ?? new Date().toISOString(),
-  };
-
-  return {
     verification,
-    pendingCredential,
   };
-}
 
-/**
- * Saves a credential that has already been verified and previewed.
- * Call this only AFTER the user confirms via a UI prompt.
- */
-export async function confirmAndSaveCredential(
-  pendingCredential: ModularCredential,
-  verification: CredentialVerificationResult
-): Promise<ImportCredentialResult> {
-  const savedCredential = await saveCredential(pendingCredential);
+  await saveVC(credentialToSave);
 
   return {
-    credential: savedCredential,
+    credential: credentialToSave,
     verification,
   };
 }
 
-/**
- * @deprecated Use verifyCredentialForPreview() + confirmAndSaveCredential()
- * instead to show a preview before saving.
- *
- * This function immediately verifies AND saves the credential without
- * giving the user a chance to review. It is kept for backward compatibility
- * with the manual JSON import screen where the user explicitly pastes and
- * triggers import.
- */
-export async function importCredentialSecurely(
-  rawCredential: any
+export async function importVerifiedCredential(
+  credential: VerifiableCredentialV2,
+  verificationInput?: VCVerificationResult
 ): Promise<ImportCredentialResult> {
-  const { verification, pendingCredential } =
-    await verifyCredentialForPreview(rawCredential);
+  const verification = normalizeVerification(
+    verificationInput ||
+      (await verifyCredentialOnly(credential)).verification
+  );
 
-  const savedCredential = await saveCredential(pendingCredential);
+  const credentialToSave: VerifiableCredentialV2 = {
+    ...credential,
+    verifiedAt: verification.isVerified ? verification.checkedAt : null,
+    verification,
+  };
+
+  await saveVC(credentialToSave);
 
   return {
-    credential: savedCredential,
+    credential: credentialToSave,
     verification,
   };
 }

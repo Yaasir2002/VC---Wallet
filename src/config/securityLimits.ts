@@ -1,24 +1,20 @@
-// File: src/config/securityLimits.ts
-
-export const QR_JWT_MAX_LENGTH = 12000;
-export const DID_DOCUMENT_MAX_BYTES = 128 * 1024;
-export const DID_DOCUMENT_TIMEOUT_MS = 10000;
-
-export const TRUSTED_VC_ISSUER_DID = 'did:web:identitylab.id';
-export const TRUSTED_VC_ISSUER_DID_DOCUMENT_URL =
-  'https://identitylab.id/.well-known/did.json';
-
-export const VC_V2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2';
-export const VC_EXAMPLES_V2_CONTEXT_URL =
-  'https://www.w3.org/ns/credentials/examples/v2';
-
-export const VC_TYPE = 'VerifiableCredential';
-export const VP_TYPE = 'VerifiablePresentation';
-export const ENVELOPED_VC_TYPE = 'EnvelopedVerifiableCredential';
+export const MAX_QR_PAYLOAD_LENGTH = 12000;
+export const MAX_JWT_LENGTH = 12000;
+export const MAX_CREDENTIAL_IMPORT_SIZE = 20000;
+export const MAX_PRESENTATION_CREDENTIALS = 10;
+export const MAX_JSON_PARSE_DEPTH = 10;
 
 export const SUPPORTED_JWT_ALGS = ['ES256', 'EdDSA'] as const;
+export const SUPPORTED_JWT_ALG = SUPPORTED_JWT_ALGS;
+
 export type SupportedJwtAlg = (typeof SUPPORTED_JWT_ALGS)[number];
 
-export const MAX_PRESENTATION_JWT_BYTES = 12000;
-export const MAX_PRESENTATION_QR_BYTES = 12000;
-export const PRESENTATION_QR_WARNING_BYTES = 8000;
+export const SECURITY_LIMITS = {
+  MAX_QR_PAYLOAD_LENGTH,
+  MAX_JWT_LENGTH,
+  MAX_CREDENTIAL_IMPORT_SIZE,
+  MAX_PRESENTATION_CREDENTIALS,
+  MAX_JSON_PARSE_DEPTH,
+  SUPPORTED_JWT_ALGS,
+  SUPPORTED_JWT_ALG,
+} as const;

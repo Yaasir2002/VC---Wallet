@@ -1,7 +1,12 @@
-import { ModularCredential, SignedPresentationJWT } from '../types/vc';
+import {
+  ModularCredential,
+  SignedPresentationJWT as SignedPresentationJWTType,
+} from '../types/vc';
 import { normalizeToVcV2 } from './credentialV2Service';
 import { safeLogger } from '../utils/safeLogger';
 import { isJwtString, signVpJwtWithWallet } from './walletJwtSigner';
+
+export type SignedPresentationJWT = SignedPresentationJWTType;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
