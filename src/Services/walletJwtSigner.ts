@@ -1,7 +1,7 @@
 // File: src/Services/walletJwtSigner.ts
 
 import { createJWT } from 'did-jwt';
-import * as ed25519 from '@noble/ed25519';
+import nacl from 'tweetnacl';
 
 import { VerifiableCredentialV2 } from '../types/vc';
 import {
@@ -83,6 +83,10 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
 function base64UrlEncodeBytes(bytes: Uint8Array): string {
   let binary = '';
 
@@ -97,20 +101,11 @@ function base64UrlEncodeBytes(bytes: Uint8Array): string {
 }
 
 function base64UrlEncodeJson(value: unknown): string {
-  const json = JSON.stringify(value);
-  const encoded = unescape(encodeURIComponent(json));
-  const bytes = new Uint8Array(encoded.length);
-
-  for (let i = 0; i < encoded.length; i += 1) {
-    bytes[i] = encoded.charCodeAt(i);
-  }
-
-  return base64UrlEncodeBytes(bytes);
+  return base64UrlEncodeBytes(textToBytes(JSON.stringify(value)));
 }
 
 async function createVpJwtWithExplicitKid(params: {
   payload: Record<string, unknown>;
-  holderDid: string;
   kid: string;
 }): Promise<string> {
   const privateKeySeedHex = await getWalletPrivateKeySeedHex();
@@ -125,6 +120,8 @@ async function createVpJwtWithExplicitKid(params: {
     throw new Error('Private key Ed25519 harus 32 byte.');
   }
 
+  const keyPair = nacl.sign.keyPair.fromSeed(privateKeySeed);
+
   const header = {
     typ: 'JWT',
     alg: 'EdDSA',
@@ -134,11 +131,8 @@ async function createVpJwtWithExplicitKid(params: {
   const encodedHeader = base64UrlEncodeJson(header);
   const encodedPayload = base64UrlEncodeJson(params.payload);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
-  const signingInputBytes = new TextEncoder().encode(signingInput);
-
-  const signature = await ed25519.sign(signingInputBytes, privateKeySeed);
+  const signature = nacl.sign.detached(textToBytes(signingInput), keyPair.secretKey);
   const encodedSignature = base64UrlEncodeBytes(signature);
-
   const jwt = `${signingInput}.${encodedSignature}`;
 
   if (!isJwtString(jwt)) {
@@ -327,7 +321,6 @@ export async function signVpJwtWithWallet(params: {
 
   return createVpJwtWithExplicitKid({
     payload,
-    holderDid: wallet.did,
     kid: walletKid,
   });
 }
