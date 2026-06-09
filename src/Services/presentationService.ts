@@ -1,3 +1,5 @@
+// File: src/Services/presentationService.ts
+
 import {
   ModularCredential,
   SignedPresentationJWT as SignedPresentationJWTType,
@@ -7,6 +9,22 @@ import { safeLogger } from '../utils/safeLogger';
 import { isJwtString, signVpJwtWithWallet } from './walletJwtSigner';
 
 export type SignedPresentationJWT = SignedPresentationJWTType;
+
+export type EnvelopedVerifiableCredential = {
+  '@context': string[];
+  type: ['EnvelopedVerifiableCredential'];
+  id: string;
+};
+
+export type VerifiablePresentationV2 = {
+  '@context': string[];
+  type: ['VerifiablePresentation'];
+  holder: string;
+  verifiableCredential: EnvelopedVerifiableCredential[];
+};
+
+const VC_V2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
+const VC_EXAMPLES_V2_CONTEXT = 'https://www.w3.org/ns/credentials/examples/v2';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -53,24 +71,31 @@ export function getCredentialJwtFromStoredCredential(
   return typeof jwt === 'string' ? jwt.trim() : null;
 }
 
+function buildEnvelopedVerifiableCredential(
+  issuerCredentialJwt: string
+): EnvelopedVerifiableCredential {
+  if (!isJwtString(issuerCredentialJwt)) {
+    throw new Error('VC JWT issuer tidak valid.');
+  }
+
+  return {
+    '@context': [VC_V2_CONTEXT],
+    type: ['EnvelopedVerifiableCredential'],
+    id: `data:application/vc+jwt,${issuerCredentialJwt.trim()}`,
+  };
+}
+
 function buildVerifiablePresentation(params: {
   holderDid: string;
   issuerCredentialJwts: string[];
-}) {
+}): VerifiablePresentationV2 {
   return {
-    '@context': [
-      'https://www.w3.org/ns/credentials/v2',
-      'https://www.w3.org/ns/credentials/examples/v2',
-    ],
+    '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
     type: ['VerifiablePresentation'],
     holder: params.holderDid,
-
-    /**
-     * Penting:
-     * verifiableCredential harus berisi VC JWT asli dari issuer.
-     * Jangan dibungkus lagi menjadi EnvelopedVerifiableCredential.
-     */
-    verifiableCredential: params.issuerCredentialJwts,
+    verifiableCredential: params.issuerCredentialJwts.map((jwt) =>
+      buildEnvelopedVerifiableCredential(jwt)
+    ),
   };
 }
 

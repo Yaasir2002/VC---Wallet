@@ -24,6 +24,19 @@ export type SignVcJwtWithWalletParams = {
   attributeValue?: string;
 };
 
+export type EnvelopedVerifiableCredential = {
+  '@context': string[];
+  type: ['EnvelopedVerifiableCredential'];
+  id: string;
+};
+
+export type VerifiablePresentationV2 = {
+  '@context': string[];
+  type: ['VerifiablePresentation'];
+  holder: string;
+  verifiableCredential: EnvelopedVerifiableCredential[];
+};
+
 export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') return false;
 
@@ -34,6 +47,45 @@ export function isJwtString(value: unknown): value is string {
     trimmed.length > 0 &&
     parts.length === 3 &&
     parts.every((part) => part.trim().length > 0)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeEnvelopedCredential(item: unknown): EnvelopedVerifiableCredential {
+  if (isJwtString(item)) {
+    return {
+      '@context': [VC_V2_CONTEXT],
+      type: ['EnvelopedVerifiableCredential'],
+      id: `data:application/vc+jwt,${item.trim()}`,
+    };
+  }
+
+  if (isRecord(item)) {
+    const type = Array.isArray(item.type) ? item.type : [item.type];
+
+    const isEnveloped = type.some(
+      (value) =>
+        typeof value === 'string' && value === 'EnvelopedVerifiableCredential'
+    );
+
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+
+    if (isEnveloped && id.startsWith('data:application/vc+jwt,')) {
+      return {
+        '@context': Array.isArray(item['@context'])
+          ? (item['@context'] as string[])
+          : [VC_V2_CONTEXT],
+        type: ['EnvelopedVerifiableCredential'],
+        id,
+      };
+    }
+  }
+
+  throw new Error(
+    'Item verifiableCredential harus berupa VC JWT compact string atau EnvelopedVerifiableCredential valid.'
   );
 }
 
@@ -170,21 +222,17 @@ export async function signVpJwtWithWallet(params: {
     verifiableCredential: params.verifiableCredential || [],
   };
 
-  const credentials = vp.verifiableCredential || [];
+  const credentials = Array.isArray(vp.verifiableCredential)
+    ? vp.verifiableCredential
+    : [];
 
-  if (!Array.isArray(credentials) || credentials.length === 0) {
+  if (credentials.length === 0) {
     throw new Error('Minimal 1 credential harus dimasukkan ke presentation.');
   }
 
-  const normalizedCredentials = credentials.map((credential) => {
-    if (!isJwtString(credential)) {
-      throw new Error(
-        'Item verifiableCredential harus berupa VC JWT compact string asli dari issuer.'
-      );
-    }
-
-    return credential.trim();
-  });
+  const envelopedCredentials = credentials.map((credential) =>
+    normalizeEnvelopedCredential(credential)
+  );
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -196,12 +244,12 @@ export async function signVpJwtWithWallet(params: {
     nbf: now,
     jti: `urn:uuid:vp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     vp: {
-      '@context': vp['@context'] || [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
-      type: Array.isArray(vp.type)
-        ? vp.type
-        : [vp.type || 'VerifiablePresentation'],
-      holder: vp.holder || wallet.did,
-      verifiableCredential: normalizedCredentials,
+      '@context': Array.isArray(vp['@context'])
+        ? vp['@context']
+        : [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
+      type: ['VerifiablePresentation'],
+      holder: wallet.did,
+      verifiableCredential: envelopedCredentials,
     },
   });
 }

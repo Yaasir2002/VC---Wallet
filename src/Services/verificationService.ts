@@ -1,3 +1,5 @@
+// File: src/Services/verificationService.ts
+
 import { resolveDID, extractPublicKeyInfo } from './resolverService';
 import { resolveDidWebPublicKey } from './didWebResolver';
 import { verifyJwtSignature } from './jwtSignatureVerifier';
@@ -631,13 +633,11 @@ function extractEd25519PublicKeyJwkFromMethod(method: any) {
 
   if (typeof method?.publicKeyMultibase === 'string') {
     const jwk = publicKeyMultibaseToEd25519Jwk(method.publicKeyMultibase);
-
     if (jwk) return jwk;
   }
 
   if (typeof method?.publicKeyBase58 === 'string') {
     const jwk = publicKeyBase58ToEd25519Jwk(method.publicKeyBase58);
-
     if (jwk) return jwk;
   }
 

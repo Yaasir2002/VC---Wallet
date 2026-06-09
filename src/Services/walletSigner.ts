@@ -7,6 +7,9 @@ import {
   getWalletPrivateKeySeedHex,
 } from '../Storage/secureWalletStorage';
 
+const BASE58_ALPHABET =
+  '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
 function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
 
@@ -29,6 +32,10 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
 
@@ -42,8 +49,68 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     .replace(/=+$/g, '');
 }
 
-function textToBytes(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
+function jsonToBase64Url(value: unknown): string {
+  return bytesToBase64Url(textToBytes(JSON.stringify(value)));
+}
+
+function base58Encode(bytes: Uint8Array): string {
+  if (bytes.length === 0) return '';
+
+  const digits = [0];
+
+  for (const byte of bytes) {
+    let carry = byte;
+
+    for (let i = 0; i < digits.length; i += 1) {
+      const current = digits[i] * 256 + carry;
+      digits[i] = current % 58;
+      carry = Math.floor(current / 58);
+    }
+
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+
+  let result = '';
+
+  for (const byte of bytes) {
+    if (byte === 0) {
+      result += BASE58_ALPHABET[0];
+    } else {
+      break;
+    }
+  }
+
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    result += BASE58_ALPHABET[digits[i]];
+  }
+
+  return result;
+}
+
+function concatBytes(...items: Uint8Array[]): Uint8Array {
+  const length = items.reduce((total, item) => total + item.length, 0);
+  const result = new Uint8Array(length);
+
+  let offset = 0;
+
+  for (const item of items) {
+    result.set(item, offset);
+    offset += item.length;
+  }
+
+  return result;
+}
+
+function didKeyFromEd25519PublicKey(publicKey: Uint8Array): string {
+  const ed25519MulticodecPrefix = new Uint8Array([0xed, 0x01]);
+  const fingerprint = base58Encode(
+    concatBytes(ed25519MulticodecPrefix, publicKey)
+  );
+
+  return `did:key:z${fingerprint}`;
 }
 
 export function isJwtString(value: unknown): value is string {
@@ -75,10 +142,6 @@ export async function getWalletSigner() {
     );
   }
 
-  if (!identity.did.startsWith('did:key:')) {
-    throw new Error('Wallet DID harus did:key untuk signing.');
-  }
-
   const privateKeySeedHex =
     identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
 
@@ -95,10 +158,17 @@ export async function getWalletSigner() {
   }
 
   const keyPair = nacl.sign.keyPair.fromSeed(seed);
+  const derivedDid = didKeyFromEd25519PublicKey(keyPair.publicKey);
+
+  if (identity.did !== derivedDid) {
+    throw new Error(
+      `Wallet DID tidak cocok dengan private key. DID tersimpan: ${identity.did}. DID dari private key: ${derivedDid}. Reset wallet lalu buat ulang DID.`
+    );
+  }
 
   return {
-    did: identity.did,
-    kid: buildDidKeyKid(identity.did),
+    did: derivedDid,
+    kid: buildDidKeyKid(derivedDid),
     alg: 'EdDSA' as const,
     publicKey: keyPair.publicKey,
     signer: async (data: string | Uint8Array): Promise<string> => {
@@ -124,10 +194,6 @@ export async function createHolderJwtHeader() {
     typ: 'JWT',
     kid: wallet.kid,
   };
-}
-
-function jsonToBase64Url(value: unknown): string {
-  return bytesToBase64Url(textToBytes(JSON.stringify(value)));
 }
 
 export async function signJwtWithHolderKey(
