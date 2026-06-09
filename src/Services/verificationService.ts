@@ -389,18 +389,43 @@ function getTypes(value: any): string[] {
   );
 }
 
-function getIssuerFromVC(decodedPayload: any, vcPayload: any): string {
-  const issuer = decodedPayload?.iss || vcPayload?.issuer;
-
-  if (typeof issuer === 'string') {
-    return issuer;
-  }
-
-  if (issuer?.id && typeof issuer.id === 'string') {
-    return issuer.id;
-  }
-
+function normalizeIssuerText(issuer: any): string {
+  if (typeof issuer === 'string') return issuer;
+  if (issuer?.id && typeof issuer.id === 'string') return issuer.id;
   return '-';
+}
+
+function getDirectVcPayload(payload: any): any | null {
+  const types = getTypes(payload);
+
+  const hasVcType = types.includes('VerifiableCredential');
+
+  if (
+    hasVcType &&
+    payload?.credentialSubject &&
+    payload?.issuer
+  ) {
+    return payload;
+  }
+
+  return null;
+}
+
+function getVcPayloadFromDecoded(decoded: DecodedJWT): any | null {
+  if (decoded.payload?.vc && typeof decoded.payload.vc === 'object') {
+    return decoded.payload.vc;
+  }
+
+  return getDirectVcPayload(decoded.payload);
+}
+
+function getIssuerFromVC(decodedPayload: any, vcPayload: any): string {
+  const issuer =
+    decodedPayload?.iss ||
+    decodedPayload?.issuer ||
+    vcPayload?.issuer;
+
+  return normalizeIssuerText(issuer);
 }
 
 function getJwtKind(payload: any): 'vp-jwt' | 'vc-jwt' | 'unknown' {
@@ -409,6 +434,10 @@ function getJwtKind(payload: any): 'vp-jwt' | 'vc-jwt' | 'unknown' {
   }
 
   if (payload?.vc && typeof payload.vc === 'object') {
+    return 'vc-jwt';
+  }
+
+  if (getDirectVcPayload(payload)) {
     return 'vc-jwt';
   }
 
@@ -421,13 +450,20 @@ function extractDidFromPayload(payload: any): string {
       ? payload.vc.issuer
       : payload?.vc?.issuer?.id;
 
+  const directIssuer =
+    typeof payload?.issuer === 'string'
+      ? payload.issuer
+      : payload?.issuer?.id;
+
   const candidates = [
     payload?.iss,
     payload?.sub,
     payload?.holder,
     payload?.vp?.holder,
     payload?.vc?.credentialSubject?.id,
+    payload?.credentialSubject?.id,
     issuer,
+    directIssuer,
   ];
 
   const found = candidates.find(
@@ -438,43 +474,91 @@ function extractDidFromPayload(payload: any): string {
 }
 
 function credentialFromVCJwt(decoded: DecodedJWT): VerifiedCredentialView {
-  const vcPayload = decoded.payload?.vc || {};
+  const vcPayload = getVcPayloadFromDecoded(decoded);
+
+  if (!vcPayload) {
+    return {
+      jwt: decoded.raw,
+      error: 'JWT credential tidak memiliki payload VC valid.',
+    };
+  }
+
   const credentialSubject = vcPayload?.credentialSubject || {};
+  const types = getTypes(vcPayload);
 
   return {
     jwt: decoded.raw,
     issuer: getIssuerFromVC(decoded.payload, vcPayload),
     subject: decoded.payload?.sub || credentialSubject?.id || '-',
-    type: getTypes(vcPayload),
+    type: types,
     issuanceDate:
       vcPayload?.issuanceDate ||
+      vcPayload?.validFrom ||
+      decoded.payload?.issuanceDate ||
+      decoded.payload?.validFrom ||
       (typeof decoded.payload?.nbf === 'number'
         ? new Date(decoded.payload.nbf * 1000).toISOString()
         : '-'),
     attributeName:
-      credentialSubject?.attributeName ||
+      credentialSubject?.Nama ||
       credentialSubject?.name ||
+      credentialSubject?.fullName ||
+      credentialSubject?.attributeName ||
       credentialSubject?.documentType ||
       credentialSubject?.documentName ||
       'Credential',
     attributeValue:
-      credentialSubject?.attributeValue ||
+      credentialSubject?.NIM ||
       credentialSubject?.nik ||
       credentialSubject?.nim ||
+      credentialSubject?.attributeValue ||
       credentialSubject?.id ||
       '-',
     attributeType:
+      credentialSubject?.Prodi ||
       credentialSubject?.attributeType ||
       credentialSubject?.documentType ||
+      types.find((item) => item !== 'VerifiableCredential') ||
       'VC',
     credentialSubject,
   };
 }
 
-function credentialsFromVPJwt(decoded: DecodedJWT): VerifiedCredentialView[] {
-  const credentialJWTs = toArray(decoded.payload?.vp?.verifiableCredential);
+function extractCredentialJwtFromVPItem(item: any): string | null {
+  if (isDecodableJwtString(item)) {
+    return item.trim();
+  }
 
-  if (credentialJWTs.length === 0) {
+  if (!isRecord(item)) {
+    return null;
+  }
+
+  const id = typeof item.id === 'string' ? item.id.trim() : '';
+
+  if (id.startsWith('data:application/vc+jwt,')) {
+    const jwt = id.replace(/^data:application\/vc\+jwt,/i, '').trim();
+    return isDecodableJwtString(jwt) ? jwt : null;
+  }
+
+  if (id.startsWith('data:application/vc+jwt;')) {
+    const commaIndex = id.indexOf(',');
+    const jwt = commaIndex >= 0 ? id.slice(commaIndex + 1).trim() : '';
+    return isDecodableJwtString(jwt) ? jwt : null;
+  }
+
+  const deep = findJwtDeep(item);
+  return deep && isDecodableJwtString(deep) ? deep : null;
+}
+
+function credentialsFromVPJwt(decoded: DecodedJWT): VerifiedCredentialView[] {
+  const vpPayload = decoded.payload?.vp || {};
+  const rawCredentialItems = toArray(vpPayload?.verifiableCredential);
+
+  const credentialJWTs = rawCredentialItems
+    .map((item) => extractCredentialJwtFromVPItem(item))
+    .filter((item): item is string => Boolean(item));
+
+  if (rawCredentialItems.length === 0) {
     return [
       {
         error: 'VP JWT tidak memiliki verifiableCredential.',
@@ -482,13 +566,15 @@ function credentialsFromVPJwt(decoded: DecodedJWT): VerifiedCredentialView[] {
     ];
   }
 
-  return credentialJWTs.map((item) => {
-    if (!isDecodableJwtString(item)) {
-      return {
+  if (credentialJWTs.length === 0) {
+    return [
+      {
         error: 'Item verifiableCredential di dalam VP bukan VC JWT valid.',
-      };
-    }
+      },
+    ];
+  }
 
+  return credentialJWTs.map((item) => {
     try {
       const decodedVC = decodeJWT(item);
       const kind = getJwtKind(decodedVC.payload);
@@ -496,7 +582,7 @@ function credentialsFromVPJwt(decoded: DecodedJWT): VerifiedCredentialView[] {
       if (kind !== 'vc-jwt') {
         return {
           jwt: item,
-          error: 'JWT di dalam VP tidak memiliki payload vc.',
+          error: 'JWT di dalam VP tidak memiliki payload VC.',
         };
       }
 
@@ -553,6 +639,10 @@ async function tryResolveDid(did: string) {
   }
 }
 
+function hasCredentialErrors(credentials: VerifiedCredentialView[]): boolean {
+  return credentials.some((credential) => Boolean(credential.error));
+}
+
 export async function verifyPresentationJWT(
   qrData: string
 ): Promise<UniversalVerificationResult> {
@@ -567,49 +657,61 @@ export async function verifyPresentationJWT(
       'JWT berhasil dibaca. Signature cryptographic verification belum dilakukan penuh.';
 
     if (kind === 'vp-jwt') {
+      const credentials = credentialsFromVPJwt(decoded);
+      const credentialHasError = hasCredentialErrors(credentials);
+
       return {
-        valid: true,
+        valid: !credentialHasError,
         structurallyValid: true,
         signatureVerified: false,
         kind,
         holderDid,
         decoded,
         rawJwt: jwt,
-        credentials: credentialsFromVPJwt(decoded),
+        credentials,
         ...didInfo,
-        warning: didInfo.warning || signatureWarning,
+        warning:
+          didInfo.warning ||
+          (credentialHasError
+            ? 'VP JWT terbaca, tetapi ada credential yang belum valid.'
+            : signatureWarning),
       };
     }
 
     if (kind === 'vc-jwt') {
+      const credential = credentialFromVCJwt(decoded);
+      const credentialHasError = Boolean(credential.error);
+
       return {
-        valid: true,
+        valid: !credentialHasError,
         structurallyValid: true,
         signatureVerified: false,
         kind,
         holderDid,
         decoded,
         rawJwt: jwt,
-        credentials: [credentialFromVCJwt(decoded)],
+        credentials: [credential],
         ...didInfo,
-        warning: didInfo.warning || signatureWarning,
+        warning:
+          didInfo.warning ||
+          (credentialHasError ? credential.error : signatureWarning),
       };
     }
 
     return {
-        valid: false,
-        structurallyValid: true,
-        signatureVerified: false,
-        kind: 'unknown',
-        holderDid,
-        decoded,
-        rawJwt: jwt,
-        credentials: [],
-        ...didInfo,
-        warning:
-          didInfo.warning ||
-          'JWT ditemukan dan berhasil di-decode, tetapi payload tidak memiliki field vp atau vc.',
-      };
+      valid: false,
+      structurallyValid: true,
+      signatureVerified: false,
+      kind: 'unknown',
+      holderDid,
+      decoded,
+      rawJwt: jwt,
+      credentials: [],
+      ...didInfo,
+      warning:
+        didInfo.warning ||
+        'JWT ditemukan dan berhasil di-decode, tetapi payload tidak memiliki field vp atau vc.',
+    };
   } catch (error) {
     return {
       valid: false,
