@@ -170,11 +170,11 @@ function assertTrustedIssuerConsistency(params: {
   const headerIss = normalizeIssuerDid(params.header.iss);
 
   if (!payloadIssuer) {
-    throw new Error('Credential tidak memiliki issuer.');
+    throw new Error('untrusted_issuer:empty');
   }
 
   if (!payloadIssuer.startsWith('did:web:')) {
-    throw new Error(`untrusted_issuer:${payloadIssuer || 'empty'}`);
+    throw new Error(`untrusted_issuer:${payloadIssuer}`);
   }
 
   const trusted = TRUSTED_ISSUERS.map((issuer) =>
