@@ -3,7 +3,6 @@
 import {
   QR_JWT_MAX_LENGTH,
   SUPPORTED_JWT_ALGS,
-  TRUSTED_VC_ISSUER_DID,
   VC_TYPE,
   VC_V2_CONTEXT_URL,
 } from '../config/securityLimits';
@@ -23,6 +22,12 @@ export type VerifiedJwtVcClaim = {
   preview: CredentialPreviewClaim;
 };
 
+const TRUSTED_ISSUERS = [
+  'did:web:identitylab.id',
+  'did:web:demo.identitylab.id',
+  'did:web:vc-issuer.yaasir.dev',
+];
+
 function assertQrPayloadSize(value: string): void {
   if (!value || value.trim().length === 0) {
     throw new Error('QR bukan JWT credential claim yang valid.');
@@ -31,6 +36,42 @@ function assertQrPayloadSize(value: string): void {
   if (value.length > QR_JWT_MAX_LENGTH) {
     throw new Error('QR terlalu besar untuk diproses.');
   }
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeIssuerDid(value: unknown): string {
+  const raw = normalizeText(value);
+
+  if (!raw) return '';
+
+  if (raw.startsWith('did:web:')) {
+    return raw.toLowerCase();
+  }
+
+  if (raw.startsWith('https://')) {
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      const cleanedPath = url.pathname
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '')
+        .replace(/^\.well-known\/did\.json$/i, '')
+        .replace(/\/\.well-known\/did\.json$/i, '');
+
+      if (!cleanedPath) {
+        return `did:web:${host}`;
+      }
+
+      return `did:web:${host}:${cleanedPath.replace(/\//g, ':')}`;
+    } catch {
+      return raw.toLowerCase();
+    }
+  }
+
+  return raw.toLowerCase();
 }
 
 function parseJwtCompact(rawValue: string): DecodedJwt<JwtVcV2Payload> {
@@ -85,17 +126,6 @@ function assertJwtHeader(header: JwtHeader): void {
   if (typeof header.kid !== 'string' || header.kid.trim().length === 0) {
     throw new Error('JWT tidak memiliki key id.');
   }
-
-  /**
-   * Pada contoh JWT terbaru, issuer utama ada di payload.iss dan payload.issuer.
-   * Header EdDSA bisa tidak membawa iss, jadi header.iss hanya divalidasi jika ada.
-   */
-  if (
-    typeof header.iss === 'string' &&
-    header.iss !== TRUSTED_VC_ISSUER_DID
-  ) {
-    throw new Error('untrusted_issuer');
-  }
 }
 
 function assertVcV2Payload(payload: JwtVcV2Payload): void {
@@ -119,21 +149,6 @@ function assertVcV2Payload(payload: JwtVcV2Payload): void {
     throw new Error('Credential ID tidak valid.');
   }
 
-  if (payload.issuer !== TRUSTED_VC_ISSUER_DID) {
-    throw new Error('untrusted_issuer');
-  }
-
-  /**
-   * Beberapa issuer juga menaruh iss di payload JWT.
-   * Jika ada, harus sama dengan issuer VC.
-   */
-  if (
-    typeof payload.iss === 'string' &&
-    payload.iss !== TRUSTED_VC_ISSUER_DID
-  ) {
-    throw new Error('untrusted_issuer');
-  }
-
   if (!isRecord(payload.credentialSubject)) {
     throw new Error('Credential subject tidak valid.');
   }
@@ -144,6 +159,45 @@ function assertVcV2Payload(payload: JwtVcV2Payload): void {
   ) {
     throw new Error('Subject ID credential tidak valid.');
   }
+}
+
+function assertTrustedIssuerConsistency(params: {
+  header: JwtHeader;
+  payload: JwtVcV2Payload;
+}): string {
+  const payloadIssuer = normalizeIssuerDid(params.payload.issuer);
+  const payloadIss = normalizeIssuerDid(params.payload.iss);
+  const headerIss = normalizeIssuerDid(params.header.iss);
+
+  if (!payloadIssuer) {
+    throw new Error('Credential tidak memiliki issuer.');
+  }
+
+  if (!payloadIssuer.startsWith('did:web:')) {
+    throw new Error(`untrusted_issuer:${payloadIssuer || 'empty'}`);
+  }
+
+  const trusted = TRUSTED_ISSUERS.map((issuer) =>
+    normalizeIssuerDid(issuer)
+  ).includes(payloadIssuer);
+
+  if (!trusted) {
+    throw new Error(`untrusted_issuer:${payloadIssuer}`);
+  }
+
+  if (payloadIss && payloadIss !== payloadIssuer) {
+    throw new Error(
+      `Issuer JWT tidak sama dengan issuer credential. iss=${payloadIss}, issuer=${payloadIssuer}`
+    );
+  }
+
+  if (headerIss && headerIss !== payloadIssuer) {
+    throw new Error(
+      `Issuer header JWT tidak sama dengan issuer credential. headerIss=${headerIss}, issuer=${payloadIssuer}`
+    );
+  }
+
+  return payloadIssuer;
 }
 
 function buildPreview(payload: JwtVcV2Payload): CredentialPreviewClaim {
@@ -187,8 +241,13 @@ export async function verifyJwtVcClaimFromQr(
   assertJwtHeader(decoded.header);
   assertVcV2Payload(decoded.payload);
 
+  const trustedIssuerDid = assertTrustedIssuerConsistency({
+    header: decoded.header,
+    payload: decoded.payload,
+  });
+
   const { publicKeyJwk } = await resolveDidWebPublicKey(
-    decoded.payload.issuer,
+    trustedIssuerDid,
     decoded.header.kid
   );
 
@@ -208,21 +267,19 @@ export async function verifyJwtVcClaimFromQr(
   const claimedCredential: ClaimedJwtCredential = {
     id: decoded.payload.id,
 
-    /**
-     * Ini yang penting untuk flow presentation.
-     * JWT asli dari QR disimpan sebagai vcJwt,
-     * lalu nanti dibungkus menjadi EnvelopedVerifiableCredential.
-     */
     vcJwt: decoded.rawJwt,
     rawJwt: decoded.rawJwt,
 
     decodedHeader: decoded.header,
-    decodedCredential: decoded.payload,
+    decodedCredential: {
+      ...decoded.payload,
+      issuer: trustedIssuerDid,
+    },
 
     verificationStatus: 'signature_verified',
     signatureVerified: true,
 
-    issuer: decoded.payload.issuer,
+    issuer: trustedIssuerDid,
     credentialSubject: decoded.payload.credentialSubject,
 
     source: 'qr_jwt_claim',
@@ -231,6 +288,9 @@ export async function verifyJwtVcClaimFromQr(
 
   return {
     claimedCredential,
-    preview: buildPreview(decoded.payload),
+    preview: buildPreview({
+      ...decoded.payload,
+      issuer: trustedIssuerDid,
+    }),
   };
 }

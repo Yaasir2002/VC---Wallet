@@ -16,7 +16,10 @@ import { useRouter } from 'expo-router';
 import { authenticateWalletAccess } from '../../src/Services/walletLockService';
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';
-import { VerifiedJwtVcClaim, verifyJwtVcClaimFromQr } from '../../src/Services/jwtVcClaimService';
+import {
+  VerifiedJwtVcClaim,
+  verifyJwtVcClaimFromQr,
+} from '../../src/Services/jwtVcClaimService';
 import { saveClaimedJwtCredential } from '../../src/Services/credentialStorage';
 import { stringifySafeValue } from '../../src/utils/safeJson';
 
@@ -33,6 +36,14 @@ function getSafeErrorMessage(error: unknown, fallback: string): string {
 
   if (!message) return fallback;
 
+  if (message.startsWith('untrusted_issuer:')) {
+    const issuer = message.replace('untrusted_issuer:', '').trim();
+
+    return `Issuer credential tidak dipercaya. Credential ditolak. Issuer terbaca: ${
+      issuer || '-'
+    }`;
+  }
+
   const map: Record<string, string> = {
     did_resolution_failed:
       'DID issuer tidak dapat diverifikasi. Credential ditolak.',
@@ -45,7 +56,7 @@ function getSafeErrorMessage(error: unknown, fallback: string): string {
     unsupported_algorithm:
       'Algoritma signature tidak didukung. Credential ditolak.',
     untrusted_issuer:
-      'Issuer credential tidak dipercaya. Credential ditolak.',
+      'Issuer credential tidak dipercaya. Credential ditolak. Issuer tidak terbaca dari pesan error.',
   };
 
   if (map[message]) return map[message];
@@ -307,10 +318,7 @@ export default function ScanQRScreen() {
                 label="Tanggal Penerbitan"
                 value={verifiedClaim.preview.issuanceDate || '-'}
               />
-              <PreviewRow
-                label="Status"
-                value="signature_verified"
-              />
+              <PreviewRow label="Status" value="signature_verified" />
             </View>
 
             <Text style={styles.claimTitle}>Credential Subject</Text>
@@ -707,7 +715,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   cancelButton: {
-    marginTop: 14,
+    marginTop: 12,
     alignItems: 'center',
     paddingVertical: 14,
   },
