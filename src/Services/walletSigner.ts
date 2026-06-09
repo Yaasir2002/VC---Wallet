@@ -11,7 +11,9 @@ function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
 
   if (!normalized || normalized.length % 2 !== 0) {
-    throw new Error('Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.');
+    throw new Error(
+      'Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.'
+    );
   }
 
   if (!/^[0-9a-fA-F]+$/.test(normalized)) {
@@ -29,15 +31,31 @@ function hexToBytes(hex: string): Uint8Array {
 
 export function isJwtString(value: unknown): value is string {
   if (typeof value !== 'string') return false;
+
   const parts = value.trim().split('.');
+
   return parts.length === 3 && parts.every((part) => part.length > 0);
+}
+
+function getDidKeyFragment(did: string): string {
+  return did.startsWith('did:key:') ? did.replace('did:key:', '') : did;
+}
+
+export function buildDidKeyKid(did: string): string {
+  if (!did.startsWith('did:key:')) {
+    return did;
+  }
+
+  return `${did}#${getDidKeyFragment(did)}`;
 }
 
 export async function getWalletSigner() {
   const identity = await getRecoverableWalletIdentity();
 
   if (!identity?.did) {
-    throw new Error('Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.');
+    throw new Error(
+      'Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.'
+    );
   }
 
   if (!identity.did.startsWith('did:key:')) {
@@ -48,12 +66,14 @@ export async function getWalletSigner() {
     identity.privateKeySeedHex || (await getWalletPrivateKeySeedHex());
 
   if (!privateKeySeedHex) {
-    throw new Error('Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.');
+    throw new Error(
+      'Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.'
+    );
   }
 
   return {
     did: identity.did,
-    kid: `${identity.did}#${identity.did}`,
+    kid: buildDidKeyKid(identity.did),
     signer: EdDSASigner(hexToBytes(privateKeySeedHex)),
     alg: 'EdDSA' as const,
   };
@@ -79,16 +99,22 @@ export async function signJwtWithHolderKey(
 ): Promise<string> {
   const wallet = await getWalletSigner();
 
-  const jwt = await createJWT(payload, {
-    issuer: wallet.did,
-    signer: wallet.signer,
-    alg: wallet.alg,
-    header: {
+  const jwt = await createJWT(
+    payload,
+    {
+      issuer: wallet.did,
+      signer: wallet.signer,
       alg: wallet.alg,
-      typ: 'JWT',
-      kid: wallet.kid,
     } as any,
-  } as any);
+    {
+      header: {
+        alg: wallet.alg,
+        typ: 'JWT',
+        kid: wallet.kid,
+      },
+      noTimestamp: true,
+    } as any
+  );
 
   if (!isJwtString(jwt)) {
     throw new Error('JWT hasil signing tidak valid.');
@@ -105,6 +131,8 @@ export async function signVerifiablePresentationJwt(
 
   return signJwtWithHolderKey({
     iss: wallet.did,
+    sub: wallet.did,
+    holder: wallet.did,
     iat: now,
     nbf: now,
     jti: `urn:uuid:vp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
