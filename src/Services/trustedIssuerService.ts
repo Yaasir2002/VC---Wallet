@@ -1,9 +1,48 @@
 import { TRUSTED_ISSUERS } from '../config/trustedIssuers';
 import { TrustedIssuerValidationResult } from '../types/verification';
 
+function cleanText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const cleaned = value.trim();
+
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function normalizeDidWeb(value: unknown): string | null {
+  const issuer = cleanText(value);
+
+  if (!issuer) return null;
+
+  if (issuer.startsWith('did:web:')) {
+    return issuer.toLowerCase();
+  }
+
+  if (issuer.startsWith('https://')) {
+    try {
+      const url = new URL(issuer);
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '')
+        .replace(/\/\.well-known\/did\.json$/i, '');
+
+      if (!path) {
+        return `did:web:${host}`;
+      }
+
+      return `did:web:${host}:${path.replace(/\//g, ':')}`;
+    } catch {
+      return issuer.toLowerCase();
+    }
+  }
+
+  return issuer.toLowerCase();
+}
+
 export function normalizeIssuerId(issuer: unknown): string | null {
-  if (typeof issuer === 'string' && issuer.trim()) {
-    return issuer.trim();
+  if (typeof issuer === 'string') {
+    return normalizeDidWeb(issuer);
   }
 
   if (
@@ -12,7 +51,7 @@ export function normalizeIssuerId(issuer: unknown): string | null {
     'id' in issuer &&
     typeof (issuer as any).id === 'string'
   ) {
-    return (issuer as any).id.trim();
+    return normalizeDidWeb((issuer as any).id);
   }
 
   return null;
@@ -27,40 +66,44 @@ export function extractIssuerId(vcOrJwtPayload: any): string | null {
     return null;
   }
 
-  if (typeof vcOrJwtPayload?.iss === 'string') {
-    return vcOrJwtPayload.iss;
-  }
+  const payloadIssuer = normalizeIssuerId(vcOrJwtPayload?.issuer);
+  const payloadIss = normalizeIssuerId(vcOrJwtPayload?.iss);
+  const nestedIssuer = normalizeIssuerId(vcOrJwtPayload?.vc?.issuer);
 
-  if (vcOrJwtPayload?.vc?.issuer) {
-    return normalizeIssuerId(vcOrJwtPayload.vc.issuer);
-  }
-
-  return normalizeIssuerId(vcOrJwtPayload?.issuer);
+  return payloadIssuer || payloadIss || nestedIssuer;
 }
 
 export function getIssuerId(vc: any): string | null {
   return extractIssuerId(vc);
 }
 
+function getTrustedIssuerById(issuerId: string) {
+  const normalizedIssuerId = normalizeDidWeb(issuerId);
+
+  return TRUSTED_ISSUERS.find((issuer) => {
+    return normalizeDidWeb(issuer.id) === normalizedIssuerId;
+  });
+}
+
 export function validateTrustedIssuer(
   issuerId: string | null,
   credentialType?: string | string[]
 ): TrustedIssuerValidationResult {
-  if (!issuerId) {
+  const normalizedIssuerId = normalizeIssuerId(issuerId);
+
+  if (!normalizedIssuerId) {
     return {
       isTrusted: false,
       reason: 'Issuer tidak ditemukan',
     };
   }
 
-  const trustedIssuer = TRUSTED_ISSUERS.find(
-    (issuer) => issuer.id === issuerId
-  );
+  const trustedIssuer = getTrustedIssuerById(normalizedIssuerId);
 
   if (!trustedIssuer) {
     return {
       isTrusted: false,
-      issuerId,
+      issuerId: normalizedIssuerId,
       reason: 'Issuer tidak termasuk daftar terpercaya',
     };
   }
@@ -68,7 +111,7 @@ export function validateTrustedIssuer(
   if (trustedIssuer.status !== 'active') {
     return {
       isTrusted: false,
-      issuerId,
+      issuerId: normalizedIssuerId,
       issuerName: trustedIssuer.name,
       reason: 'Issuer tidak aktif',
     };
@@ -80,15 +123,21 @@ export function validateTrustedIssuer(
       ? [credentialType]
       : [];
 
+  const normalizedTypes = types
+    .map((type) => String(type).trim())
+    .filter((type) => type.length > 0);
+
   const hasAllowedType =
-    types.length === 0 ||
+    normalizedTypes.length === 0 ||
     trustedIssuer.allowedCredentialTypes.length === 0 ||
-    types.some((type) => trustedIssuer.allowedCredentialTypes.includes(type));
+    normalizedTypes.some((type) =>
+      trustedIssuer.allowedCredentialTypes.includes(type)
+    );
 
   if (!hasAllowedType) {
     return {
       isTrusted: false,
-      issuerId,
+      issuerId: normalizedIssuerId,
       issuerName: trustedIssuer.name,
       reason: 'Issuer tidak diizinkan menerbitkan tipe credential ini',
     };
@@ -96,7 +145,7 @@ export function validateTrustedIssuer(
 
   return {
     isTrusted: true,
-    issuerId,
+    issuerId: normalizedIssuerId,
     issuerName: trustedIssuer.name,
   };
 }

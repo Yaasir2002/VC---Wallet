@@ -21,6 +21,20 @@ export const TRUSTED_ISSUERS: TrustedIssuer[] = [
     status: 'active',
   },
   {
+    id: 'did:web:demo.identitylab.id',
+    name: 'IdentityLab Demo Subdomain Issuer',
+    allowedCredentialTypes: [
+      'VerifiableCredential',
+      'AcademicCredential',
+      'IdentityCredential',
+      'StudentCredential',
+      'KtpCredential',
+      'KtmCredential',
+      'CustomCredential',
+    ],
+    status: 'active',
+  },
+  {
     id: 'did:web:vc-issuer.yaasir.dev',
     name: 'VC Issuer Yaasir',
     allowedCredentialTypes: [
