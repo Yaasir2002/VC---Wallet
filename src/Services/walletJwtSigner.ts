@@ -1,6 +1,7 @@
 // File: src/Services/walletJwtSigner.ts
 
 import { createJWT } from 'did-jwt';
+import * as ed25519 from '@noble/ed25519';
 
 import { VerifiableCredentialV2 } from '../types/vc';
 import {
@@ -9,6 +10,7 @@ import {
   VC_V2_CONTEXT,
 } from './credentialV2Service';
 import { getWalletSigner } from './walletSigner';
+import { getWalletPrivateKeySeedHex } from '../Storage/secureWalletStorage';
 
 export type SignVcJwtWithWalletParams = {
   subjectDid: string;
@@ -59,6 +61,91 @@ function normalizeDidKeyKid(did: string, kid?: string): string {
   }
 
   return normalizedKid || did;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
+
+  if (!normalized || normalized.length % 2 !== 0) {
+    throw new Error('Private key holder tidak tersedia.');
+  }
+
+  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error('Private key wallet tidak valid.');
+  }
+
+  const bytes = new Uint8Array(normalized.length / 2);
+
+  for (let i = 0; i < normalized.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
+  }
+
+  return bytes;
+}
+
+function base64UrlEncodeBytes(bytes: Uint8Array): string {
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlEncodeJson(value: unknown): string {
+  const json = JSON.stringify(value);
+  const encoded = unescape(encodeURIComponent(json));
+  const bytes = new Uint8Array(encoded.length);
+
+  for (let i = 0; i < encoded.length; i += 1) {
+    bytes[i] = encoded.charCodeAt(i);
+  }
+
+  return base64UrlEncodeBytes(bytes);
+}
+
+async function createVpJwtWithExplicitKid(params: {
+  payload: Record<string, unknown>;
+  holderDid: string;
+  kid: string;
+}): Promise<string> {
+  const privateKeySeedHex = await getWalletPrivateKeySeedHex();
+
+  if (!privateKeySeedHex) {
+    throw new Error('Private key holder tidak tersedia.');
+  }
+
+  const privateKeySeed = hexToBytes(privateKeySeedHex);
+
+  if (privateKeySeed.length !== 32) {
+    throw new Error('Private key Ed25519 harus 32 byte.');
+  }
+
+  const header = {
+    typ: 'JWT',
+    alg: 'EdDSA',
+    kid: params.kid,
+  };
+
+  const encodedHeader = base64UrlEncodeJson(header);
+  const encodedPayload = base64UrlEncodeJson(params.payload);
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signingInputBytes = new TextEncoder().encode(signingInput);
+
+  const signature = await ed25519.sign(signingInputBytes, privateKeySeed);
+  const encodedSignature = base64UrlEncodeBytes(signature);
+
+  const jwt = `${signingInput}.${encodedSignature}`;
+
+  if (!isJwtString(jwt)) {
+    throw new Error('VP JWT hasil signing tidak valid.');
+  }
+
+  return jwt.trim();
 }
 
 export async function signCredentialObjectAsJwt(
@@ -238,20 +325,9 @@ export async function signVpJwtWithWallet(params: {
     },
   };
 
-  const jwt = await createJWT(payload, {
-    issuer: wallet.did,
-    signer: wallet.signer,
-    alg: wallet.alg,
-    header: {
-      alg: wallet.alg,
-      typ: 'JWT',
-      kid: walletKid,
-    } as any,
-  } as any);
-
-  if (!isJwtString(jwt)) {
-    throw new Error('VP JWT hasil signing tidak valid.');
-  }
-
-  return jwt.trim();
+  return createVpJwtWithExplicitKid({
+    payload,
+    holderDid: wallet.did,
+    kid: walletKid,
+  });
 }
