@@ -1,6 +1,6 @@
 // File: src/Services/walletJwtSigner.ts
 
-import { createJWT, EdDSASigner } from 'did-jwt';
+import { createJWT } from 'did-jwt';
 
 import { VerifiableCredentialV2 } from '../types/vc';
 import {
@@ -9,7 +9,6 @@ import {
   VC_V2_CONTEXT,
 } from './credentialV2Service';
 import { getWalletSigner } from './walletSigner';
-import { getWalletPrivateKeySeedHex } from '../Storage/secureWalletStorage';
 
 export type SignVcJwtWithWalletParams = {
   subjectDid: string;
@@ -62,26 +61,6 @@ function normalizeDidKeyKid(did: string, kid?: string): string {
   return normalizedKid || did;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
-
-  if (!normalized || normalized.length % 2 !== 0) {
-    throw new Error('Private key holder tidak tersedia.');
-  }
-
-  if (!/^[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error('Private key wallet tidak valid.');
-  }
-
-  const bytes = new Uint8Array(normalized.length / 2);
-
-  for (let i = 0; i < normalized.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
-  }
-
-  return bytes;
-}
-
 function textToBytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }
@@ -115,21 +94,11 @@ async function createVpJwtWithExplicitKid(params: {
   payload: Record<string, unknown>;
   kid: string;
 }): Promise<string> {
-  const privateKeySeedHex = await getWalletPrivateKeySeedHex();
-
-  if (!privateKeySeedHex) {
-    throw new Error('Private key holder tidak tersedia.');
-  }
-
-  const privateKeySeed = hexToBytes(privateKeySeedHex);
-
-  if (privateKeySeed.length !== 32) {
-    throw new Error('Private key Ed25519 harus 32 byte.');
-  }
+  const wallet = await getWalletSigner();
 
   const header = {
     typ: 'JWT',
-    alg: 'EdDSA',
+    alg: wallet.alg,
     kid: params.kid,
   };
 
@@ -137,8 +106,7 @@ async function createVpJwtWithExplicitKid(params: {
   const encodedPayload = base64UrlEncodeJson(params.payload);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
-  const signer = EdDSASigner(privateKeySeed);
-  const signature = normalizeBase64UrlSignature(await signer(signingInput));
+  const signature = normalizeBase64UrlSignature(await wallet.signer(signingInput));
   const jwt = `${signingInput}.${signature}`;
 
   if (!isJwtString(jwt)) {
