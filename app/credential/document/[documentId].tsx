@@ -56,6 +56,55 @@ function isJwtString(value: unknown): value is string {
   );
 }
 
+function base64UrlDecodeToString(value: string): string {
+  let base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+
+  const decoded = atob(base64);
+
+  try {
+    return decodeURIComponent(
+      decoded
+        .split('')
+        .map((char) => `%${('00' + char.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join('')
+    );
+  } catch {
+    return decoded;
+  }
+}
+
+function decodeJwtHeaderForDebug(jwt: string): string {
+  try {
+    if (!isJwtString(jwt)) return '-';
+
+    const [encodedHeader] = jwt.trim().split('.');
+    const header = JSON.parse(base64UrlDecodeToString(encodedHeader));
+
+    return JSON.stringify(header, null, 2);
+  } catch {
+    return '-';
+  }
+}
+
+function getJwtHeaderKidForDebug(jwt: string): string {
+  try {
+    if (!isJwtString(jwt)) return '-';
+
+    const [encodedHeader] = jwt.trim().split('.');
+    const header = JSON.parse(base64UrlDecodeToString(encodedHeader));
+
+    return typeof header?.kid === 'string' && header.kid.trim()
+      ? header.kid.trim()
+      : 'KID BELUM ADA';
+  } catch {
+    return '-';
+  }
+}
+
 function stringifyValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'string') return value;
@@ -90,16 +139,22 @@ function normalizeLabel(key: string): string {
     attributeType: 'Tipe Atribut',
     NIK: 'NIK',
     nik: 'NIK',
+    NIM: 'NIM',
     Nim: 'NIM',
     nim: 'NIM',
     studentId: 'NIM',
+    Prodi: 'Prodi',
+    prodi: 'Prodi',
+    Angkatan: 'Angkatan',
+    'Angkatan ': 'Angkatan',
+    Alamat: 'Alamat',
+    alamat: 'Alamat',
     documentId: 'Document ID',
     documentType: 'Document Type',
     documentName: 'Document Name',
     birthDate: 'Tanggal Lahir',
     tanggalLahir: 'Tanggal Lahir',
     address: 'Alamat',
-    alamat: 'Alamat',
     validUntilText: 'Berlaku Hingga',
     berlakuHingga: 'Berlaku Hingga',
   };
@@ -318,6 +373,14 @@ export default function CredentialDocumentDetailScreen() {
       : shortenJwt(qrJwt)
     : '';
 
+  const presentationHeaderDebug = isPresentationJwtValid
+    ? decodeJwtHeaderForDebug(qrJwt)
+    : '-';
+
+  const presentationKidDebug = isPresentationJwtValid
+    ? getJwtHeaderKidForDebug(qrJwt)
+    : '-';
+
   const loadDocument = useCallback(async () => {
     try {
       if (!documentId) {
@@ -405,7 +468,17 @@ export default function CredentialDocumentDetailScreen() {
       setPresentationJwt(signedJwt);
       setPresentationMeta(result);
       setQrWarning('');
-      showToast('VP JWT berhasil ditandatangani dan siap dipindai.', 'success');
+
+      const kid = getJwtHeaderKidForDebug(signedJwt);
+
+      if (kid === 'KID BELUM ADA') {
+        showToast(
+          'VP JWT berhasil dibuat, tetapi header kid belum ada. Cek walletJwtSigner.ts atau cache Metro.',
+          'error'
+        );
+      } else {
+        showToast('VP JWT berhasil ditandatangani dan siap dipindai.', 'success');
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Gagal membuat signed VP JWT.';
@@ -597,6 +670,11 @@ export default function CredentialDocumentDetailScreen() {
               <Text style={styles.metaText}>
                 Algorithm: {presentationMeta?.algorithm || '-'}
               </Text>
+              <Text style={styles.metaText}>Header KID: {presentationKidDebug}</Text>
+              <Text style={styles.metaText}>Header Debug:</Text>
+              <Text style={styles.debugText} selectable>
+                {presentationHeaderDebug}
+              </Text>
             </View>
 
             <View style={styles.rowActions}>
@@ -759,118 +837,124 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   infoItem: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    marginTop: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   infoLabel: {
-    color: '#64748B',
     fontSize: 12,
     fontWeight: '800',
+    color: '#64748B',
     marginBottom: 4,
   },
   infoValue: {
-    color: '#111827',
     fontSize: 14,
-    fontWeight: '700',
-    lineHeight: 20,
+    fontWeight: '800',
+    color: '#111827',
   },
   primaryButton: {
-    marginTop: 16,
-    backgroundColor: '#2563EB',
+    marginTop: 18,
+    minHeight: 58,
     borderRadius: 18,
-    paddingVertical: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#2563EB',
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '900',
-  },
-  rowActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: '#DBEAFE',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 7,
-  },
-  secondaryButtonText: {
-    color: '#2563EB',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  jwtBox: {
-    marginTop: 12,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-  },
-  jwtText: {
-    color: '#0F172A',
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: '700',
   },
   warningCard: {
     backgroundColor: '#FFF7ED',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#FED7AA',
-    borderRadius: 16,
-    padding: 12,
+    padding: 14,
+    marginBottom: 16,
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
-    marginBottom: 14,
   },
   warningText: {
     flex: 1,
     color: '#C2410C',
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 18,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   qrCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 18,
     borderWidth: 1,
     borderColor: '#BFDBFE',
     marginBottom: 16,
   },
   qrBox: {
+    marginTop: 16,
     alignSelf: 'center',
     backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 18,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#E5E7EB',
+  },
+  jwtBox: {
     marginTop: 16,
-    marginBottom: 14,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 14,
+  },
+  jwtText: {
+    fontSize: 12,
+    lineHeight: 20,
+    color: '#111827',
+    fontWeight: '800',
   },
   metaBox: {
-    marginTop: 12,
+    marginTop: 16,
+    borderRadius: 16,
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    gap: 4,
+    padding: 14,
   },
   metaText: {
-    color: '#475569',
     fontSize: 12,
+    lineHeight: 19,
+    color: '#475569',
+    fontWeight: '800',
+  },
+  debugText: {
+    marginTop: 6,
+    fontSize: 11,
+    lineHeight: 17,
+    color: '#0F172A',
     fontWeight: '700',
+  },
+  rowActions: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  secondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#DBEAFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+  },
+  secondaryButtonText: {
+    color: '#2563EB',
+    fontWeight: '900',
+    fontSize: 13,
   },
 });

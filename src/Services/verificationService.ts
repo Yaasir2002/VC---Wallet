@@ -129,6 +129,55 @@ function isDecodableJwtString(value: unknown): value is string {
   }
 }
 
+function toArray(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return [];
+  return [value];
+}
+
+function getTypes(value: any): string[] {
+  return toArray(value?.type).filter(
+    (item): item is string => typeof item === 'string'
+  );
+}
+
+function normalizeIssuerText(issuer: any): string {
+  if (typeof issuer === 'string') return issuer;
+  if (issuer?.id && typeof issuer.id === 'string') return issuer.id;
+  return '-';
+}
+
+function getDirectVcPayload(payload: any): any | null {
+  const types = getTypes(payload);
+  const hasVcType = types.includes('VerifiableCredential');
+
+  if (hasVcType && payload?.credentialSubject && payload?.issuer) {
+    return payload;
+  }
+
+  return null;
+}
+
+function getVcPayloadFromDecoded(decoded: DecodedJWT): any | null {
+  if (decoded.payload?.vc && typeof decoded.payload.vc === 'object') {
+    return decoded.payload.vc;
+  }
+
+  return getDirectVcPayload(decoded.payload);
+}
+
+function getIssuerFromVC(decodedPayload: any, vcPayload: any): string {
+  const issuer = decodedPayload?.iss || decodedPayload?.issuer || vcPayload?.issuer;
+  return normalizeIssuerText(issuer);
+}
+
+function getJwtKind(payload: any): 'vp-jwt' | 'vc-jwt' | 'unknown' {
+  if (payload?.vp && typeof payload.vp === 'object') return 'vp-jwt';
+  if (payload?.vc && typeof payload.vc === 'object') return 'vc-jwt';
+  if (getDirectVcPayload(payload)) return 'vc-jwt';
+  return 'unknown';
+}
+
 export function tryParseJson(value: string): unknown | null {
   try {
     return JSON.parse(value);
@@ -142,7 +191,6 @@ export function tryDecodeBase64UrlOrBase64(value: string): string | null {
     const normalized = value.trim();
 
     if (!normalized || normalized.length < 8) return null;
-
     if (!/^[A-Za-z0-9+/_=-]+$/.test(normalized)) return null;
 
     const decoded = base64UrlDecodeToString(normalized);
@@ -208,15 +256,12 @@ export function findJwtDeep(value: unknown, depth = 0): string | null {
     const trimmed = value.trim();
 
     const fromUrl = extractJwtFromUrl(trimmed);
-
     if (fromUrl) return fromUrl;
 
     const parsed = tryParseJson(trimmed);
-
     if (parsed) return findJwtDeep(parsed, depth + 1);
 
     const decoded = tryDecodeBase64UrlOrBase64(trimmed);
-
     if (decoded) return findJwtDeep(decoded, depth + 1);
 
     return null;
@@ -225,7 +270,6 @@ export function findJwtDeep(value: unknown, depth = 0): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
       const found = findJwtDeep(item, depth + 1);
-
       if (found) return found;
     }
 
@@ -235,15 +279,12 @@ export function findJwtDeep(value: unknown, depth = 0): string | null {
   if (!isRecord(value)) return null;
 
   for (const key of JWT_OBJECT_KEYS) {
-    const candidate = value[key];
-    const found = findJwtDeep(candidate, depth + 1);
-
+    const found = findJwtDeep(value[key], depth + 1);
     if (found) return found;
   }
 
   for (const candidate of Object.values(value)) {
     const found = findJwtDeep(candidate, depth + 1);
-
     if (found) return found;
   }
 
@@ -281,14 +322,12 @@ export function extractJwtFromQrData(data: string): string {
   }
 
   const fromUrl = extractJwtFromUrl(normalized);
-
   if (fromUrl) return fromUrl;
 
   const parsed = tryParseJson(normalized);
 
   if (parsed) {
     const jwt = findJwtDeep(parsed);
-
     if (jwt) return jwt;
 
     if (looksLikePlainCredentialJson(parsed)) {
@@ -304,7 +343,6 @@ export function extractJwtFromQrData(data: string): string {
 
   if (decoded) {
     const jwt = findJwtDeep(decoded);
-
     if (jwt) return jwt;
 
     const decodedJson = tryParseJson(decoded);
@@ -350,61 +388,6 @@ export function decodeJWT(jwtOrQrData: string): DecodedJWT {
   }
 }
 
-function toArray(value: any): any[] {
-  if (Array.isArray(value)) return value;
-
-  if (value === undefined || value === null) return [];
-
-  return [value];
-}
-
-function getTypes(value: any): string[] {
-  return toArray(value?.type).filter(
-    (item): item is string => typeof item === 'string'
-  );
-}
-
-function normalizeIssuerText(issuer: any): string {
-  if (typeof issuer === 'string') return issuer;
-  if (issuer?.id && typeof issuer.id === 'string') return issuer.id;
-  return '-';
-}
-
-function getDirectVcPayload(payload: any): any | null {
-  const types = getTypes(payload);
-  const hasVcType = types.includes('VerifiableCredential');
-
-  if (hasVcType && payload?.credentialSubject && payload?.issuer) {
-    return payload;
-  }
-
-  return null;
-}
-
-function getVcPayloadFromDecoded(decoded: DecodedJWT): any | null {
-  if (decoded.payload?.vc && typeof decoded.payload.vc === 'object') {
-    return decoded.payload.vc;
-  }
-
-  return getDirectVcPayload(decoded.payload);
-}
-
-function getIssuerFromVC(decodedPayload: any, vcPayload: any): string {
-  const issuer = decodedPayload?.iss || decodedPayload?.issuer || vcPayload?.issuer;
-
-  return normalizeIssuerText(issuer);
-}
-
-function getJwtKind(payload: any): 'vp-jwt' | 'vc-jwt' | 'unknown' {
-  if (payload?.vp && typeof payload.vp === 'object') return 'vp-jwt';
-
-  if (payload?.vc && typeof payload.vc === 'object') return 'vc-jwt';
-
-  if (getDirectVcPayload(payload)) return 'vc-jwt';
-
-  return 'unknown';
-}
-
 function extractDidFromPayload(payload: any): string {
   const issuer =
     typeof payload?.vc?.issuer === 'string'
@@ -435,7 +418,6 @@ function extractDidFromPayload(payload: any): string {
 function extractIssuerDidFromDecodedCredential(decoded: DecodedJWT): string {
   const vcPayload = getVcPayloadFromDecoded(decoded);
   const issuer = getIssuerFromVC(decoded.payload, vcPayload || {});
-
   return issuer;
 }
 
@@ -514,20 +496,132 @@ function extractCredentialJwtFromVPItem(item: any): string | null {
 
   if (id.startsWith('data:application/vc+jwt,')) {
     const jwt = id.replace(/^data:application\/vc\+jwt,/i, '').trim();
-
     return isDecodableJwtString(jwt) ? jwt : null;
   }
 
   if (id.startsWith('data:application/vc+jwt;')) {
     const commaIndex = id.indexOf(',');
     const jwt = commaIndex >= 0 ? id.slice(commaIndex + 1).trim() : '';
-
     return isDecodableJwtString(jwt) ? jwt : null;
   }
 
   const deep = findJwtDeep(item);
-
   return deep && isDecodableJwtString(deep) ? deep : null;
+}
+
+function normalizeDidKeyMethodId(value: string): string {
+  const trimmed = value.trim();
+  const hashIndex = trimmed.indexOf('#');
+
+  if (hashIndex >= 0) {
+    return trimmed.slice(hashIndex + 1);
+  }
+
+  return trimmed.replace(/^did:key:/, '');
+}
+
+function methodMatchesKid(method: any, kid: string, holderDid: string): boolean {
+  const methodId = typeof method?.id === 'string' ? method.id : '';
+  const methodFragment = normalizeDidKeyMethodId(methodId);
+  const kidFragment = normalizeDidKeyMethodId(kid);
+  const holderFragment = normalizeDidKeyMethodId(holderDid);
+
+  return (
+    methodId === kid ||
+    methodFragment === kidFragment ||
+    methodFragment === holderFragment ||
+    methodId.endsWith(`#${kidFragment}`) ||
+    methodId.endsWith(`#${holderFragment}`)
+  );
+}
+
+function base58Decode(value: string): Uint8Array | null {
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let bytes = [0];
+
+  for (const char of value) {
+    const index = alphabet.indexOf(char);
+
+    if (index < 0) return null;
+
+    let carry = index;
+
+    for (let i = 0; i < bytes.length; i += 1) {
+      const current = bytes[i] * 58 + carry;
+      bytes[i] = current & 0xff;
+      carry = current >> 8;
+    }
+
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+
+  for (const char of value) {
+    if (char === '1') {
+      bytes.push(0);
+    } else {
+      break;
+    }
+  }
+
+  return new Uint8Array(bytes.reverse());
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function publicKeyMultibaseToEd25519Jwk(publicKeyMultibase: string) {
+  const value = publicKeyMultibase.trim();
+
+  if (!value.startsWith('z')) {
+    return null;
+  }
+
+  const decodedRaw = base58Decode(value.slice(1));
+
+  if (!decodedRaw) return null;
+
+  let decoded = decodedRaw;
+
+  if (decoded.length === 34 && decoded[0] === 0xed && decoded[1] === 0x01) {
+    decoded = decoded.slice(2);
+  }
+
+  if (decoded.length !== 32) {
+    return null;
+  }
+
+  return {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: bytesToBase64Url(decoded),
+  };
+}
+
+function extractEd25519PublicKeyJwkFromMethod(method: any) {
+  if (method?.publicKeyJwk && typeof method.publicKeyJwk === 'object') {
+    return method.publicKeyJwk;
+  }
+
+  if (typeof method?.publicKeyMultibase === 'string') {
+    const jwk = publicKeyMultibaseToEd25519Jwk(method.publicKeyMultibase);
+
+    if (jwk) return jwk;
+  }
+
+  return null;
 }
 
 async function tryResolveHolderDid(did: string) {
@@ -681,13 +775,16 @@ async function verifyVpSignature(
     if (!holderDid.startsWith('did:key:')) return false;
     if (!didInfo?.verificationMethod?.length) return false;
 
-    const firstMethod = didInfo.verificationMethod[0];
+    const kid = typeof decoded.header.kid === 'string' ? decoded.header.kid : '';
 
-    const publicKeyJwk =
-      firstMethod?.publicKeyJwk &&
-      typeof firstMethod.publicKeyJwk === 'object'
-        ? firstMethod.publicKeyJwk
-        : null;
+    const method =
+      didInfo.verificationMethod.find((item: any) =>
+        kid
+          ? methodMatchesKid(item, kid, holderDid)
+          : methodMatchesKid(item, holderDid, holderDid)
+      ) || didInfo.verificationMethod[0];
+
+    const publicKeyJwk = extractEd25519PublicKeyJwkFromMethod(method);
 
     if (!publicKeyJwk) {
       return false;
@@ -698,7 +795,7 @@ async function verifyVpSignature(
       encodedSignature: decoded.parts.encodedSignature,
       signingInput: decoded.parts.signingInput,
       publicKeyJwk,
-    });
+    } as any);
   } catch {
     return false;
   }
@@ -734,6 +831,19 @@ export async function verifyPresentationJWT(
       const vcSignaturesVerified = allCredentialSignaturesVerified(credentials);
       const fullSignatureVerified = vpSignatureVerified && vcSignaturesVerified;
 
+      const debugWarnings = [
+        vpSignatureVerified ? 'VP Signature: valid' : 'VP Signature: belum valid',
+        vcSignaturesVerified ? 'VC Signature: valid' : 'VC Signature: belum valid',
+        didInfo?.didDocument
+          ? 'Holder DID Document: terbaca'
+          : 'Holder DID Document: belum terbaca',
+      ];
+
+      const credentialError = credentials
+        .map((credential) => credential.error)
+        .filter(Boolean)
+        .join(' | ');
+
       return {
         valid: !credentialHasError && fullSignatureVerified,
         structurallyValid: true,
@@ -746,9 +856,9 @@ export async function verifyPresentationJWT(
         ...didInfo,
         warning: fullSignatureVerified
           ? undefined
-          : credentialHasError
-            ? 'VP JWT terbaca, tetapi ada credential yang belum valid.'
-            : 'VP JWT terbaca, tetapi signature belum berhasil diverifikasi penuh.',
+          : credentialError
+            ? `${debugWarnings.join(' • ')} • ${credentialError}`
+            : debugWarnings.join(' • '),
       };
     }
 
