@@ -48,7 +48,7 @@ function normalizeDidKeyKid(did: string, kid?: string): string {
 
   if (
     normalizedKid &&
-    !normalizedKid.endsWith(`#${did}`) &&
+    normalizedKid.includes('#') &&
     !normalizedKid.includes('#did:key:')
   ) {
     return normalizedKid;
@@ -87,22 +87,16 @@ export async function signCredentialObjectAsJwt(
     vc: credentialPayload,
   };
 
-  const jwt = await createJWT(
-    payload,
-    {
-      issuer: wallet.did,
-      signer: wallet.signer,
+  const jwt = await createJWT(payload, {
+    issuer: wallet.did,
+    signer: wallet.signer,
+    alg: wallet.alg,
+    header: {
       alg: wallet.alg,
+      typ: 'JWT',
+      kid: walletKid,
     } as any,
-    {
-      header: {
-        alg: wallet.alg,
-        typ: 'JWT',
-        kid: walletKid,
-      },
-      noTimestamp: true,
-    } as any
-  );
+  } as any);
 
   if (!isJwtString(jwt)) {
     throw new Error('JWT hasil signing tidak valid.');
@@ -244,22 +238,16 @@ export async function signVpJwtWithWallet(params: {
     },
   };
 
-  const jwt = await createJWT(
-    payload,
-    {
-      issuer: wallet.did,
-      signer: wallet.signer,
+  const jwt = await createJWT(payload, {
+    issuer: wallet.did,
+    signer: wallet.signer,
+    alg: wallet.alg,
+    header: {
       alg: wallet.alg,
+      typ: 'JWT',
+      kid: walletKid,
     } as any,
-    {
-      header: {
-        alg: wallet.alg,
-        typ: 'JWT',
-        kid: walletKid,
-      },
-      noTimestamp: true,
-    } as any
-  );
+  } as any);
 
   if (!isJwtString(jwt)) {
     throw new Error('VP JWT hasil signing tidak valid.');

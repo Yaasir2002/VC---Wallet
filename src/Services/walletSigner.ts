@@ -37,7 +37,7 @@ export function isJwtString(value: unknown): value is string {
   return parts.length === 3 && parts.every((part) => part.length > 0);
 }
 
-function getDidKeyFragment(did: string): string {
+export function getDidKeyFragment(did: string): string {
   return did.startsWith('did:key:') ? did.replace('did:key:', '') : did;
 }
 
@@ -81,6 +81,7 @@ export async function getWalletSigner() {
 
 export async function getHolderDid(): Promise<string> {
   const wallet = await getWalletSigner();
+
   return wallet.did;
 }
 
@@ -99,22 +100,16 @@ export async function signJwtWithHolderKey(
 ): Promise<string> {
   const wallet = await getWalletSigner();
 
-  const jwt = await createJWT(
-    payload,
-    {
-      issuer: wallet.did,
-      signer: wallet.signer,
+  const jwt = await createJWT(payload, {
+    issuer: wallet.did,
+    signer: wallet.signer,
+    alg: wallet.alg,
+    header: {
       alg: wallet.alg,
+      typ: 'JWT',
+      kid: wallet.kid,
     } as any,
-    {
-      header: {
-        alg: wallet.alg,
-        typ: 'JWT',
-        kid: wallet.kid,
-      },
-      noTimestamp: true,
-    } as any
-  );
+  } as any);
 
   if (!isJwtString(jwt)) {
     throw new Error('JWT hasil signing tidak valid.');

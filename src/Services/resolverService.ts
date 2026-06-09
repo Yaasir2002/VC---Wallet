@@ -11,6 +11,34 @@ const keyResolver = new Resolver({
   ...getKeyResolver(),
 });
 
+function normalizeDidKeyKid(did: string): string {
+  if (!did.startsWith('did:key:')) {
+    return did;
+  }
+
+  return `${did}#${did.replace('did:key:', '')}`;
+}
+
+function normalizeVerificationMethod(method: any, did: string) {
+  if (!isRecord(method)) {
+    return method;
+  }
+
+  const normalized = {
+    ...method,
+  };
+
+  if (typeof normalized.id !== 'string' || normalized.id.trim().length === 0) {
+    normalized.id = normalizeDidKeyKid(did);
+  }
+
+  if (typeof normalized.controller !== 'string') {
+    normalized.controller = did;
+  }
+
+  return normalized;
+}
+
 export async function resolveDID(did: string) {
   if (!did) {
     throw new Error('DID tidak boleh kosong');
@@ -31,8 +59,12 @@ export async function resolveDID(did: string) {
 
 export function extractPublicKeyInfo(didResolutionResult: any) {
   const didDocument = didResolutionResult?.didDocument;
+  const did = typeof didDocument?.id === 'string' ? didDocument.id : '';
+
   const verificationMethod = Array.isArray(didDocument?.verificationMethod)
-    ? didDocument.verificationMethod
+    ? didDocument.verificationMethod.map((method: any) =>
+        normalizeVerificationMethod(method, did)
+      )
     : [];
 
   const authentication = Array.isArray(didDocument?.authentication)
@@ -43,23 +75,9 @@ export function extractPublicKeyInfo(didResolutionResult: any) {
     ? didDocument.assertionMethod
     : [];
 
-  const normalizedVerificationMethod = verificationMethod.map((method: any) => {
-    if (!isRecord(method)) return method;
-
-    if (isRecord(method.publicKeyJwk)) {
-      return method;
-    }
-
-    if (typeof method.publicKeyMultibase === 'string') {
-      return method;
-    }
-
-    return method;
-  });
-
   return {
     didDocument,
-    verificationMethod: normalizedVerificationMethod,
+    verificationMethod,
     authentication,
     assertionMethod,
   };
