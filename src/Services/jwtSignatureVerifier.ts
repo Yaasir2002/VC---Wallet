@@ -1,6 +1,6 @@
 // File: src/Services/jwtSignatureVerifier.ts
 
-import * as ed25519 from '@noble/ed25519';
+import nacl from 'tweetnacl';
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 
@@ -138,7 +138,7 @@ async function verifyEs256JwtSignature(params: {
       return true;
     }
   } catch {
-    // lanjut fallback raw
+    // fallback raw di bawah
   }
 
   try {
@@ -170,7 +170,7 @@ async function verifyEdDsaJwtSignature(params: {
   }
 
   try {
-    return await ed25519.verify(signature, message, publicKey);
+    return nacl.sign.detached.verify(message, signature, publicKey);
   } catch {
     return false;
   }

@@ -744,11 +744,7 @@ async function credentialsFromVPJwt(
     .filter((item): item is string => Boolean(item));
 
   if (rawCredentialItems.length === 0) {
-    return [
-      {
-        error: 'VP JWT tidak memiliki verifiableCredential.',
-      },
-    ];
+    return [{ error: 'VP JWT tidak memiliki verifiableCredential.' }];
   }
 
   if (credentialJWTs.length === 0) {

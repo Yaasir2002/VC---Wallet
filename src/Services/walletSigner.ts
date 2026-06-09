@@ -1,14 +1,14 @@
 // File: src/Services/walletSigner.ts
 
 import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 
 import {
   getRecoverableWalletIdentity,
   getWalletPrivateKeySeedHex,
 } from '../Storage/secureWalletStorage';
 
-const BASE58_ALPHABET =
-  '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
 
 function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -53,43 +53,6 @@ function jsonToBase64Url(value: unknown): string {
   return bytesToBase64Url(textToBytes(JSON.stringify(value)));
 }
 
-function base58Encode(bytes: Uint8Array): string {
-  if (bytes.length === 0) return '';
-
-  const digits = [0];
-
-  for (const byte of bytes) {
-    let carry = byte;
-
-    for (let i = 0; i < digits.length; i += 1) {
-      const current = digits[i] * 256 + carry;
-      digits[i] = current % 58;
-      carry = Math.floor(current / 58);
-    }
-
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
-  }
-
-  let result = '';
-
-  for (const byte of bytes) {
-    if (byte === 0) {
-      result += BASE58_ALPHABET[0];
-    } else {
-      break;
-    }
-  }
-
-  for (let i = digits.length - 1; i >= 0; i -= 1) {
-    result += BASE58_ALPHABET[digits[i]];
-  }
-
-  return result;
-}
-
 function concatBytes(...items: Uint8Array[]): Uint8Array {
   const length = items.reduce((total, item) => total + item.length, 0);
   const result = new Uint8Array(length);
@@ -105,12 +68,11 @@ function concatBytes(...items: Uint8Array[]): Uint8Array {
 }
 
 function didKeyFromEd25519PublicKey(publicKey: Uint8Array): string {
-  const ed25519MulticodecPrefix = new Uint8Array([0xed, 0x01]);
-  const fingerprint = base58Encode(
-    concatBytes(ed25519MulticodecPrefix, publicKey)
-  );
+  const fingerprint = `z${bs58.encode(
+    concatBytes(ED25519_MULTICODEC_PREFIX, publicKey)
+  )}`;
 
-  return `did:key:z${fingerprint}`;
+  return `did:key:${fingerprint}`;
 }
 
 export function isJwtString(value: unknown): value is string {
@@ -140,6 +102,10 @@ export async function getWalletSigner() {
     throw new Error(
       'Private key holder tidak tersedia. Silakan setup wallet terlebih dahulu.'
     );
+  }
+
+  if (!identity.did.startsWith('did:key:')) {
+    throw new Error('Wallet DID harus did:key untuk signing.');
   }
 
   const privateKeySeedHex =
