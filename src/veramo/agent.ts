@@ -1,3 +1,7 @@
+// File: src/veramo/agent.ts
+
+import nacl from 'tweetnacl';
+
 export type VeramoKey = {
   kid: string;
   kms: string;
@@ -14,6 +18,10 @@ export type VeramoIdentifier = {
   controllerKeyId?: string;
   keys?: VeramoKey[];
   services?: unknown[];
+  privateKeySeedHex?: string;
+  method?: string;
+  network?: string;
+  createdAt?: string;
   [key: string]: unknown;
 };
 
@@ -47,29 +55,105 @@ export type VeramoLikeAgent = {
 
 const MEMORY_IDENTIFIERS: VeramoIdentifier[] = [];
 
+const BASE58_ALPHABET =
+  '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
 function createVeramoDisabledError(): Error {
   return new Error(
     'Veramo credential plugin dinonaktifkan untuk mengurangi dependency mobile bundle. Gunakan service wallet did:key yang sudah ada di src/Services.'
   );
 }
 
-function createPseudoDidKey(alias?: string): VeramoIdentifier {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).slice(2);
-  const suffix = `${timestamp}${random}`;
-  const did = `did:key:z${suffix}`;
-  const controllerKeyId = `${did}#z${suffix}`;
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function base58Encode(bytes: Uint8Array): string {
+  if (bytes.length === 0) return '';
+
+  const digits = [0];
+
+  for (const byte of bytes) {
+    let carry = byte;
+
+    for (let i = 0; i < digits.length; i += 1) {
+      const value = digits[i] * 256 + carry;
+      digits[i] = value % 58;
+      carry = Math.floor(value / 58);
+    }
+
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+
+  let result = '';
+
+  for (const byte of bytes) {
+    if (byte === 0) {
+      result += BASE58_ALPHABET[0];
+    } else {
+      break;
+    }
+  }
+
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    result += BASE58_ALPHABET[digits[i]];
+  }
+
+  return result;
+}
+
+function concatBytes(...items: Uint8Array[]): Uint8Array {
+  const length = items.reduce((total, item) => total + item.length, 0);
+  const result = new Uint8Array(length);
+
+  let offset = 0;
+
+  for (const item of items) {
+    result.set(item, offset);
+    offset += item.length;
+  }
+
+  return result;
+}
+
+function createDidKeyFromPublicKey(publicKey: Uint8Array): string {
+  const ed25519MulticodecPrefix = new Uint8Array([0xed, 0x01]);
+  const fingerprint = base58Encode(
+    concatBytes(ed25519MulticodecPrefix, publicKey)
+  );
+
+  return `did:key:z${fingerprint}`;
+}
+
+function createRealDidKey(alias?: string): VeramoIdentifier {
+  const seed = nacl.randomBytes(32);
+  const keyPair = nacl.sign.keyPair.fromSeed(seed);
+
+  const did = createDidKeyFromPublicKey(keyPair.publicKey);
+  const publicKeyFingerprint = did.replace('did:key:', '');
+  const controllerKeyId = `${did}#${publicKeyFingerprint}`;
+  const createdAt = new Date().toISOString();
 
   return {
     did,
     provider: 'did:key',
     alias,
     controllerKeyId,
+    privateKeySeedHex: bytesToHex(seed),
+    method: 'key',
+    network: 'none',
+    createdAt,
     keys: [
       {
         kid: controllerKeyId,
         kms: 'local',
         type: 'Ed25519',
+        publicKeyHex: bytesToHex(keyPair.publicKey),
       },
     ],
     services: [],
@@ -79,8 +163,9 @@ function createPseudoDidKey(alias?: string): VeramoIdentifier {
 async function didManagerCreate(
   args?: DidManagerCreateArgs
 ): Promise<VeramoIdentifier> {
-  const identifier = createPseudoDidKey(args?.alias);
+  const identifier = createRealDidKey(args?.alias);
 
+  MEMORY_IDENTIFIERS.length = 0;
   MEMORY_IDENTIFIERS.push(identifier);
 
   return identifier;
@@ -94,14 +179,14 @@ async function didManagerGet(): Promise<VeramoIdentifier> {
   const identifier = MEMORY_IDENTIFIERS[0];
 
   if (!identifier) {
-    throw new Error('DID Veramo tidak ditemukan.');
+    throw new Error('DID wallet tidak ditemukan.');
   }
 
   return identifier;
 }
 
 async function keyManagerCreate(): Promise<VeramoKey> {
-  const identifier = MEMORY_IDENTIFIERS[0] || createPseudoDidKey('default-key');
+  const identifier = MEMORY_IDENTIFIERS[0] || createRealDidKey('default-key');
 
   if (MEMORY_IDENTIFIERS.length === 0) {
     MEMORY_IDENTIFIERS.push(identifier);
@@ -111,6 +196,7 @@ async function keyManagerCreate(): Promise<VeramoKey> {
     kid: identifier.controllerKeyId || `${identifier.did}#key-1`,
     kms: 'local',
     type: 'Ed25519',
+    publicKeyHex: identifier.keys?.[0]?.publicKeyHex,
   };
 }
 
@@ -118,7 +204,7 @@ async function keyManagerGet(): Promise<VeramoKey> {
   const identifier = MEMORY_IDENTIFIERS[0];
 
   if (!identifier?.keys?.[0]) {
-    throw new Error('Key Veramo tidak ditemukan.');
+    throw new Error('Key wallet tidak ditemukan.');
   }
 
   return identifier.keys[0];
