@@ -582,6 +582,20 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     .replace(/=+$/g, '');
 }
 
+function publicKeyBase58ToEd25519Jwk(publicKeyBase58: string) {
+  const decoded = base58Decode(publicKeyBase58.trim());
+
+  if (!decoded || decoded.length !== 32) {
+    return null;
+  }
+
+  return {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: bytesToBase64Url(decoded),
+  };
+}
+
 function publicKeyMultibaseToEd25519Jwk(publicKeyMultibase: string) {
   const value = publicKeyMultibase.trim();
 
@@ -617,6 +631,12 @@ function extractEd25519PublicKeyJwkFromMethod(method: any) {
 
   if (typeof method?.publicKeyMultibase === 'string') {
     const jwk = publicKeyMultibaseToEd25519Jwk(method.publicKeyMultibase);
+
+    if (jwk) return jwk;
+  }
+
+  if (typeof method?.publicKeyBase58 === 'string') {
+    const jwk = publicKeyBase58ToEd25519Jwk(method.publicKeyBase58);
 
     if (jwk) return jwk;
   }

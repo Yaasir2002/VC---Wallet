@@ -1,7 +1,6 @@
 // File: src/Services/walletJwtSigner.ts
 
-import { createJWT } from 'did-jwt';
-import nacl from 'tweetnacl';
+import { createJWT, EdDSASigner } from 'did-jwt';
 
 import { VerifiableCredentialV2 } from '../types/vc';
 import {
@@ -104,6 +103,14 @@ function base64UrlEncodeJson(value: unknown): string {
   return base64UrlEncodeBytes(textToBytes(JSON.stringify(value)));
 }
 
+function normalizeBase64UrlSignature(signature: string): string {
+  return signature
+    .trim()
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
 async function createVpJwtWithExplicitKid(params: {
   payload: Record<string, unknown>;
   kid: string;
@@ -120,8 +127,6 @@ async function createVpJwtWithExplicitKid(params: {
     throw new Error('Private key Ed25519 harus 32 byte.');
   }
 
-  const keyPair = nacl.sign.keyPair.fromSeed(privateKeySeed);
-
   const header = {
     typ: 'JWT',
     alg: 'EdDSA',
@@ -131,9 +136,10 @@ async function createVpJwtWithExplicitKid(params: {
   const encodedHeader = base64UrlEncodeJson(header);
   const encodedPayload = base64UrlEncodeJson(params.payload);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
-  const signature = nacl.sign.detached(textToBytes(signingInput), keyPair.secretKey);
-  const encodedSignature = base64UrlEncodeBytes(signature);
-  const jwt = `${signingInput}.${encodedSignature}`;
+
+  const signer = EdDSASigner(privateKeySeed);
+  const signature = normalizeBase64UrlSignature(await signer(signingInput));
+  const jwt = `${signingInput}.${signature}`;
 
   if (!isJwtString(jwt)) {
     throw new Error('VP JWT hasil signing tidak valid.');
