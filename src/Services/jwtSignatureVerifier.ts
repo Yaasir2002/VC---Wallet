@@ -1,7 +1,8 @@
 // File: src/Services/jwtSignatureVerifier.ts
 
 import * as ed25519 from '@noble/ed25519';
-import { importJWK, jwtVerify } from 'jose';
+import { p256 } from '@noble/curves/p256';
+import { sha256 } from '@noble/hashes/sha256';
 
 import { JwtHeader } from '../types/jwt';
 import { base64UrlToBuffer, utf8ToBytes } from '../utils/base64url';
@@ -24,28 +25,90 @@ function isEd25519Jwk(jwk: SupportedPublicKeyJwk): boolean {
   );
 }
 
-async function ensureWebCryptoAvailable(): Promise<void> {
-  const currentCrypto = (globalThis as any).crypto;
-
-  if (currentCrypto?.subtle) return;
-
-  try {
-    const ExpoCrypto = await import('expo-crypto');
-
-    if ((ExpoCrypto as any)?.Crypto) {
-      (globalThis as any).crypto = new (ExpoCrypto as any).Crypto();
-    }
-
-    if (!(globalThis as any).crypto?.subtle) {
-      throw new Error('crypto_subtle_not_available');
-    }
-  } catch {
-    throw new Error('crypto_subtle_not_available');
+function toUint8Array(value: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8Array {
+  if (value instanceof Uint8Array) {
+    return value;
   }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function base64UrlToUint8Array(value: string): Uint8Array {
+  return toUint8Array(base64UrlToBuffer(value));
+}
+
+function concatBytes(...arrays: Uint8Array[]): Uint8Array {
+  const length = arrays.reduce((total, item) => total + item.length, 0);
+  const result = new Uint8Array(length);
+
+  let offset = 0;
+
+  for (const item of arrays) {
+    result.set(item, offset);
+    offset += item.length;
+  }
+
+  return result;
+}
+
+function rawJoseSignatureToDer(signature: Uint8Array): Uint8Array {
+  if (signature.length !== 64) {
+    throw new Error('invalid_signature');
+  }
+
+  const r = signature.slice(0, 32);
+  const s = signature.slice(32, 64);
+
+  function trimInteger(bytes: Uint8Array): Uint8Array {
+    let start = 0;
+
+    while (start < bytes.length - 1 && bytes[start] === 0) {
+      start += 1;
+    }
+
+    let value = bytes.slice(start);
+
+    if (value[0] & 0x80) {
+      value = concatBytes(new Uint8Array([0]), value);
+    }
+
+    return value;
+  }
+
+  const rTrimmed = trimInteger(r);
+  const sTrimmed = trimInteger(s);
+
+  const sequenceLength = 2 + rTrimmed.length + 2 + sTrimmed.length;
+
+  return concatBytes(
+    new Uint8Array([0x30, sequenceLength]),
+    new Uint8Array([0x02, rTrimmed.length]),
+    rTrimmed,
+    new Uint8Array([0x02, sTrimmed.length]),
+    sTrimmed
+  );
+}
+
+function getP256PublicKeyUncompressed(jwk: SupportedPublicKeyJwk): Uint8Array {
+  if (!isP256Jwk(jwk)) {
+    throw new Error('unsupported_public_key');
+  }
+
+  const x = base64UrlToUint8Array(jwk.x);
+  const y = base64UrlToUint8Array(jwk.y);
+
+  if (x.length !== 32 || y.length !== 32) {
+    throw new Error('unsupported_public_key');
+  }
+
+  return concatBytes(new Uint8Array([0x04]), x, y);
 }
 
 async function verifyEs256JwtSignature(params: {
-  header: JwtHeader;
   encodedSignature: string;
   signingInput: string;
   publicKeyJwk: SupportedPublicKeyJwk;
@@ -54,35 +117,28 @@ async function verifyEs256JwtSignature(params: {
     throw new Error('unsupported_public_key');
   }
 
-  await ensureWebCryptoAvailable();
+  const rawSignature = base64UrlToUint8Array(params.encodedSignature);
+  const message = utf8ToBytes(params.signingInput);
+  const digest = sha256(message);
+  const publicKey = getP256PublicKeyUncompressed(params.publicKeyJwk);
 
   try {
-    const publicKey = await importJWK(
-      {
-        kty: 'EC',
-        crv: 'P-256',
-        x: params.publicKeyJwk.x,
-        y: params.publicKeyJwk.y,
-      },
-      'ES256'
-    );
+    /**
+     * JWT ES256 memakai raw signature R || S sepanjang 64 byte.
+     * Noble P-256 paling aman diberi DER signature untuk verify.
+     */
+    const derSignature = rawJoseSignatureToDer(rawSignature);
 
-    const compactJwt = `${params.signingInput}.${params.encodedSignature}`;
-
-    await jwtVerify(compactJwt, publicKey, {
-      algorithms: ['ES256'],
-    });
-
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === 'crypto_subtle_not_available'
-    ) {
-      throw error;
+    return p256.verify(derSignature, digest, publicKey);
+  } catch {
+    try {
+      /**
+       * Fallback untuk versi @noble/curves tertentu yang menerima raw signature.
+       */
+      return p256.verify(rawSignature, digest, publicKey);
+    } catch {
+      return false;
     }
-
-    return false;
   }
 }
 
@@ -95,8 +151,8 @@ async function verifyEdDsaJwtSignature(params: {
     throw new Error('unsupported_public_key');
   }
 
-  const signature = base64UrlToBuffer(params.encodedSignature);
-  const publicKey = base64UrlToBuffer(params.publicKeyJwk.x);
+  const signature = base64UrlToUint8Array(params.encodedSignature);
+  const publicKey = base64UrlToUint8Array(params.publicKeyJwk.x);
   const message = utf8ToBytes(params.signingInput);
 
   if (signature.length !== 64) {
@@ -122,7 +178,6 @@ export async function verifyJwtSignature(params: {
 }): Promise<boolean> {
   if (params.header.alg === 'ES256') {
     return verifyEs256JwtSignature({
-      header: params.header,
       encodedSignature: params.encodedSignature,
       signingInput: params.signingInput,
       publicKeyJwk: params.publicKeyJwk,
