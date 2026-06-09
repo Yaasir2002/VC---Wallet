@@ -1,6 +1,6 @@
 // File: src/Services/walletSigner.ts
 
-import { createJWT, EdDSASigner } from 'did-jwt';
+import nacl from 'tweetnacl';
 
 import {
   getRecoverableWalletIdentity,
@@ -27,6 +27,23 @@ function hexToBytes(hex: string): Uint8Array {
   }
 
   return bytes;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
 }
 
 export function isJwtString(value: unknown): value is string {
@@ -71,11 +88,25 @@ export async function getWalletSigner() {
     );
   }
 
+  const seed = hexToBytes(privateKeySeedHex);
+
+  if (seed.length !== 32) {
+    throw new Error('Private key Ed25519 harus 32 byte.');
+  }
+
+  const keyPair = nacl.sign.keyPair.fromSeed(seed);
+
   return {
     did: identity.did,
     kid: buildDidKeyKid(identity.did),
-    signer: EdDSASigner(hexToBytes(privateKeySeedHex)),
     alg: 'EdDSA' as const,
+    publicKey: keyPair.publicKey,
+    signer: async (data: string | Uint8Array): Promise<string> => {
+      const message = typeof data === 'string' ? textToBytes(data) : data;
+      const signature = nacl.sign.detached(message, keyPair.secretKey);
+
+      return bytesToBase64Url(signature);
+    },
   };
 }
 
@@ -95,21 +126,26 @@ export async function createHolderJwtHeader() {
   };
 }
 
+function jsonToBase64Url(value: unknown): string {
+  return bytesToBase64Url(textToBytes(JSON.stringify(value)));
+}
+
 export async function signJwtWithHolderKey(
   payload: Record<string, unknown>
 ): Promise<string> {
   const wallet = await getWalletSigner();
 
-  const jwt = await createJWT(payload, {
-    issuer: wallet.did,
-    signer: wallet.signer,
+  const header = {
     alg: wallet.alg,
-    header: {
-      alg: wallet.alg,
-      typ: 'JWT',
-      kid: wallet.kid,
-    } as any,
-  } as any);
+    typ: 'JWT',
+    kid: wallet.kid,
+  };
+
+  const encodedHeader = jsonToBase64Url(header);
+  const encodedPayload = jsonToBase64Url(payload);
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = await wallet.signer(signingInput);
+  const jwt = `${signingInput}.${signature}`;
 
   if (!isJwtString(jwt)) {
     throw new Error('JWT hasil signing tidak valid.');

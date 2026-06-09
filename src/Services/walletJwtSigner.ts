@@ -1,14 +1,12 @@
 // File: src/Services/walletJwtSigner.ts
 
-import { createJWT } from 'did-jwt';
-
 import { VerifiableCredentialV2 } from '../types/vc';
 import {
   createCredentialId,
   VC_EXAMPLES_V2_CONTEXT,
   VC_V2_CONTEXT,
 } from './credentialV2Service';
-import { getWalletSigner } from './walletSigner';
+import { getWalletSigner, signJwtWithHolderKey } from './walletSigner';
 
 export type SignVcJwtWithWalletParams = {
   subjectDid: string;
@@ -39,92 +37,10 @@ export function isJwtString(value: unknown): value is string {
   );
 }
 
-function getDidKeyFragment(did: string): string {
-  return did.startsWith('did:key:') ? did.replace('did:key:', '') : did;
-}
-
-function normalizeDidKeyKid(did: string, kid?: string): string {
-  const normalizedKid = typeof kid === 'string' ? kid.trim() : '';
-
-  if (
-    normalizedKid &&
-    normalizedKid.includes('#') &&
-    !normalizedKid.includes('#did:key:')
-  ) {
-    return normalizedKid;
-  }
-
-  if (did.startsWith('did:key:')) {
-    return `${did}#${getDidKeyFragment(did)}`;
-  }
-
-  return normalizedKid || did;
-}
-
-function utf8ToBase64Url(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
-function jsonToBase64Url(value: unknown): string {
-  return utf8ToBase64Url(JSON.stringify(value));
-}
-
-function normalizeSignatureToBase64Url(signature: unknown): string {
-  if (typeof signature !== 'string') {
-    throw new Error('Signer wallet tidak menghasilkan signature string.');
-  }
-
-  return signature
-    .trim()
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
-async function createVpJwtWithExplicitKid(params: {
-  payload: Record<string, unknown>;
-  kid: string;
-}): Promise<string> {
-  const wallet = await getWalletSigner();
-
-  const header = {
-    typ: 'JWT',
-    alg: wallet.alg,
-    kid: params.kid,
-  };
-
-  const encodedHeader = jsonToBase64Url(header);
-  const encodedPayload = jsonToBase64Url(params.payload);
-  const signingInput = `${encodedHeader}.${encodedPayload}`;
-
-  const signature = normalizeSignatureToBase64Url(
-    await wallet.signer(signingInput)
-  );
-
-  const jwt = `${signingInput}.${signature}`;
-
-  if (!isJwtString(jwt)) {
-    throw new Error('VP JWT hasil signing tidak valid.');
-  }
-
-  return jwt.trim();
-}
-
 export async function signCredentialObjectAsJwt(
   credential: VerifiableCredentialV2
 ): Promise<string> {
   const wallet = await getWalletSigner();
-  const walletKid = normalizeDidKeyKid(wallet.did, wallet.kid);
 
   const issuer =
     typeof credential.issuer === 'string' ? credential.issuer : wallet.did;
@@ -141,21 +57,15 @@ export async function signCredentialObjectAsJwt(
     credentialSubject: credential.credentialSubject,
   };
 
-  const payload = {
+  const jwt = await signJwtWithHolderKey({
     ...credentialPayload,
+    iss: wallet.did,
+    sub:
+      typeof credential.credentialSubject?.id === 'string'
+        ? credential.credentialSubject.id
+        : wallet.did,
     vc: credentialPayload,
-  };
-
-  const jwt = await createJWT(payload, {
-    issuer: wallet.did,
-    signer: wallet.signer,
-    alg: wallet.alg,
-    header: {
-      alg: wallet.alg,
-      typ: 'JWT',
-      kid: walletKid,
-    } as any,
-  } as any);
+  });
 
   if (!isJwtString(jwt)) {
     throw new Error('JWT hasil signing tidak valid.');
@@ -166,7 +76,6 @@ export async function signCredentialObjectAsJwt(
 
 export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
   const wallet = await getWalletSigner();
-  const walletKid = normalizeDidKeyKid(wallet.did, wallet.kid);
 
   const issuanceDate =
     params.issuanceDate || params.validFrom || new Date().toISOString();
@@ -228,7 +137,7 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
         jwt,
         created: issuanceDate,
         proofPurpose: 'assertionMethod',
-        verificationMethod: walletKid,
+        verificationMethod: wallet.kid,
       },
     },
   };
@@ -245,7 +154,6 @@ export async function signVpJwtWithWallet(params: {
   verifiableCredential?: unknown[];
 }) {
   const wallet = await getWalletSigner();
-  const walletKid = normalizeDidKeyKid(wallet.did, wallet.kid);
 
   if (!params.holderDid?.startsWith('did:')) {
     throw new Error('Holder DID tidak valid.');
@@ -280,7 +188,7 @@ export async function signVpJwtWithWallet(params: {
 
   const now = Math.floor(Date.now() / 1000);
 
-  const payload = {
+  return signJwtWithHolderKey({
     iss: wallet.did,
     sub: wallet.did,
     holder: wallet.did,
@@ -295,10 +203,5 @@ export async function signVpJwtWithWallet(params: {
       holder: vp.holder || wallet.did,
       verifiableCredential: normalizedCredentials,
     },
-  };
-
-  return createVpJwtWithExplicitKid({
-    payload,
-    kid: walletKid,
   });
 }
