@@ -42,27 +42,29 @@ export async function signCredentialObjectAsJwt(
 ): Promise<string> {
   const wallet = await getWalletSigner();
 
-  const payload = {
+  const issuer =
+    typeof credential.issuer === 'string' ? credential.issuer : wallet.did;
+
+  const credentialPayload = {
     '@context': credential['@context'],
     type: credential.type,
     id: credential.id,
-    issuer: typeof credential.issuer === 'string' ? credential.issuer : wallet.did,
+    issuer,
     issuanceDate: credential.issuanceDate,
     expirationDate: credential.expirationDate,
     validFrom: credential.validFrom,
     validUntil: credential.validUntil,
     credentialSubject: credential.credentialSubject,
-    vc: {
-      '@context': credential['@context'],
-      type: credential.type,
-      id: credential.id,
-      issuer: typeof credential.issuer === 'string' ? credential.issuer : wallet.did,
-      issuanceDate: credential.issuanceDate,
-      expirationDate: credential.expirationDate,
-      validFrom: credential.validFrom,
-      validUntil: credential.validUntil,
-      credentialSubject: credential.credentialSubject,
-    },
+  };
+
+  const payload = {
+    ...credentialPayload,
+
+    /**
+     * Tetap disediakan agar verifier yang membaca pola JWT VC umum
+     * bisa menemukan credential di claim `vc`.
+     */
+    vc: credentialPayload,
   };
 
   const jwt = await createJWT(payload, {
@@ -137,6 +139,12 @@ export async function signVcJwtWithWallet(params: SignVcJwtWithWalletParams) {
     type: credential.type,
     vc: {
       ...credential,
+
+      /**
+       * Penting:
+       * Simpan JWT asli agar saat dibuat VP,
+       * presentationService bisa mengambil VC JWT compact string ini.
+       */
       jwt,
       rawJwt: jwt,
       vcJwt: jwt,
@@ -174,7 +182,7 @@ export async function signVpJwtWithWallet(params: {
 
   const vp = params.vp || {
     '@context': [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
-    type: 'VerifiablePresentation',
+    type: ['VerifiablePresentation'],
     holder: params.holderDid,
     verifiableCredential: params.verifiableCredential || [],
   };
@@ -184,6 +192,21 @@ export async function signVpJwtWithWallet(params: {
   if (!Array.isArray(credentials) || credentials.length === 0) {
     throw new Error('Minimal 1 credential harus dimasukkan ke presentation.');
   }
+
+  /**
+   * Penting:
+   * Di flow aplikasi ini, VP harus membawa VC JWT compact string asli.
+   * Jadi kita validasi item string JWT, bukan membungkus ulang menjadi object.
+   */
+  const normalizedCredentials = credentials.map((credential) => {
+    if (!isJwtString(credential)) {
+      throw new Error(
+        'Item verifiableCredential harus berupa VC JWT compact string asli dari issuer.'
+      );
+    }
+
+    return credential.trim();
+  });
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -196,9 +219,14 @@ export async function signVpJwtWithWallet(params: {
     jti: `urn:uuid:vp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     vp: {
       '@context': vp['@context'] || [VC_V2_CONTEXT, VC_EXAMPLES_V2_CONTEXT],
-      type: vp.type || 'VerifiablePresentation',
+      type: Array.isArray(vp.type) ? vp.type : [vp.type || 'VerifiablePresentation'],
       holder: vp.holder || wallet.did,
-      verifiableCredential: credentials,
+
+      /**
+       * Ini bagian paling penting:
+       * Verifier akan membaca setiap item sebagai VC JWT valid.
+       */
+      verifiableCredential: normalizedCredentials,
     },
   };
 

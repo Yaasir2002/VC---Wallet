@@ -19,7 +19,9 @@ function getAttributeLabel(credential: ModularCredential): string {
     (typeof subject.Nama === 'string' ? subject.Nama : undefined) ||
     (typeof subject.nama === 'string' ? subject.nama : undefined) ||
     (typeof subject.fullName === 'string' ? subject.fullName : undefined) ||
-    (typeof subject.attributeName === 'string' ? subject.attributeName : undefined) ||
+    (typeof subject.attributeName === 'string'
+      ? subject.attributeName
+      : undefined) ||
     credential.documentName ||
     credential.id ||
     'Credential'
@@ -35,7 +37,7 @@ export function getCredentialJwtFromStoredCredential(
 
   const proofJwt =
     isRecord(normalized.proof) && typeof normalized.proof.jwt === 'string'
-      ? normalized.proof.jwt
+      ? normalized.proof.jwt.trim()
       : null;
 
   const candidates = [
@@ -51,14 +53,6 @@ export function getCredentialJwtFromStoredCredential(
   return typeof jwt === 'string' ? jwt.trim() : null;
 }
 
-function buildEnvelopedCredential(vcJwt: string) {
-  return {
-    '@context': ['https://www.w3.org/ns/credentials/v2'],
-    type: ['EnvelopedVerifiableCredential'],
-    id: `data:application/vc+jwt,${vcJwt}`,
-  };
-}
-
 function buildVerifiablePresentation(params: {
   holderDid: string;
   issuerCredentialJwts: string[];
@@ -68,11 +62,15 @@ function buildVerifiablePresentation(params: {
       'https://www.w3.org/ns/credentials/v2',
       'https://www.w3.org/ns/credentials/examples/v2',
     ],
-    type: 'VerifiablePresentation',
+    type: ['VerifiablePresentation'],
     holder: params.holderDid,
-    verifiableCredential: params.issuerCredentialJwts.map((vcJwt) =>
-      buildEnvelopedCredential(vcJwt)
-    ),
+
+    /**
+     * Penting:
+     * verifiableCredential harus berisi VC JWT asli dari issuer.
+     * Jangan dibungkus lagi menjadi EnvelopedVerifiableCredential.
+     */
+    verifiableCredential: params.issuerCredentialJwts,
   };
 }
 
@@ -91,11 +89,11 @@ export async function createSignedPresentationJWT(params: {
   try {
     const issuerCredentialJwts = params.credentials
       .map((credential) => getCredentialJwtFromStoredCredential(credential))
-      .filter((jwt): jwt is string => Boolean(jwt));
+      .filter((jwt): jwt is string => Boolean(jwt && isJwtString(jwt)));
 
     if (issuerCredentialJwts.length === 0) {
       throw new Error(
-        'Credential ini belum memiliki raw VC JWT dari issuer, sehingga belum bisa dibuat menjadi VP JWT.'
+        'Credential ini belum memiliki VC JWT asli dari issuer, sehingga belum bisa dibuat menjadi VP JWT.'
       );
     }
 
@@ -128,7 +126,9 @@ export async function createSignedPresentationJWT(params: {
 
     safeLogger.warn('Failed to create signed VP JWT', {
       message,
-      credential: getAttributeLabel(params.credentials[0]),
+      credential: params.credentials[0]
+        ? getAttributeLabel(params.credentials[0])
+        : 'Credential',
     });
 
     throw new Error(`Gagal membuat JWT presentation. Detail: ${message}`);
