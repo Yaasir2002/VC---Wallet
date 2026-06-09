@@ -61,11 +61,8 @@ function normalizeDidKeyKid(did: string, kid?: string): string {
   return normalizedKid || did;
 }
 
-function textToBytes(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-function base64UrlEncodeBytes(bytes: Uint8Array): string {
+function utf8ToBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
   let binary = '';
 
   for (const byte of bytes) {
@@ -78,11 +75,15 @@ function base64UrlEncodeBytes(bytes: Uint8Array): string {
     .replace(/=+$/g, '');
 }
 
-function base64UrlEncodeJson(value: unknown): string {
-  return base64UrlEncodeBytes(textToBytes(JSON.stringify(value)));
+function jsonToBase64Url(value: unknown): string {
+  return utf8ToBase64Url(JSON.stringify(value));
 }
 
-function normalizeBase64UrlSignature(signature: string): string {
+function normalizeSignatureToBase64Url(signature: unknown): string {
+  if (typeof signature !== 'string') {
+    throw new Error('Signer wallet tidak menghasilkan signature string.');
+  }
+
   return signature
     .trim()
     .replace(/\+/g, '-')
@@ -102,11 +103,14 @@ async function createVpJwtWithExplicitKid(params: {
     kid: params.kid,
   };
 
-  const encodedHeader = base64UrlEncodeJson(header);
-  const encodedPayload = base64UrlEncodeJson(params.payload);
+  const encodedHeader = jsonToBase64Url(header);
+  const encodedPayload = jsonToBase64Url(params.payload);
   const signingInput = `${encodedHeader}.${encodedPayload}`;
 
-  const signature = normalizeBase64UrlSignature(await wallet.signer(signingInput));
+  const signature = normalizeSignatureToBase64Url(
+    await wallet.signer(signingInput)
+  );
+
   const jwt = `${signingInput}.${signature}`;
 
   if (!isJwtString(jwt)) {
