@@ -22,6 +22,7 @@ import {
 } from '../../src/Services/jwtVcClaimService';
 import { saveClaimedJwtCredential } from '../../src/Services/credentialStorage';
 import { stringifySafeValue } from '../../src/utils/safeJson';
+import { base64UrlToJson } from '../../src/utils/base64url';
 
 type ToastState = {
   visible: boolean;
@@ -29,18 +30,90 @@ type ToastState = {
   type: 'success' | 'error' | 'info';
 };
 
-function getSafeErrorMessage(error: unknown, fallback: string): string {
+type JwtPreviewPayload = {
+  issuer?: unknown;
+  iss?: unknown;
+  type?: unknown;
+  id?: unknown;
+  credentialSubject?: unknown;
+};
+
+function normalizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeIssuerDid(value: unknown): string {
+  const raw = normalizeText(value);
+
+  if (!raw) return '';
+
+  if (raw.startsWith('did:web:')) {
+    return raw.toLowerCase();
+  }
+
+  if (raw.startsWith('https://')) {
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      const cleanedPath = url.pathname
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '')
+        .replace(/^\.well-known\/did\.json$/i, '')
+        .replace(/\/\.well-known\/did\.json$/i, '');
+
+      if (!cleanedPath) {
+        return `did:web:${host}`;
+      }
+
+      return `did:web:${host}:${cleanedPath.replace(/\//g, ':')}`;
+    } catch {
+      return raw.toLowerCase();
+    }
+  }
+
+  return raw.toLowerCase();
+}
+
+function getIssuerFromJwtPayload(rawJwt: string): string {
+  const parts = rawJwt.trim().split('.');
+
+  if (parts.length !== 3) return '';
+
+  try {
+    const payload = base64UrlToJson<JwtPreviewPayload>(parts[1]);
+    return normalizeIssuerDid(payload.issuer || payload.iss);
+  } catch {
+    return '';
+  }
+}
+
+function isAllowedIdentityLabCredential(rawJwt: string): boolean {
+  const issuer = getIssuerFromJwtPayload(rawJwt);
+
+  return (
+    issuer === 'did:web:identitylab.id' ||
+    issuer === 'did:web:demo.identitylab.id'
+  );
+}
+
+function getSafeErrorMessage(
+  error: unknown,
+  fallback: string,
+  scannedData?: string
+): string {
   if (!(error instanceof Error)) return fallback;
 
   const message = error.message.trim();
 
   if (!message) return fallback;
 
+  const issuerFromQr = scannedData ? getIssuerFromJwtPayload(scannedData) : '';
+
   if (message.startsWith('untrusted_issuer:')) {
     const issuer = message.replace('untrusted_issuer:', '').trim();
 
     return `Issuer credential tidak dipercaya. Credential ditolak. Issuer terbaca: ${
-      issuer || '-'
+      issuer || issuerFromQr || '-'
     }`;
   }
 
@@ -55,8 +128,9 @@ function getSafeErrorMessage(error: unknown, fallback: string): string {
       'Public key issuer tidak kompatibel dengan ES256. Credential ditolak.',
     unsupported_algorithm:
       'Algoritma signature tidak didukung. Credential ditolak.',
-    untrusted_issuer:
-      'Issuer credential tidak dipercaya. Credential ditolak. Issuer tidak terbaca dari pesan error.',
+    untrusted_issuer: issuerFromQr
+      ? `Issuer credential tidak dipercaya. Credential ditolak. Issuer terbaca dari QR: ${issuerFromQr}`
+      : 'Issuer credential tidak dipercaya. Credential ditolak. Issuer tidak terbaca dari pesan error.',
   };
 
   if (map[message]) return map[message];
@@ -122,14 +196,31 @@ export default function ScanQRScreen() {
         type: 'success',
       });
     } catch (error) {
-      setToast({
-        visible: true,
-        message: getSafeErrorMessage(
-          error,
-          'QR bukan JWT credential claim yang valid.'
-        ),
-        type: 'error',
-      });
+      const issuer = getIssuerFromJwtPayload(data);
+
+      if (
+        error instanceof Error &&
+        error.message.trim() === 'untrusted_issuer' &&
+        isAllowedIdentityLabCredential(data)
+      ) {
+        setToast({
+          visible: true,
+          message:
+            'Issuer IdentityLab sudah dikenali, tetapi service lama masih menolak. Pastikan jwtVcClaimService dan trustedIssuers sudah terganti. Issuer terbaca: ' +
+            issuer,
+          type: 'error',
+        });
+      } else {
+        setToast({
+          visible: true,
+          message: getSafeErrorMessage(
+            error,
+            'QR bukan JWT credential claim yang valid.',
+            data
+          ),
+          type: 'error',
+        });
+      }
     } finally {
       setIsProcessing(false);
     }

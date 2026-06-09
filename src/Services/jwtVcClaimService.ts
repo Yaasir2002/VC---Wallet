@@ -74,6 +74,16 @@ function normalizeIssuerDid(value: unknown): string {
   return raw.toLowerCase();
 }
 
+function getTrustedIssuer(value: unknown): string | null {
+  const issuer = normalizeIssuerDid(value);
+
+  if (!issuer) return null;
+
+  const trusted = TRUSTED_ISSUERS.map((item) => normalizeIssuerDid(item));
+
+  return trusted.includes(issuer) ? issuer : null;
+}
+
 function parseJwtCompact(rawValue: string): DecodedJwt<JwtVcV2Payload> {
   const rawJwt = rawValue.trim();
   assertQrPayloadSize(rawJwt);
@@ -169,35 +179,25 @@ function assertTrustedIssuerConsistency(params: {
   const payloadIss = normalizeIssuerDid(params.payload.iss);
   const headerIss = normalizeIssuerDid(params.header.iss);
 
-  if (!payloadIssuer) {
-    throw new Error('untrusted_issuer:empty');
+  const trustedIssuer = getTrustedIssuer(payloadIssuer);
+
+  if (!trustedIssuer) {
+    throw new Error(`untrusted_issuer:${payloadIssuer || 'empty'}`);
   }
 
-  if (!payloadIssuer.startsWith('did:web:')) {
-    throw new Error(`untrusted_issuer:${payloadIssuer}`);
-  }
-
-  const trusted = TRUSTED_ISSUERS.map((issuer) =>
-    normalizeIssuerDid(issuer)
-  ).includes(payloadIssuer);
-
-  if (!trusted) {
-    throw new Error(`untrusted_issuer:${payloadIssuer}`);
-  }
-
-  if (payloadIss && payloadIss !== payloadIssuer) {
+  if (payloadIss && payloadIss !== trustedIssuer) {
     throw new Error(
-      `Issuer JWT tidak sama dengan issuer credential. iss=${payloadIss}, issuer=${payloadIssuer}`
+      `Issuer JWT tidak sama dengan issuer credential. iss=${payloadIss}, issuer=${trustedIssuer}`
     );
   }
 
-  if (headerIss && headerIss !== payloadIssuer) {
+  if (headerIss && headerIss !== trustedIssuer) {
     throw new Error(
-      `Issuer header JWT tidak sama dengan issuer credential. headerIss=${headerIss}, issuer=${payloadIssuer}`
+      `Issuer header JWT tidak sama dengan issuer credential. headerIss=${headerIss}, issuer=${trustedIssuer}`
     );
   }
 
-  return payloadIssuer;
+  return trustedIssuer;
 }
 
 function buildPreview(payload: JwtVcV2Payload): CredentialPreviewClaim {
@@ -264,23 +264,26 @@ export async function verifyJwtVcClaimFromQr(
 
   const importedAt = new Date().toISOString();
 
+  const normalizedPayload: JwtVcV2Payload = {
+    ...decoded.payload,
+    issuer: trustedIssuerDid,
+    iss: trustedIssuerDid,
+  };
+
   const claimedCredential: ClaimedJwtCredential = {
-    id: decoded.payload.id,
+    id: normalizedPayload.id,
 
     vcJwt: decoded.rawJwt,
     rawJwt: decoded.rawJwt,
 
     decodedHeader: decoded.header,
-    decodedCredential: {
-      ...decoded.payload,
-      issuer: trustedIssuerDid,
-    },
+    decodedCredential: normalizedPayload,
 
     verificationStatus: 'signature_verified',
     signatureVerified: true,
 
     issuer: trustedIssuerDid,
-    credentialSubject: decoded.payload.credentialSubject,
+    credentialSubject: normalizedPayload.credentialSubject,
 
     source: 'qr_jwt_claim',
     importedAt,
@@ -288,9 +291,6 @@ export async function verifyJwtVcClaimFromQr(
 
   return {
     claimedCredential,
-    preview: buildPreview({
-      ...decoded.payload,
-      issuer: trustedIssuerDid,
-    }),
+    preview: buildPreview(normalizedPayload),
   };
 }
