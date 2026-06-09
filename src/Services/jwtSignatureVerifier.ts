@@ -8,8 +8,13 @@ import { JwtHeader } from '../types/jwt';
 import { base64UrlToBuffer, utf8ToBytes } from '../utils/base64url';
 import { SupportedPublicKeyJwk } from './didWebResolver';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 function isP256Jwk(jwk: SupportedPublicKeyJwk): boolean {
   return (
+    isRecord(jwk) &&
     jwk.kty === 'EC' &&
     jwk.crv === 'P-256' &&
     typeof jwk.x === 'string' &&
@@ -19,6 +24,7 @@ function isP256Jwk(jwk: SupportedPublicKeyJwk): boolean {
 
 function isEd25519Jwk(jwk: SupportedPublicKeyJwk): boolean {
   return (
+    isRecord(jwk) &&
     jwk.kty === 'OKP' &&
     jwk.crv === 'Ed25519' &&
     typeof jwk.x === 'string'
@@ -81,7 +87,6 @@ function rawJoseSignatureToDer(signature: Uint8Array): Uint8Array {
 
   const rTrimmed = trimInteger(r);
   const sTrimmed = trimInteger(s);
-
   const sequenceLength = 2 + rTrimmed.length + 2 + sTrimmed.length;
 
   return concatBytes(
@@ -122,23 +127,24 @@ async function verifyEs256JwtSignature(params: {
   const digest = sha256(message);
   const publicKey = getP256PublicKeyUncompressed(params.publicKeyJwk);
 
+  if (rawSignature.length !== 64) {
+    throw new Error('invalid_signature');
+  }
+
   try {
-    /**
-     * JWT ES256 memakai raw signature R || S sepanjang 64 byte.
-     * Noble P-256 paling aman diberi DER signature untuk verify.
-     */
     const derSignature = rawJoseSignatureToDer(rawSignature);
 
-    return p256.verify(derSignature, digest, publicKey);
-  } catch {
-    try {
-      /**
-       * Fallback untuk versi @noble/curves tertentu yang menerima raw signature.
-       */
-      return p256.verify(rawSignature, digest, publicKey);
-    } catch {
-      return false;
+    if (p256.verify(derSignature, digest, publicKey)) {
+      return true;
     }
+  } catch {
+    // lanjut fallback raw
+  }
+
+  try {
+    return p256.verify(rawSignature, digest, publicKey);
+  } catch {
+    return false;
   }
 }
 
