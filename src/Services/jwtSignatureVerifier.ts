@@ -1,6 +1,7 @@
 // File: src/Services/jwtSignatureVerifier.ts
 
 import * as ed25519 from '@noble/ed25519';
+import { importJWK, jwtVerify } from 'jose';
 
 import { JwtHeader } from '../types/jwt';
 import { base64UrlToBuffer, utf8ToBytes } from '../utils/base64url';
@@ -23,66 +24,28 @@ function isEd25519Jwk(jwk: SupportedPublicKeyJwk): boolean {
   );
 }
 
-function getSubtleCrypto(): SubtleCrypto {
-  const subtle = globalThis.crypto?.subtle;
+async function ensureWebCryptoAvailable(): Promise<void> {
+  const currentCrypto = (globalThis as any).crypto;
 
-  if (!subtle) {
-    throw new Error('crypto_subtle_not_available');
-  }
+  if (currentCrypto?.subtle) return;
 
-  return subtle;
-}
+  try {
+    const ExpoCrypto = await import('expo-crypto');
 
-function toArrayBuffer(value: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(value.byteLength);
-  const view = new Uint8Array(buffer);
-
-  view.set(value);
-
-  return buffer;
-}
-
-function jwtEcdsaSignatureToDer(rawSignature: Uint8Array): Uint8Array {
-  if (rawSignature.length !== 64) {
-    throw new Error('invalid_signature');
-  }
-
-  const r = rawSignature.slice(0, 32);
-  const s = rawSignature.slice(32, 64);
-
-  function trimLeadingZeroes(bytes: Uint8Array): Uint8Array {
-    let index = 0;
-
-    while (index < bytes.length - 1 && bytes[index] === 0) {
-      index += 1;
+    if ((ExpoCrypto as any)?.Crypto) {
+      (globalThis as any).crypto = new (ExpoCrypto as any).Crypto();
     }
 
-    return bytes.slice(index);
+    if (!(globalThis as any).crypto?.subtle) {
+      throw new Error('crypto_subtle_not_available');
+    }
+  } catch {
+    throw new Error('crypto_subtle_not_available');
   }
-
-  function encodeInteger(bytes: Uint8Array): Uint8Array {
-    const trimmed = trimLeadingZeroes(bytes);
-    const needsPadding = (trimmed[0] & 0x80) !== 0;
-    const value = needsPadding
-      ? new Uint8Array([0, ...Array.from(trimmed)])
-      : trimmed;
-
-    return new Uint8Array([0x02, value.length, ...Array.from(value)]);
-  }
-
-  const encodedR = encodeInteger(r);
-  const encodedS = encodeInteger(s);
-  const sequenceLength = encodedR.length + encodedS.length;
-
-  return new Uint8Array([
-    0x30,
-    sequenceLength,
-    ...Array.from(encodedR),
-    ...Array.from(encodedS),
-  ]);
 }
 
 async function verifyEs256JwtSignature(params: {
+  header: JwtHeader;
   encodedSignature: string;
   signingInput: string;
   publicKeyJwk: SupportedPublicKeyJwk;
@@ -91,54 +54,34 @@ async function verifyEs256JwtSignature(params: {
     throw new Error('unsupported_public_key');
   }
 
-  const signature = base64UrlToBuffer(params.encodedSignature);
-  const message = utf8ToBytes(params.signingInput);
-  const subtle = getSubtleCrypto();
+  await ensureWebCryptoAvailable();
 
   try {
-    const publicKey = await subtle.importKey(
-      'jwk',
+    const publicKey = await importJWK(
       {
-        kty: params.publicKeyJwk.kty,
-        crv: params.publicKeyJwk.crv,
+        kty: 'EC',
+        crv: 'P-256',
         x: params.publicKeyJwk.x,
         y: params.publicKeyJwk.y,
-        ext: true,
       },
-      {
-        name: 'ECDSA',
-        namedCurve: 'P-256',
-      },
-      false,
-      ['verify']
+      'ES256'
     );
 
-    const derSignature = jwtEcdsaSignatureToDer(signature);
+    const compactJwt = `${params.signingInput}.${params.encodedSignature}`;
 
-    const derVerified = await subtle.verify(
-      {
-        name: 'ECDSA',
-        hash: 'SHA-256',
-      },
-      publicKey,
-      toArrayBuffer(derSignature),
-      toArrayBuffer(message)
-    );
+    await jwtVerify(compactJwt, publicKey, {
+      algorithms: ['ES256'],
+    });
 
-    if (derVerified) {
-      return true;
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'crypto_subtle_not_available'
+    ) {
+      throw error;
     }
 
-    return await subtle.verify(
-      {
-        name: 'ECDSA',
-        hash: 'SHA-256',
-      },
-      publicKey,
-      toArrayBuffer(signature),
-      toArrayBuffer(message)
-    );
-  } catch {
     return false;
   }
 }
@@ -178,11 +121,8 @@ export async function verifyJwtSignature(params: {
   publicKeyJwk: SupportedPublicKeyJwk;
 }): Promise<boolean> {
   if (params.header.alg === 'ES256') {
-    if (!isP256Jwk(params.publicKeyJwk)) {
-      throw new Error('unsupported_public_key');
-    }
-
     return verifyEs256JwtSignature({
+      header: params.header,
       encodedSignature: params.encodedSignature,
       signingInput: params.signingInput,
       publicKeyJwk: params.publicKeyJwk,

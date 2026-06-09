@@ -37,12 +37,58 @@ export type ResolvedDidPublicKey = {
   publicKeyJwk: SupportedPublicKeyJwk;
 };
 
-function getDidWebUrl(did: string): string {
-  if (did !== TRUSTED_VC_ISSUER_DID) {
+const TRUSTED_DID_WEB_URLS: Record<string, string> = {
+  'did:web:identitylab.id': 'https://identitylab.id/.well-known/did.json',
+  'did:web:demo.identitylab.id':
+    'https://demo.identitylab.id/.well-known/did.json',
+  [TRUSTED_VC_ISSUER_DID]: TRUSTED_VC_ISSUER_DID_DOCUMENT_URL,
+};
+
+function normalizeDid(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function didWebToUrl(did: string): string {
+  const normalizedDid = normalizeDid(did);
+
+  const trustedUrl = TRUSTED_DID_WEB_URLS[normalizedDid];
+
+  if (trustedUrl) {
+    return trustedUrl;
+  }
+
+  if (!normalizedDid.startsWith('did:web:')) {
     throw new Error('untrusted_issuer');
   }
 
-  return TRUSTED_VC_ISSUER_DID_DOCUMENT_URL;
+  const withoutPrefix = normalizedDid.replace(/^did:web:/, '');
+  const parts = withoutPrefix.split(':').map(decodeURIComponent);
+  const host = parts[0];
+  const pathParts = parts.slice(1);
+
+  if (!host) {
+    throw new Error('did_resolution_failed');
+  }
+
+  if (pathParts.length === 0) {
+    return `https://${host}/.well-known/did.json`;
+  }
+
+  return `https://${host}/${pathParts.join('/')}/did.json`;
+}
+
+function getDidWebUrl(did: string): string {
+  const normalizedDid = normalizeDid(did);
+
+  if (
+    normalizedDid !== 'did:web:identitylab.id' &&
+    normalizedDid !== 'did:web:demo.identitylab.id' &&
+    normalizedDid !== normalizeDid(TRUSTED_VC_ISSUER_DID)
+  ) {
+    throw new Error('untrusted_issuer');
+  }
+
+  return didWebToUrl(normalizedDid);
 }
 
 async function readResponseTextWithLimit(
@@ -134,7 +180,8 @@ function assertSupportedPublicKeyJwk(
 export async function resolveDidWebDocument(
   did: string
 ): Promise<DidDocument> {
-  const url = getDidWebUrl(did);
+  const normalizedDid = normalizeDid(did);
+  const url = getDidWebUrl(normalizedDid);
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () => controller.abort(),
@@ -167,7 +214,13 @@ export async function resolveDidWebDocument(
       throw new Error('did_resolution_failed');
     }
 
-    if (!isRecord(parsed) || parsed.id !== did) {
+    if (!isRecord(parsed) || typeof parsed.id !== 'string') {
+      throw new Error('did_resolution_failed');
+    }
+
+    const documentId = normalizeDid(parsed.id);
+
+    if (documentId !== normalizedDid) {
       throw new Error('did_resolution_failed');
     }
 
