@@ -31,16 +31,26 @@ function isEd25519Jwk(jwk: SupportedPublicKeyJwk): boolean {
   );
 }
 
+function copyBytes(value: Uint8Array): Uint8Array {
+  const result = new Uint8Array(value.length);
+  result.set(value);
+  return result;
+}
+
+function sliceBytes(value: Uint8Array, start?: number, end?: number): Uint8Array {
+  return copyBytes(value.slice(start, end));
+}
+
 function toUint8Array(value: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8Array {
   if (value instanceof Uint8Array) {
-    return value;
+    return copyBytes(value);
   }
 
   if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value);
+    return new Uint8Array(value.slice(0));
   }
 
-  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return copyBytes(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
 }
 
 function base64UrlToUint8Array(value: string): Uint8Array {
@@ -66,8 +76,8 @@ function rawJoseSignatureToDer(signature: Uint8Array): Uint8Array {
     throw new Error('invalid_signature');
   }
 
-  const r = signature.slice(0, 32);
-  const s = signature.slice(32, 64);
+  const r = sliceBytes(signature, 0, 32);
+  const s = sliceBytes(signature, 32, 64);
 
   function trimInteger(bytes: Uint8Array): Uint8Array {
     let start = 0;
@@ -76,7 +86,7 @@ function rawJoseSignatureToDer(signature: Uint8Array): Uint8Array {
       start += 1;
     }
 
-    let value = bytes.slice(start);
+    let value = sliceBytes(bytes, start);
 
     if (value[0] & 0x80) {
       value = concatBytes(new Uint8Array([0]), value);
