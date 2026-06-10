@@ -149,9 +149,6 @@ function normalizeLabel(key: string): string {
     'Angkatan ': 'Angkatan',
     Alamat: 'Alamat',
     alamat: 'Alamat',
-    documentId: 'Document ID',
-    documentType: 'Document Type',
-    documentName: 'Document Name',
     birthDate: 'Tanggal Lahir',
     tanggalLahir: 'Tanggal Lahir',
     address: 'Alamat',
@@ -259,7 +256,6 @@ function getMainCredentialStatus(credential: ModularCredential) {
 }
 
 function buildCredentialDetailItems(
-  document: CredentialDocument,
   credential: ModularCredential
 ): DetailItem[] {
   const subject = credential.credentialSubject || {};
@@ -276,16 +272,6 @@ function buildCredentialDetailItems(
 
   const baseItems: DetailItem[] = [
     {
-      key: 'documentId',
-      label: 'Document ID',
-      value: document.documentId || credential.documentId || credential.id || '-',
-    },
-    {
-      key: 'documentType',
-      label: 'Document Type',
-      value: document.documentType || credential.documentType || '-',
-    },
-    {
       key: 'issuer',
       label: 'Issuer',
       value: getIssuerText(credential.issuer),
@@ -296,14 +282,6 @@ function buildCredentialDetailItems(
       value: stringifyValue(credential.issuanceDate),
     },
   ];
-
-  if (credential.expirationDate || credential.validUntil) {
-    baseItems.push({
-      key: 'expirationDate',
-      label: 'Expiration Date',
-      value: stringifyValue(credential.expirationDate || credential.validUntil),
-    });
-  }
 
   return [...baseItems, ...subjectItems];
 }
@@ -342,9 +320,9 @@ export default function CredentialDocumentDetailScreen() {
   }, [document]);
 
   const detailItems = useMemo(() => {
-    if (!document || !mainCredential) return [];
-    return buildCredentialDetailItems(document, mainCredential);
-  }, [document, mainCredential]);
+    if (!mainCredential) return [];
+    return buildCredentialDetailItems(mainCredential);
+  }, [mainCredential]);
 
   const credentialJwt = useMemo(
     () => getCredentialJwtFromStoredCredential(mainCredential),
@@ -356,14 +334,6 @@ export default function CredentialDocumentDetailScreen() {
     mainCredential?.signatureVerified === true ||
     mainCredential?.metadata?.verificationStatus === 'signature_verified';
 
-  const shouldShowIssuerJwtCard = Boolean(credentialJwt && issuerSignatureVerified);
-
-  const issuerJwtPreview = credentialJwt
-    ? showFullIssuerJwt
-      ? credentialJwt
-      : shortenJwt(credentialJwt)
-    : '';
-
   const qrJwt = presentationJwt.trim();
   const isPresentationJwtValid = isJwtString(qrJwt);
 
@@ -372,14 +342,6 @@ export default function CredentialDocumentDetailScreen() {
       ? qrJwt
       : shortenJwt(qrJwt)
     : '';
-
-  const presentationHeaderDebug = isPresentationJwtValid
-    ? decodeJwtHeaderForDebug(qrJwt)
-    : '-';
-
-  const presentationKidDebug = isPresentationJwtValid
-    ? getJwtHeaderKidForDebug(qrJwt)
-    : '-';
 
   const loadDocument = useCallback(async () => {
     try {
@@ -562,69 +524,40 @@ export default function CredentialDocumentDetailScreen() {
               {issuerSignatureVerified ? 'Signature Verified' : status.label}
             </Text>
           </View>
-
-          <Text style={styles.issuerText} numberOfLines={2}>
-            Issuer: {getIssuerText(mainCredential.issuer)}
-          </Text>
-
-          <Text style={styles.issuerText} numberOfLines={2}>
-            Verification Status: {String(mainCredential.verificationStatus || '-')}
-          </Text>
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Detail Credential</Text>
+          <View style={styles.sectionHeaderSimple}>
+            <View style={styles.sectionIconBlue}>
+              <Ionicons name="reader-outline" size={22} color="#2563EB" />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Detail Credential</Text>
+              <Text style={styles.sectionSubtitle}>
+                Informasi issuer, waktu penerbitan, dan seluruh credential subject.
+              </Text>
+            </View>
+          </View>
 
           {detailItems.map((item) => (
             <InfoItem key={item.key} label={item.label} value={item.value} />
           ))}
         </View>
 
-        {shouldShowIssuerJwtCard ? (
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sectionTitle}>Issuer VC JWT</Text>
-                <Text style={styles.sectionSubtitle}>
-                  JWT asli dari issuer yang akan dimasukkan ke VP JWT.
-                </Text>
-              </View>
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderSimple}>
+            <View style={styles.sectionIconBlue}>
+              <Ionicons name="qr-code-outline" size={22} color="#2563EB" />
             </View>
 
-            <View style={styles.jwtBox}>
-              <Text style={styles.jwtText} selectable>
-                {issuerJwtPreview}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Present Credential</Text>
+              <Text style={styles.sectionSubtitle}>
+                Buat Signed VP JWT agar credential dapat discan oleh verifier.
               </Text>
             </View>
-
-            <View style={styles.rowActions}>
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => setShowFullIssuerJwt((current) => !current)}
-              >
-                <Ionicons
-                  name={showFullIssuerJwt ? 'contract-outline' : 'expand-outline'}
-                  size={18}
-                  color="#2563EB"
-                />
-                <Text style={styles.secondaryButtonText}>
-                  {showFullIssuerJwt ? 'Ringkas' : 'Lihat Full'}
-                </Text>
-              </Pressable>
-
-              <Pressable style={styles.secondaryButton} onPress={handleCopyCredentialJWT}>
-                <Ionicons name="copy-outline" size={18} color="#2563EB" />
-                <Text style={styles.secondaryButtonText}>Copy JWT</Text>
-              </Pressable>
-            </View>
           </View>
-        ) : null}
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Present Credential</Text>
-          <Text style={styles.sectionSubtitle}>
-            Buat Verifiable Presentation JWT dari credential ini agar dapat discan oleh verifier.
-          </Text>
 
           <AnimatedButton
             style={styles.primaryButton}
@@ -645,35 +578,27 @@ export default function CredentialDocumentDetailScreen() {
 
         {presentationJwt ? (
           <View style={styles.qrCard}>
-            <Text style={styles.sectionTitle}>Signed VP JWT QR</Text>
-            <Text style={styles.sectionSubtitle}>
-              QR ini berisi Verifiable Presentation JWT yang sudah ditandatangani holder.
-            </Text>
+            <View style={styles.sectionHeaderSimple}>
+              <View style={styles.sectionIconGreen}>
+                <Ionicons name="checkmark-circle-outline" size={22} color="#16A34A" />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Signed VP JWT</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Tampilkan QR ini ke verifier untuk proses scan dan validasi.
+                </Text>
+              </View>
+            </View>
 
             <View style={styles.qrBox}>
               <QRCode value={qrJwt} size={230} />
             </View>
 
             <View style={styles.jwtBox}>
+              <Text style={styles.jwtTitle}>VP JWT</Text>
               <Text style={styles.jwtText} selectable>
                 {presentationJwtPreview}
-              </Text>
-            </View>
-
-            <View style={styles.metaBox}>
-              <Text style={styles.metaText}>
-                Holder DID: {presentationMeta?.holderDid || '-'}
-              </Text>
-              <Text style={styles.metaText}>
-                Credential Count: {presentationMeta?.credentialCount || 1}
-              </Text>
-              <Text style={styles.metaText}>
-                Algorithm: {presentationMeta?.algorithm || '-'}
-              </Text>
-              <Text style={styles.metaText}>Header KID: {presentationKidDebug}</Text>
-              <Text style={styles.metaText}>Header Debug:</Text>
-              <Text style={styles.debugText} selectable>
-                {presentationHeaderDebug}
               </Text>
             </View>
 
@@ -690,13 +615,13 @@ export default function CredentialDocumentDetailScreen() {
                   color="#2563EB"
                 />
                 <Text style={styles.secondaryButtonText}>
-                  {showFullPresentationJwt ? 'Ringkas' : 'Lihat Full'}
+                  {showFullPresentationJwt ? 'Ringkas' : 'Lihat Full JWT'}
                 </Text>
               </Pressable>
 
               <Pressable style={styles.secondaryButton} onPress={handleCopyPresentationJWT}>
                 <Ionicons name="copy-outline" size={18} color="#2563EB" />
-                <Text style={styles.secondaryButtonText}>Copy VP JWT</Text>
+                <Text style={styles.secondaryButtonText}>Copy JWT</Text>
               </Pressable>
             </View>
           </View>
@@ -780,13 +705,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  issuerText: {
-    marginTop: 8,
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
   statusBadge: {
     marginTop: 14,
     borderRadius: 999,
@@ -817,12 +735,27 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     marginBottom: 16,
   },
-  sectionHeader: {
+  sectionHeaderSimple: {
     flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 12,
     marginBottom: 14,
+  },
+  sectionIconBlue: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionIconGreen: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionTitle: {
     fontSize: 18,
@@ -837,10 +770,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   infoItem: {
-    marginTop: 14,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   infoLabel: {
     fontSize: 12,
@@ -852,6 +787,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#111827',
+    lineHeight: 20,
   },
   primaryButton: {
     marginTop: 18,
@@ -911,30 +847,17 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     padding: 14,
   },
+  jwtTitle: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
   jwtText: {
     fontSize: 12,
     lineHeight: 20,
     color: '#111827',
     fontWeight: '800',
-  },
-  metaBox: {
-    marginTop: 16,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFC',
-    padding: 14,
-  },
-  metaText: {
-    fontSize: 12,
-    lineHeight: 19,
-    color: '#475569',
-    fontWeight: '800',
-  },
-  debugText: {
-    marginTop: 6,
-    fontSize: 11,
-    lineHeight: 17,
-    color: '#0F172A',
-    fontWeight: '700',
   },
   rowActions: {
     marginTop: 14,
