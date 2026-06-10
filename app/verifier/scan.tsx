@@ -110,10 +110,6 @@ function getReadablePayloadKind(kind?: string) {
   return 'Unknown Payload';
 }
 
-function getValidationStatus(value?: boolean) {
-  return value ? 'Tervalidasi' : 'Belum tervalidasi';
-}
-
 function getSignatureStatus(value?: boolean) {
   return value ? 'Signature valid' : 'Signature belum valid';
 }
@@ -357,59 +353,33 @@ export default function ScanPresentationScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.cardTitle}>VP Verification</Text>
                 <Text style={styles.cardSubtitle}>
-                  Status Verifiable Presentation yang dibaca dari QR.
+                  Ringkasan hasil validasi Verifiable Presentation.
                 </Text>
               </View>
             </View>
 
-            <View style={styles.resultBadgeRow}>
-              <View
-                style={[
-                  styles.resultBadge,
-                  verified ? styles.badgeSuccess : styles.badgeDanger,
-                ]}
-              >
-                <Ionicons
-                  name={verified ? 'checkmark-circle' : 'close-circle'}
-                  size={16}
-                  color={verified ? '#16A34A' : '#DC2626'}
-                />
-                <Text
-                  style={[
-                    styles.resultBadgeText,
-                    { color: verified ? '#166534' : '#991B1B' },
-                  ]}
-                >
-                  {getValidationStatus(verificationResult?.valid)}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.infoGrid}>
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Jenis Data</Text>
-                <Text style={styles.infoValue}>
+            <View style={styles.compactInfoList}>
+              <View style={styles.compactInfoRow}>
+                <Text style={styles.compactInfoLabel}>Jenis Data</Text>
+                <Text style={styles.compactInfoValue}>
                   {getReadablePayloadKind(verificationResult?.kind)}
                 </Text>
               </View>
 
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Struktur VP</Text>
-                <Text style={styles.infoValue}>
-                  {getValidationStatus(verificationResult?.structurallyValid)}
-                </Text>
-              </View>
-
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Signature VP</Text>
-                <Text style={styles.infoValue}>
+              <View style={styles.compactInfoRow}>
+                <Text style={styles.compactInfoLabel}>Signature VP</Text>
+                <Text
+                  style={[
+                    styles.compactInfoValue,
+                    {
+                      color: verificationResult?.signatureVerified
+                        ? '#166534'
+                        : '#991B1B',
+                    },
+                  ]}
+                >
                   {getSignatureStatus(verificationResult?.signatureVerified)}
                 </Text>
-              </View>
-
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>JWT Parts</Text>
-                <Text style={styles.infoValue}>{debugInfo.jwtParts || '-'}</Text>
               </View>
             </View>
           </View>
@@ -423,203 +393,152 @@ export default function ScanPresentationScreen() {
               <View style={styles.cardHeaderText}>
                 <Text style={styles.cardTitle}>VC Verification</Text>
                 <Text style={styles.cardSubtitle}>
-                  Credential yang dikirim oleh holder melalui presentation.
+                  Holder dan credential yang berhasil dibaca dari presentation.
                 </Text>
               </View>
             </View>
 
-            <View style={styles.resultBadgeRow}>
-              <View
-                style={[
-                  styles.resultBadge,
+            <View
+              style={[
+                styles.resultBadge,
+                presentedCredentials.length > 0 && verified
+                  ? styles.badgeSuccess
+                  : styles.badgeNeutral,
+              ]}
+            >
+              <Ionicons
+                name={
                   presentedCredentials.length > 0 && verified
-                    ? styles.badgeSuccess
-                    : styles.badgeNeutral,
+                    ? 'checkmark-circle'
+                    : 'information-circle'
+                }
+                size={16}
+                color={
+                  presentedCredentials.length > 0 && verified
+                    ? '#16A34A'
+                    : '#6B7280'
+                }
+              />
+              <Text
+                style={[
+                  styles.resultBadgeText,
+                  {
+                    color:
+                      presentedCredentials.length > 0 && verified
+                        ? '#166534'
+                        : '#374151',
+                  },
                 ]}
               >
-                <Ionicons
-                  name={
-                    presentedCredentials.length > 0 && verified
-                      ? 'checkmark-circle'
-                      : 'information-circle'
-                  }
-                  size={16}
-                  color={
-                    presentedCredentials.length > 0 && verified
-                      ? '#16A34A'
-                      : '#6B7280'
-                  }
-                />
-                <Text
-                  style={[
-                    styles.resultBadgeText,
-                    {
-                      color:
-                        presentedCredentials.length > 0 && verified
-                          ? '#166534'
-                          : '#374151',
-                    },
-                  ]}
-                >
-                  {presentedCredentials.length > 0 && verified
-                    ? 'VC tersedia dan tervalidasi'
-                    : 'VC tidak tersedia'}
-                </Text>
-              </View>
+                {presentedCredentials.length > 0 && verified
+                  ? 'VC tersedia dan tervalidasi'
+                  : 'VC tidak tersedia'}
+              </Text>
             </View>
 
-            <View style={styles.infoGrid}>
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Jumlah VC</Text>
-                <Text style={styles.infoValue}>
-                  {presentedCredentials.length}
-                </Text>
-              </View>
-
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Status VC</Text>
-                <Text style={styles.infoValue}>
-                  {presentedCredentials.length > 0 && verified
-                    ? 'Tervalidasi'
-                    : 'Belum tersedia'}
-                </Text>
-              </View>
-
-              <View style={styles.infoBoxFull}>
-                <Text style={styles.infoLabel}>Holder / Subject DID</Text>
-                <Text style={styles.didValue}>{holderDid || '-'}</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconBlue}>
-                <Ionicons
-                  name="person-circle-outline"
-                  size={22}
-                  color="#2563EB"
-                />
-              </View>
-              <View style={styles.sectionHeaderText}>
-                <Text style={styles.sectionTitle}>Holder / Subject DID</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Identitas digital pemilik credential.
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.value}>{holderDid || '-'}</Text>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconBlue}>
-                <Ionicons name="reader-outline" size={22} color="#2563EB" />
-              </View>
-              <View style={styles.sectionHeaderText}>
-                <Text style={styles.sectionTitle}>Data Credential</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Informasi utama yang berhasil dibaca dari VC.
-                </Text>
-              </View>
-            </View>
-
-            {presentedCredentials.length > 0 ? (
-              presentedCredentials.map((credential, index) => (
-                <View key={index} style={styles.presentedItem}>
-                  {credential.error ? (
-                    <>
-                      <Text style={styles.presentedLabel}>Credential Error</Text>
-                      <Text style={styles.presentedValue}>{credential.error}</Text>
-                    </>
-                  ) : (
-                    <>
-                      <View style={styles.credentialTopRow}>
-                        <View style={styles.credentialAvatar}>
-                          <Ionicons
-                            name="person-outline"
-                            size={22}
-                            color="#2563EB"
-                          />
-                        </View>
-
-                        <View style={styles.credentialIdentity}>
-                          <Text style={styles.presentedLabel}>
-                            {credential.attributeName || 'Credential'}
-                          </Text>
-                          <Text style={styles.presentedValue}>
-                            {credential.attributeValue || '-'}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.credentialDetailList}>
-                        <View style={styles.credentialDetailItem}>
-                          <Text style={styles.presentedMetaLabel}>Type</Text>
-                          <Text style={styles.presentedMetaValue}>
-                            {credential.attributeType || '-'}
-                          </Text>
-                        </View>
-
-                        <View style={styles.credentialDetailItem}>
-                          <Text style={styles.presentedMetaLabel}>Issuer</Text>
-                          <Text style={styles.presentedMetaValue}>
-                            {shorten(credential.issuer)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.credentialDetailItem}>
-                          <Text style={styles.presentedMetaLabel}>Subject</Text>
-                          <Text style={styles.presentedMetaValue}>
-                            {shorten(credential.subject)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.credentialDetailItem}>
-                          <Text style={styles.presentedMetaLabel}>Issued At</Text>
-                          <Text style={styles.presentedMetaValue}>
-                            {String(credential.issuanceDate || '-')}
-                          </Text>
-                        </View>
-                      </View>
-                    </>
-                  )}
+            <View style={styles.holderBox}>
+              <View style={styles.holderHeader}>
+                <View style={styles.holderIcon}>
+                  <Ionicons
+                    name="person-circle-outline"
+                    size={22}
+                    color="#2563EB"
+                  />
                 </View>
-              ))
-            ) : (
-              <Text style={styles.emptyText}>
-                Tidak ada credential yang dapat dibaca dari QR.
-              </Text>
-            )}
-          </View>
 
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconOrange}>
-                <Ionicons
-                  name="document-text-outline"
-                  size={22}
-                  color="#F97316"
-                />
+                <View style={styles.holderHeaderText}>
+                  <Text style={styles.holderTitle}>Holder / Subject DID</Text>
+                  <Text style={styles.holderSubtitle}>
+                    Identitas digital pemilik credential.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.sectionHeaderText}>
-                <Text style={styles.sectionTitle}>DID Document</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Informasi teknis resolver DID jika tersedia.
-                </Text>
-              </View>
+
+              <Text style={styles.didValue}>{holderDid || '-'}</Text>
             </View>
 
-            {didDocument ? (
-              <Text style={styles.jsonText}>
-                {JSON.stringify(didDocument, null, 2)}
-              </Text>
-            ) : (
-              <Text style={styles.emptyText}>
-                DID Document tidak tersedia atau belum berhasil di-resolve.
-              </Text>
-            )}
+            <View style={styles.credentialSection}>
+              <View style={styles.credentialSectionHeader}>
+                <Ionicons name="reader-outline" size={20} color="#2563EB" />
+                <Text style={styles.credentialSectionTitle}>
+                  Data Credential
+                </Text>
+              </View>
+
+              {presentedCredentials.length > 0 ? (
+                presentedCredentials.map((credential, index) => (
+                  <View key={index} style={styles.presentedItem}>
+                    {credential.error ? (
+                      <>
+                        <Text style={styles.presentedLabel}>
+                          Credential Error
+                        </Text>
+                        <Text style={styles.presentedValue}>
+                          {credential.error}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.credentialTopRow}>
+                          <View style={styles.credentialAvatar}>
+                            <Ionicons
+                              name="person-outline"
+                              size={22}
+                              color="#2563EB"
+                            />
+                          </View>
+
+                          <View style={styles.credentialIdentity}>
+                            <Text style={styles.presentedLabel}>
+                              {credential.attributeName || 'Credential'}
+                            </Text>
+                            <Text style={styles.presentedValue}>
+                              {credential.attributeValue || '-'}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.credentialDetailList}>
+                          <View style={styles.credentialDetailItem}>
+                            <Text style={styles.presentedMetaLabel}>Type</Text>
+                            <Text style={styles.presentedMetaValue}>
+                              {credential.attributeType || '-'}
+                            </Text>
+                          </View>
+
+                          <View style={styles.credentialDetailItem}>
+                            <Text style={styles.presentedMetaLabel}>Issuer</Text>
+                            <Text style={styles.presentedMetaValue}>
+                              {shorten(credential.issuer)}
+                            </Text>
+                          </View>
+
+                          <View style={styles.credentialDetailItem}>
+                            <Text style={styles.presentedMetaLabel}>Subject</Text>
+                            <Text style={styles.presentedMetaValue}>
+                              {shorten(credential.subject)}
+                            </Text>
+                          </View>
+
+                          <View style={styles.credentialDetailItem}>
+                            <Text style={styles.presentedMetaLabel}>
+                              Issued At
+                            </Text>
+                            <Text style={styles.presentedMetaValue}>
+                              {String(credential.issuanceDate || '-')}
+                            </Text>
+                          </View>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>
+                  Tidak ada credential yang dapat dibaca dari QR.
+                </Text>
+              )}
+            </View>
           </View>
 
           <AnimatedButton style={styles.scanAgainButton} onPress={handleScanAgain}>
@@ -842,11 +761,30 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 3,
   },
-  resultBadgeRow: {
-    flexDirection: 'row',
-    marginBottom: 14,
+  compactInfoList: {
+    gap: 10,
+  },
+  compactInfoRow: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  compactInfoLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '800',
+    marginBottom: 5,
+  },
+  compactInfoValue: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 20,
   },
   resultBadge: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -854,14 +792,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
+    marginBottom: 14,
   },
   badgeSuccess: {
     backgroundColor: '#F0FDF4',
     borderColor: '#BBF7D0',
-  },
-  badgeDanger: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
   },
   badgeNeutral: {
     backgroundColor: '#F9FAFB',
@@ -871,34 +806,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
-  infoGrid: {
+  holderBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 14,
+  },
+  holderHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
+    marginBottom: 12,
   },
-  infoBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  holderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  infoBoxFull: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  holderHeaderText: {
+    flex: 1,
   },
-  infoLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '800',
-    marginBottom: 5,
-  },
-  infoValue: {
+  holderTitle: {
     color: '#111827',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '900',
-    lineHeight: 20,
+  },
+  holderSubtitle: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 2,
   },
   didValue: {
     color: '#111827',
@@ -906,55 +849,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
   },
-  sectionCard: {
+  credentialSection: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 18,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderRadius: 18,
   },
-  sectionHeader: {
+  credentialSectionHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 14,
-  },
-  sectionHeaderText: {
-    flex: 1,
-  },
-  sectionIconBlue: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: '#DBEAFE',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
   },
-  sectionIconOrange: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: '#FFEDD5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionTitle: {
-    fontSize: 16,
+  credentialSectionTitle: {
+    color: '#111827',
+    fontSize: 15,
     fontWeight: '900',
-    color: '#111827',
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '700',
-    lineHeight: 17,
-    marginTop: 2,
-  },
-  value: {
-    color: '#111827',
-    fontWeight: '700',
-    lineHeight: 20,
   },
   presentedItem: {
     padding: 14,
@@ -1018,12 +926,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontWeight: '700',
     lineHeight: 20,
-  },
-  jsonText: {
-    color: '#374151',
-    fontFamily: 'monospace',
-    fontSize: 12,
-    lineHeight: 18,
   },
   scanAgainButton: {
     backgroundColor: '#2563EB',
