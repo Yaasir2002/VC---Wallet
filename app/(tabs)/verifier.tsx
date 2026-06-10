@@ -9,18 +9,18 @@ export default function VerifierScreen() {
   const router = useRouter();
 
   return (
-  <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <LinearGradient
         colors={['#2563EB', '#1D4ED8', '#F97316']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.hero}
       >
-        <View>
+        <View style={styles.heroTextWrapper}>
           <Text style={styles.heroLabel}>Verifier Mode</Text>
           <Text style={styles.heroTitle}>Scan & Verify</Text>
           <Text style={styles.heroSubtitle}>
-            Scan Verifiable Presentation QR Code to validate credential data.
+            Scan QR Verifiable Presentation untuk memeriksa data credential secara cepat.
           </Text>
         </View>
 
@@ -39,8 +39,8 @@ export default function VerifierScreen() {
         <Text style={styles.title}>Ready to Verify</Text>
 
         <Text style={styles.subtitle}>
-          Gunakan kamera untuk membaca QR Verifiable Presentation dari pengguna
-          lain, lalu sistem akan melakukan validasi dasar terhadap VP dan VC.
+          Gunakan kamera untuk membaca QR Verifiable Presentation dari pengguna lain.
+          Setelah QR terbaca, sistem akan menampilkan hasil verifikasi VP dan VC.
         </Text>
 
         <AnimatedButton
@@ -57,40 +57,72 @@ export default function VerifierScreen() {
           <View style={styles.infoIconBlue}>
             <Ionicons name="shield-checkmark-outline" size={22} color="#2563EB" />
           </View>
-          <Text style={styles.infoTitle}>Verification Flow</Text>
-        </View>
 
-        <View style={styles.stepItem}>
-          <View style={styles.stepNumber}>
-            <Text style={styles.stepNumberText}>1</Text>
+          <View style={styles.infoHeaderText}>
+            <Text style={styles.infoTitle}>Verification Flow</Text>
+            <Text style={styles.infoSubtitle}>
+              Alur sederhana saat verifier memeriksa credential.
+            </Text>
           </View>
-          <Text style={styles.stepText}>Scan QR Verifiable Presentation.</Text>
         </View>
 
-        <View style={styles.stepItem}>
-          <View style={styles.stepNumberOrange}>
-            <Text style={styles.stepNumberText}>2</Text>
+        <View style={styles.flowContainer}>
+          <View style={styles.stepItem}>
+            <View style={styles.stepLeft}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>1</Text>
+              </View>
+              <View style={styles.stepLine} />
+            </View>
+
+            <View style={styles.stepContent}>
+              <View style={styles.stepTitleRow}>
+                <Ionicons name="camera-outline" size={18} color="#2563EB" />
+                <Text style={styles.stepTitle}>Scan QR</Text>
+              </View>
+              <Text style={styles.stepText}>
+                Verifier membuka kamera dan memindai QR Verifiable Presentation dari pengguna.
+              </Text>
+            </View>
           </View>
-          <Text style={styles.stepText}>Parse VP JSON from QR data.</Text>
-        </View>
 
-        <View style={styles.stepItem}>
-          <View style={styles.stepNumber}>
-            <Text style={styles.stepNumberText}>3</Text>
+          <View style={styles.stepItem}>
+            <View style={styles.stepLeft}>
+              <View style={styles.stepNumberOrange}>
+                <Text style={styles.stepNumberText}>2</Text>
+              </View>
+              <View style={styles.stepLineOrange} />
+            </View>
+
+            <View style={styles.stepContent}>
+              <View style={styles.stepTitleRow}>
+                <Ionicons name="document-text-outline" size={18} color="#F97316" />
+                <Text style={styles.stepTitle}>Read Presentation</Text>
+              </View>
+              <Text style={styles.stepText}>
+                Sistem membaca data VP dari QR, lalu mengambil credential yang dikirimkan holder.
+              </Text>
+            </View>
           </View>
-          <Text style={styles.stepText}>
-            Validate holder, credential structure, issuer, subject, and proof.
-          </Text>
-        </View>
-      </View>
 
-      <View style={styles.noteCard}>
-        <Ionicons name="information-circle-outline" size={22} color="#F97316" />
-        <Text style={styles.noteText}>
-          Verifier mode saat ini menggunakan basic verification. Pada tahap
-          lanjutan, proses ini dapat dikembangkan dengan signature verification
-          dan DID resolver.
-        </Text>
+          <View style={styles.stepItemLast}>
+            <View style={styles.stepLeft}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>3</Text>
+              </View>
+            </View>
+
+            <View style={styles.stepContent}>
+              <View style={styles.stepTitleRow}>
+                <Ionicons name="checkmark-circle-outline" size={18} color="#2563EB" />
+                <Text style={styles.stepTitle}>Show Result</Text>
+              </View>
+              <Text style={styles.stepText}>
+                Hasil verifikasi ditampilkan agar verifier dapat melihat status VP dan VC dengan jelas.
+              </Text>
+            </View>
+          </View>
+        </View>
       </View>
     </ScrollView>
   );
@@ -113,6 +145,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  heroTextWrapper: {
+    flex: 1,
+    paddingRight: 14,
+  },
   heroLabel: {
     fontSize: 14,
     color: '#FFEDD5',
@@ -129,7 +165,7 @@ const styles = StyleSheet.create({
     color: '#DBEAFE',
     marginTop: 8,
     lineHeight: 21,
-    maxWidth: 230,
+    maxWidth: 250,
   },
   heroIcon: {
     width: 70,
@@ -207,7 +243,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 14,
+    marginBottom: 18,
   },
   infoIconBlue: {
     width: 42,
@@ -217,32 +253,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  infoHeaderText: {
+    flex: 1,
+  },
   infoTitle: {
     fontSize: 18,
     color: '#111827',
     fontWeight: '900',
   },
+  infoSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  flowContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    padding: 14,
+  },
   stepItem: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 13,
-    marginTop: 10,
+    paddingBottom: 16,
+  },
+  stepItemLast: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  stepLeft: {
+    alignItems: 'center',
   },
   stepNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#2563EB',
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepNumberOrange: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#F97316',
     alignItems: 'center',
     justifyContent: 'center',
@@ -252,27 +308,41 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
   },
-  stepText: {
+  stepLine: {
+    width: 2,
     flex: 1,
-    color: '#374151',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 19,
+    minHeight: 42,
+    backgroundColor: '#BFDBFE',
+    marginTop: 6,
   },
-  noteCard: {
-    backgroundColor: '#FFF7ED',
+  stepLineOrange: {
+    width: 2,
+    flex: 1,
+    minHeight: 42,
+    backgroundColor: '#FED7AA',
+    marginTop: 6,
+  },
+  stepContent: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#FED7AA',
-    borderRadius: 20,
-    padding: 16,
-    marginTop: 18,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
+    borderColor: '#E5E7EB',
   },
-  noteText: {
-    flex: 1,
-    color: '#9A3412',
+  stepTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 6,
+  },
+  stepTitle: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  stepText: {
+    color: '#4B5563',
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 19,
