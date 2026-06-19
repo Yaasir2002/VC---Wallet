@@ -1,50 +1,169 @@
-# Welcome to your Expo app 👋
+# 🆔 NF Identity ID
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**NF Identity ID** adalah aplikasi **Mobile Identity Wallet** berbasis **Self-Sovereign Identity (SSI)** yang dikembangkan menggunakan **React Native** dan **Expo**.
 
-## Get started
+Aplikasi ini membantu pengguna mengelola identitas digital secara mandiri melalui fitur **Wallet**, **DID**, **Verifiable Credential (VC)**, **Verifiable Presentation (VP)**, **QR Scanner**, dan **Verifier**.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 📌 Status Project
 
-2. Start the app
+Project ini dikembangkan sebagai bagian dari tugas akhir:
 
-   ```bash
-   npx expo start
-   ```
+> Implementasi Antarmuka Pengguna Mobile Identity Wallet Berbasis Self-Sovereign Identity Menggunakan React Native
 
-In the output, you'll find options to open the app in a
+| Keterangan | Detail |
+|---|---|
+| Nama Aplikasi | NF Identity ID |
+| Platform | Android |
+| Framework | React Native + Expo |
+| Fokus | Frontend / Client-Side Wallet |
+| Pengembang | Yaasir Aidil Fitrah |
+| Institusi | STT Terpadu Nurul Fikri |
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+---
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## ✨ Fitur Utama
 
-## Get a fresh project
+- 🔐 Membuat dan mengelola **wallet identitas digital**
+- 🧩 Membuat dan memulihkan wallet dengan **recovery phrase**
+- 🔑 Mengamankan wallet menggunakan **PIN** dan **biometric authentication**
+- 🌐 Membuat dan menampilkan **Decentralized Identifier (DID)**
+- 🎓 Menerima, menyimpan, melihat, dan menghapus **Verifiable Credential (VC)**
+- 📄 Membuat **Verifiable Presentation (VP)**
+- 📷 Memindai QR Code credential atau presentation
+- ✅ Melakukan verifikasi **VC** dan **VP**
+- 🛡️ Menyimpan data secara lokal dan aman
 
-When you're ready, run:
+---
 
-```bash
-npm run reset-project
+## 🧠 Konsep Self-Sovereign Identity
+
+**Self-Sovereign Identity (SSI)** adalah konsep identitas digital yang memberikan kendali kepada pengguna atas identitas dan credential miliknya sendiri.
+
+| Peran | Fungsi |
+|---|---|
+| Holder | Pengguna yang memiliki wallet dan credential |
+| Issuer | Pihak yang menerbitkan credential |
+| Verifier | Pihak yang memverifikasi credential atau presentation |
+
+---
+
+## 🛠️ Teknologi
+
+Project ini menggunakan:
+
+- React Native
+- Expo
+- Expo Router
+- TypeScript
+- Expo Camera
+- Expo Secure Store
+- Expo File System
+- Expo Local Authentication
+- did-jwt
+- did-jwt-vc
+- jose
+- bip39
+- React Navigation
+
+---
+
+## 📱 Alur Aplikasi
+
+```text
+Buka Aplikasi
+↓
+Buat Wallet
+↓
+Simpan Recovery Phrase
+↓
+Buat PIN
+↓
+Masuk Dashboard
+↓
+Kelola Credential
+↓
+Scan QR Code
+↓
+Buat VP
+↓
+Verifikasi VC / VP
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## ⚙️ Instalasi
 
-To learn more about developing your project with Expo, look at the following resources:
+Clone repository:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+git clone <URL_REPOSITORY>
+```
 
-## Join the community
+Masuk ke folder project:
 
-Join our community of developers creating universal apps.
+```bash
+cd VC---Wallet
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Install dependency:
+
+```bash
+npm install
+```
+
+Jalankan aplikasi:
+
+```bash
+npm start
+```
+
+Atau:
+
+```bash
+npx expo start
+```
+
+Jalankan di Android:
+
+```bash
+npm run android
+```
+
+---
+
+## 📜 Script
+
+| Perintah | Fungsi |
+|---|---|
+| `npm start` | Menjalankan Expo |
+| `npm run android` | Menjalankan aplikasi di Android |
+| `npm run web` | Menjalankan aplikasi versi web |
+| `npm run lint` | Mengecek kualitas kode |
+| `npm run typecheck` | Mengecek TypeScript |
+| `npm test` | Menjalankan testing |
+
+---
+
+## 🔒 Catatan Keamanan
+
+- Jangan membagikan **recovery phrase** kepada siapa pun.
+- Gunakan **PIN** yang aman.
+- Aktifkan biometrik jika perangkat mendukung.
+- Pastikan QR Code berasal dari sumber terpercaya.
+- Simpan credential hanya dari issuer yang valid.
+
+---
+
+## 👨‍💻 Pengembang
+
+**Yaasir Aidil Fitrah**  
+Program Studi Teknik Informatika  
+STT Terpadu Nurul Fikri
+
+---
+
+## 📝 Lisensi
+
+Project ini dikembangkan untuk kebutuhan tugas akhir dan dokumentasi aplikasi **NF Identity ID**.
