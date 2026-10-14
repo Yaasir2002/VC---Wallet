@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './platformSecureStore';
 import * as Crypto from 'expo-crypto';
 
 const PIN_KEY = 'USER_PIN_HASH';

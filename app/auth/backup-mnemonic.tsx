@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Alert } from '../../src/utils/platformAlert';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -32,11 +32,7 @@ export default function BackupMnemonicScreen() {
     return mnemonic.split(' ').filter(Boolean);
   }, [mnemonic]);
 
-  useEffect(() => {
-    void loadMnemonic();
-  }, []);
-
-  async function loadMnemonic() {
+  const loadMnemonic = useCallback(async () => {
     try {
       setLoading(true);
       const phrase = await getStoredMnemonicForBackup();
@@ -55,7 +51,11 @@ export default function BackupMnemonicScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    void loadMnemonic();
+  }, [loadMnemonic]);
 
   async function handleCopy() {
     if (!mnemonic) return;

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Alert } from '../../src/utils/platformAlert';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -29,11 +29,7 @@ export default function RecoveryPhraseScreen() {
 
   const words = useMemo(() => mnemonic.split(' ').filter(Boolean), [mnemonic]);
 
-  useEffect(() => {
-    void revealMnemonic();
-  }, []);
-
-  async function revealMnemonic() {
+  const revealMnemonic = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -67,7 +63,11 @@ export default function RecoveryPhraseScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    void revealMnemonic();
+  }, [revealMnemonic]);
 
   async function handleCopy() {
     if (!mnemonic) {

@@ -35,6 +35,10 @@ export default function UnlockScreen() {
   });
 
   async function handleBiometric() {
+    if (Platform.OS === 'web') {
+      setToast({ visible: true, message: 'Gunakan PIN wallet untuk versi web.', type: 'info' });
+      return;
+    }
     try {
       const biometricEnabled = await isBiometricEnabled();
 
@@ -68,7 +72,7 @@ export default function UnlockScreen() {
         await setSessionUnlocked(true);
         router.replace('/(tabs)');
       }
-    } catch (error) {
+    } catch {
       safeLogger.error('Biometric unlock failed');
 
       setToast({
@@ -109,7 +113,7 @@ export default function UnlockScreen() {
       });
 
       setInputPin('');
-    } catch (error) {
+    } catch {
       safeLogger.error('PIN unlock failed');
 
       setToast({

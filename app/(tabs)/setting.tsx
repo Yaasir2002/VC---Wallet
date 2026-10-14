@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useCallback, useState } from 'react';
 import {
   View,
@@ -7,7 +8,6 @@ import {
   TextInput,
   Pressable,
   Modal,
-  Alert,
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';

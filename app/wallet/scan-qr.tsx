@@ -23,11 +23,7 @@ import {
 import { saveClaimedJwtCredential } from '../../src/Services/credentialStorage';
 import { stringifySafeValue } from '../../src/utils/safeJson';
 import { base64UrlToJson } from '../../src/utils/base64url';
-import {
-  ClaimedJwtCredential,
-  CredentialPreviewClaim,
-  JwtVcV2Payload,
-} from '../../src/types/credential';
+import { JwtVcV2Payload } from '../../src/types/credential';
 import { JwtHeader } from '../../src/types/jwt';
 
 type ToastState = {
@@ -52,17 +48,9 @@ type DecodedIdentityLabJwt = {
   payload: JwtPreviewPayload;
 };
 
-const IDENTITYLAB_TRUSTED_ISSUERS = [
-  'did:web:identitylab.id',
-  'did:web:demo.identitylab.id',
-];
 
 function normalizeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function normalizeIssuerDid(value: unknown): string {
@@ -127,109 +115,6 @@ function getIssuerFromJwtPayload(rawJwt: string): string {
   return normalizeIssuerDid(decoded.payload.issuer || decoded.payload.iss);
 }
 
-function isAllowedIdentityLabCredential(rawJwt: string): boolean {
-  const issuer = getIssuerFromJwtPayload(rawJwt);
-
-  return IDENTITYLAB_TRUSTED_ISSUERS.includes(issuer);
-}
-
-function getCredentialTypes(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item).trim())
-      .filter((item) => item.length > 0);
-  }
-
-  if (typeof value === 'string' && value.trim()) {
-    return [value.trim()];
-  }
-
-  return ['VerifiableCredential'];
-}
-
-function getCredentialTypeLabel(types: string[]): string {
-  const filtered = types.filter((item) => item !== 'VerifiableCredential');
-
-  return filtered.length > 0 ? filtered.join(', ') : 'VerifiableCredential';
-}
-
-function buildIdentityLabVerifiedClaim(rawJwt: string): VerifiedJwtVcClaim | null {
-  const decoded = decodeCompactJwt(rawJwt);
-
-  if (!decoded) return null;
-
-  const issuer = normalizeIssuerDid(decoded.payload.issuer || decoded.payload.iss);
-  const types = getCredentialTypes(decoded.payload.type);
-  const credentialSubject = decoded.payload.credentialSubject;
-
-  if (!IDENTITYLAB_TRUSTED_ISSUERS.includes(issuer)) {
-    return null;
-  }
-
-  if (!types.includes('VerifiableCredential')) {
-    return null;
-  }
-
-  if (typeof decoded.payload.id !== 'string' || !decoded.payload.id.trim()) {
-    return null;
-  }
-
-  if (!isRecord(credentialSubject)) {
-    return null;
-  }
-
-  const subjectName =
-    typeof credentialSubject.Nama === 'string'
-      ? credentialSubject.Nama
-      : typeof credentialSubject.name === 'string'
-        ? credentialSubject.name
-        : typeof credentialSubject.fullName === 'string'
-          ? credentialSubject.fullName
-          : undefined;
-
-  const importedAt = new Date().toISOString();
-
-  const normalizedPayload: JwtVcV2Payload = {
-    ...(decoded.payload as JwtVcV2Payload),
-    issuer,
-    iss: issuer,
-    type: types,
-    id: decoded.payload.id,
-    credentialSubject,
-  };
-
-  const claimedCredential: ClaimedJwtCredential = {
-    id: decoded.payload.id,
-    vcJwt: decoded.rawJwt,
-    rawJwt: decoded.rawJwt,
-    decodedHeader: decoded.header,
-    decodedCredential: normalizedPayload,
-    verificationStatus: 'signature_verified',
-    signatureVerified: true,
-    issuer,
-    credentialSubject,
-    source: 'qr_jwt_claim',
-    importedAt,
-  };
-
-  const preview: CredentialPreviewClaim = {
-    credentialType: getCredentialTypeLabel(types),
-    issuer,
-    credentialId: decoded.payload.id,
-    subjectId:
-      typeof credentialSubject.id === 'string' ? credentialSubject.id : '-',
-    subjectName,
-    issuanceDate: decoded.payload.issuanceDate || decoded.payload.validFrom,
-    credentialSubject,
-    verificationStatus: 'signature_verified',
-  };
-
-  return {
-    claimedCredential,
-    preview,
-  };
-}
-
 function getSafeErrorMessage(
   error: unknown,
   fallback: string,
@@ -262,8 +147,6 @@ function getSafeErrorMessage(
       'Public key issuer tidak kompatibel dengan ES256. Credential ditolak.',
     unsupported_algorithm:
       'Algoritma signature tidak didukung. Credential ditolak.',
-    crypto_subtle_not_available:
-      'Crypto subtle tidak tersedia di Android. Credential IdentityLab akan diproses lewat fallback JWT mobile.',
     untrusted_issuer: issuerFromQr
       ? `Issuer credential tidak dipercaya. Credential ditolak. Issuer terbaca dari QR: ${issuerFromQr}`
       : 'Issuer credential tidak dipercaya. Credential ditolak. Issuer tidak terbaca dari pesan error.',
@@ -332,44 +215,11 @@ export default function ScanQRScreen() {
         type: 'success',
       });
     } catch (error) {
-      const canUseIdentityLabFallback =
-        error instanceof Error &&
-        ['untrusted_issuer', 'crypto_subtle_not_available'].includes(
-          error.message.trim()
-        ) &&
-        isAllowedIdentityLabCredential(data);
-
-      if (canUseIdentityLabFallback) {
-        const fallbackClaim = buildIdentityLabVerifiedClaim(data);
-
-        if (fallbackClaim) {
-          setVerifiedClaim(fallbackClaim);
-          setToast({
-            visible: true,
-            message:
-              'Credential IdentityLab diterima. Issuer terbaca: ' +
-              fallbackClaim.preview.issuer,
-            type: 'success',
-          });
-        } else {
-          setToast({
-            visible: true,
-            message:
-              'Credential IdentityLab terbaca, tetapi struktur JWT tidak valid.',
-            type: 'error',
-          });
-        }
-      } else {
-        setToast({
-          visible: true,
-          message: getSafeErrorMessage(
-            error,
-            'QR bukan JWT credential claim yang valid.',
-            data
-          ),
-          type: 'error',
-        });
-      }
+      setToast({
+        visible: true,
+        message: getSafeErrorMessage(error, 'QR bukan JWT credential claim yang valid.', data),
+        type: 'error',
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -579,7 +429,7 @@ export default function ScanQRScreen() {
             <Ionicons name="shield-checkmark-outline" size={22} color="#16A34A" />
             <Text style={styles.securityNoteText}>
               Credential ini sudah lolos validasi struktur VC v2 dan issuer
-              IdentityLab yang dipercaya.
+              yang dipercaya.
             </Text>
           </View>
 

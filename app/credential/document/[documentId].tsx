@@ -1,3 +1,4 @@
+import { Alert } from '../../../src/utils/platformAlert';
 // File: app/credential/document/[documentId].tsx
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -7,7 +8,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ import {
   SignedPresentationJWT,
 } from '../../../src/Services/presentationService';
 import { getDID } from '../../../src/Storage/didStorage';
+import { authenticateWalletAccess } from '../../../src/Services/walletLockService';
 import { getDocumentIcon } from '../../../src/utils/credentialUtils';
 
 import AnimatedButton from '../../../components/ui/AnimatedButton';
@@ -74,19 +75,6 @@ function base64UrlDecodeToString(value: string): string {
     );
   } catch {
     return decoded;
-  }
-}
-
-function decodeJwtHeaderForDebug(jwt: string): string {
-  try {
-    if (!isJwtString(jwt)) return '-';
-
-    const [encodedHeader] = jwt.trim().split('.');
-    const header = JSON.parse(base64UrlDecodeToString(encodedHeader));
-
-    return JSON.stringify(header, null, 2);
-  } catch {
-    return '-';
   }
 }
 
@@ -301,11 +289,11 @@ export default function CredentialDocumentDetailScreen() {
 
   const [document, setDocument] = useState<CredentialDocument | null>(null);
   const [presentationJwt, setPresentationJwt] = useState('');
-  const [presentationMeta, setPresentationMeta] =
+  const [, setPresentationMeta] =
     useState<SignedPresentationJWT | null>(null);
   const [qrWarning, setQrWarning] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showFullIssuerJwt, setShowFullIssuerJwt] = useState(false);
+  const [, setShowFullIssuerJwt] = useState(false);
   const [showFullPresentationJwt, setShowFullPresentationJwt] = useState(false);
 
   const [toast, setToast] = useState<ToastState>({
@@ -323,11 +311,6 @@ export default function CredentialDocumentDetailScreen() {
     if (!mainCredential) return [];
     return buildCredentialDetailItems(mainCredential);
   }, [mainCredential]);
-
-  const credentialJwt = useMemo(
-    () => getCredentialJwtFromStoredCredential(mainCredential),
-    [mainCredential]
-  );
 
   const issuerSignatureVerified =
     mainCredential?.verificationStatus === 'signature_verified' ||
@@ -352,6 +335,13 @@ export default function CredentialDocumentDetailScreen() {
       }
 
       setLoading(true);
+
+      const auth = await authenticateWalletAccess('Autentikasi diperlukan untuk membuka detail credential.');
+      if (!auth.success) {
+        Alert.alert('Autentikasi Gagal', auth.reason || 'Autentikasi dibatalkan.');
+        router.back();
+        return;
+      }
 
       const data = await getCredentialDocumentById(documentId);
 
@@ -450,16 +440,6 @@ export default function CredentialDocumentDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleCopyCredentialJWT() {
-    if (!credentialJwt) {
-      showToast('Issuer JWT Credential tidak tersedia.', 'error');
-      return;
-    }
-
-    await Clipboard.setStringAsync(credentialJwt);
-    showToast('Issuer JWT Credential berhasil disalin.', 'success');
   }
 
   async function handleCopyPresentationJWT() {

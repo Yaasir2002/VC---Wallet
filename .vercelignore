@@ -1,0 +1,12 @@
+issuer-output/
+.git/
+.codex/
+.agents/
+.aws/
+.expo/
+node_modules/
+dist/
+.env
+.env.*
+playwright-report/
+test-results/

@@ -15,7 +15,7 @@
  * If DID data grows large, we store in AsyncStorage with the key stored in SecureStore.
  */
 
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../Storage/platformSecureStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { safeLogger } from '../utils/safeLogger';
 

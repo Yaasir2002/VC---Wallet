@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './platformSecureStore';
 import { utf8ToBytes, bytesToUtf8 } from '@noble/ciphers/utils';
 import { gcm } from '@noble/ciphers/aes';
 

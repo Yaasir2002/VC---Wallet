@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -5,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';

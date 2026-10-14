@@ -1,5 +1,5 @@
 import { createVerifiableCredentialJwt } from 'did-jwt-vc';
-import { ES256KSigner, EdDSASigner } from 'did-jwt';
+import { EdDSASigner } from 'did-jwt';
 import { getRecoverableWalletIdentity } from '../Storage/secureWalletStorage';
 
 function hexToBytes(hex: string): Uint8Array {

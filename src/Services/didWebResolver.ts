@@ -7,6 +7,7 @@ import {
   TRUSTED_VC_ISSUER_DID_DOCUMENT_URL,
 } from '../config/securityLimits';
 import { isRecord } from '../utils/safeJson';
+import { TRUSTED_ISSUERS } from '../config/trustedIssuers';
 
 export type SupportedPublicKeyJwk = JsonWebKey & {
   kty: string;
@@ -26,8 +27,8 @@ export type DidDocumentVerificationMethod = {
 export type DidDocument = {
   id: string;
   verificationMethod?: DidDocumentVerificationMethod[];
-  assertionMethod?: Array<string | DidDocumentVerificationMethod>;
-  authentication?: Array<string | DidDocumentVerificationMethod>;
+  assertionMethod?: (string | DidDocumentVerificationMethod)[];
+  authentication?: (string | DidDocumentVerificationMethod)[];
   [key: string]: unknown;
 };
 
@@ -81,9 +82,7 @@ function getDidWebUrl(did: string): string {
   const normalizedDid = normalizeDid(did);
 
   if (
-    normalizedDid !== 'did:web:identitylab.id' &&
-    normalizedDid !== 'did:web:demo.identitylab.id' &&
-    normalizedDid !== normalizeDid(TRUSTED_VC_ISSUER_DID)
+    !TRUSTED_ISSUERS.some((issuer) => issuer.status === 'active' && normalizeDid(issuer.id) === normalizedDid)
   ) {
     throw new Error('untrusted_issuer');
   }

@@ -11,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker from '../../components/ui/DateInput';
 
 import AppToast from '../../components/ui/AppToast';
 import AnimatedButton from '../../components/ui/AnimatedButton';

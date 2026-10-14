@@ -29,6 +29,10 @@ export default function CreatePinScreen() {
   const [error, setError] = useState('');
 
   async function toggleBiometric() {
+    if (Platform.OS === 'web') {
+      setError('Versi web menggunakan PIN wallet. Biometrik tersedia di aplikasi Android/iOS.');
+      return;
+    }
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 

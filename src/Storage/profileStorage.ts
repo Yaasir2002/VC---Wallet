@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './platformSecureStore';
 import { safeLogger } from '../utils/safeLogger';
 
 const USER_PROFILE_KEY = 'USER_PROFILE';

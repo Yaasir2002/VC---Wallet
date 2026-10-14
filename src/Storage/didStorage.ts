@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './platformSecureStore';
 import { DIDData } from '../Services/didService';
 import { safeLogger } from '../utils/safeLogger';
 

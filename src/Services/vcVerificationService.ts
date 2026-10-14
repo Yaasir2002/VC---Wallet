@@ -1,4 +1,4 @@
-import { decodeJWT } from './verificationService';
+import { verifyPresentationJWT } from './verificationService';
 
 export type VCVerificationResult = {
   verified: boolean;
@@ -44,38 +44,21 @@ export async function verifyVCJwt(jwt: string): Promise<VCVerificationResult> {
       };
     }
 
-    const decoded = decodeJWT(jwt);
-    const payload = decoded.payload || {};
-    const vc = payload.vc || payload;
-
-    const hasCredentialSubject = Boolean(vc?.credentialSubject);
-    const hasIssuer = Boolean(payload.iss || vc?.issuer);
-    const structurallyValid = Boolean(hasCredentialSubject && hasIssuer);
+    const result = await verifyPresentationJWT(jwt);
+    const valid = result.kind === 'vc-jwt' && result.valid;
+    const credential = result.credentials[0];
 
     return {
-      verified: structurallyValid,
-      isValid: structurallyValid,
-      structurallyValid,
-      signatureVerified: false,
+      verified: valid,
+      isValid: valid,
+      structurallyValid: result.kind === 'vc-jwt' && result.structurallyValid,
+      signatureVerified: result.kind === 'vc-jwt' && result.signatureVerified,
       checkedAt,
-      status: structurallyValid ? 'verified' : 'malformed_credential',
-      reason: structurallyValid
-        ? undefined
-        : 'Credential tidak memiliki issuer atau credentialSubject.',
-      issuer:
-        typeof payload.iss === 'string'
-          ? payload.iss
-          : typeof vc?.issuer === 'string'
-            ? vc.issuer
-            : vc?.issuer?.id,
-      subject:
-        typeof payload.sub === 'string'
-          ? payload.sub
-          : typeof vc?.credentialSubject?.id === 'string'
-            ? vc.credentialSubject.id
-            : undefined,
-      warning:
-        'JWT berhasil dibaca secara struktur. Verifikasi signature kriptografis penuh belum dilakukan di service ini.',
+      status: valid ? 'verified' : 'pending_verification',
+      reason: result.warning,
+      issuer: credential?.issuer,
+      subject: credential?.subject,
+      warning: result.warning,
     };
   } catch (error) {
     const message =

@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useState } from 'react';
 import {
   View,
@@ -5,7 +6,6 @@ import {
   StyleSheet,
   TextInput,
   Pressable,
-  Alert,
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';

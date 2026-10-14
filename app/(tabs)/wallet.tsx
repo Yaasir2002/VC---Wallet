@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useCallback, useState } from 'react';
 import {
   View,
@@ -5,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -179,20 +179,7 @@ export default function WalletScreen() {
     router.push('/wallet/scan-qr');
   }
 
-  async function handleOpenDocument(document: CredentialDocument) {
-    const auth = await authenticateWalletAccess(
-      'Autentikasi diperlukan untuk membuka detail credential.'
-    );
-
-    if (!auth.success) {
-      setToast({
-        visible: true,
-        message: auth.reason || 'Autentikasi gagal',
-        type: 'error',
-      });
-      return;
-    }
-
+  function handleOpenDocument(document: CredentialDocument) {
     router.push({
       pathname: '/credential/document/[documentId]',
       params: { documentId: document.documentId },

@@ -167,3 +167,70 @@ STT Terpadu Nurul Fikri
 ## 📝 Lisensi
 
 Project ini dikembangkan untuk kebutuhan tugas akhir dan dokumentasi aplikasi **NF Identity ID**.
+
+---
+
+## Versi Web dan Vercel
+
+Versi web menggunakan Expo Router sebagai single-page application. Konfigurasi
+build, output `dist`, dan fallback route berada di `vercel.json`.
+
+```bash
+npm ci
+npm run typecheck
+npm test -- --runInBand
+npm run build:web
+npx expo serve --port 8081
+```
+
+Untuk deploy dari terminal yang sudah login Vercel:
+
+```bash
+npx vercel login
+npx vercel --prod
+```
+
+Atau impor repository melalui dashboard Vercel. Gunakan build command
+`npm run build:web` dan output directory `dist`. Tidak diperlukan environment
+variable atau private key issuer untuk menjalankan frontend wallet.
+Folder `issuer-output`, file environment, dan konfigurasi lokal dikecualikan
+dari upload melalui `.vercelignore`.
+
+### Penyimpanan dan autentikasi web
+
+- Profil, mnemonic, private key wallet, dan credential dienkripsi menggunakan
+  AES-256-GCM di IndexedDB. Kunci enkripsi browser tidak dapat diekspor melalui
+  Web Crypto, tetapi script pada origin yang sama masih dapat menggunakannya.
+  Perlindungan ini tidak setara dengan Android Keystore/iOS Keychain.
+- Gunakan versi web untuk demo dengan data uji. PIN mengontrol akses melalui
+  aplikasi; PIN bukan kunci enkripsi database browser.
+- Reload halaman mengunci sesi; operasi sensitif meminta PIN wallet dengan
+  input tersembunyi. Biometrik native tetap tersedia hanya di Android/iOS.
+- Penyimpanan terpisah untuk setiap browser dan origin. Menghapus data browser
+  menghapus credential lokal. Recovery phrase memulihkan identitas dan kunci,
+  bukan file credential atau profil.
+- Kamera dan Web Crypto memerlukan HTTPS (atau localhost untuk pengembangan).
+  Resolusi `did:web` memerlukan server issuer yang mengizinkan CORS.
+- Implementasi native tetap memakai SecureStore dan file credential terenkripsi;
+  berkas `.web.ts` dipilih hanya oleh build web.
+
+### Pengujian browser
+
+```bash
+npx playwright install chromium
+npm run test:web
+```
+
+Jalankan server lokal terlebih dahulu. Untuk menguji hasil deployment,
+set environment variable `WALLET_TEST_URL` ke URL Vercel, lalu jalankan
+`npm run test:web`. Pada PowerShell:
+
+```powershell
+$env:WALLET_TEST_URL = 'https://nama-project.vercel.app'
+npm run test:web
+```
+
+Pengujian browser memakai wallet dan issuer fixture baru, bukan data pengguna.
+Pengujian mencakup onboarding, PIN, refresh, recovery phrase, profil, impor VC,
+dan signature VP. DID Document issuer pada pengujian dimock; ketersediaan
+issuer publik, izin kamera perangkat, dan biometrik native perlu diuji manual.

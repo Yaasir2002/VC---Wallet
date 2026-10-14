@@ -3,6 +3,8 @@
 import { resolveDID, extractPublicKeyInfo } from './resolverService';
 import { resolveDidWebPublicKey } from './didWebResolver';
 import { verifyJwtSignature } from './jwtSignatureVerifier';
+import { validateCredentialExpiration } from './credentialExpirationService';
+import { MAX_QR_PAYLOAD_BYTES } from '../config/securityLimits';
 
 export type DecodedJWT = {
   header: Record<string, unknown>;
@@ -314,6 +316,9 @@ function looksLikePlainCredentialJson(value: unknown): boolean {
 
 export function extractJwtFromQrData(data: string): string {
   const normalized = typeof data === 'string' ? data.trim() : '';
+  if (new TextEncoder().encode(normalized).length > MAX_QR_PAYLOAD_BYTES) {
+    throw new Error('QR terlalu besar untuk diproses.');
+  }
 
   if (!normalized) {
     throw new Error('QR kosong atau tidak terbaca.');
@@ -689,6 +694,8 @@ async function tryResolveHolderDid(did: string) {
 
 async function verifyVcJwt(decodedVC: DecodedJWT): Promise<VerifiedCredentialView> {
   try {
+    const validity = validateCredentialExpiration(decodedVC.payload);
+    if (!validity.isValidTime) throw new Error(validity.reason || 'Credential tidak berlaku.');
     const issuerDid = extractIssuerDidFromDecodedCredential(decodedVC);
     const kid =
       typeof decodedVC.header.kid === 'string' ? decodedVC.header.kid : '';
@@ -747,7 +754,7 @@ async function credentialsFromVPJwt(
     return [{ error: 'VP JWT tidak memiliki verifiableCredential.' }];
   }
 
-  if (credentialJWTs.length === 0) {
+  if (credentialJWTs.length !== rawCredentialItems.length) {
     return [
       {
         error: 'Item verifiableCredential di dalam VP bukan VC JWT valid.',

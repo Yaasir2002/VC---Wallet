@@ -58,7 +58,16 @@ ios
 
 issuer-output/issuer-private-jwk.json
 issuer-output/sample-vc.jwt
+issuer-output/
+.aws/
+.codex/
+.agents/
+.vercel/
+playwright-report/
+test-results/
 *.pem
 *.key
 .env
 .env.*
+
+.vercel

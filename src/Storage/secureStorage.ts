@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './platformSecureStore';
 import { safeLogger } from '../utils/safeLogger';
 
 const VC_KEY = 'USER_VERIFIABLE_CREDENTIALS';

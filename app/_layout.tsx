@@ -10,6 +10,8 @@ import {
   StyleSheet,
   AppState,
   AppStateStatus,
+  Platform,
+  Text,
 } from 'react-native';
 import {
   hasPin,
@@ -40,16 +42,22 @@ function AuthGate() {
   const segments = useSegments();
 
   const [checking, setChecking] = useState(true);
+  const [authError, setAuthError] = useState(false);
 
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const segmentsRef = useRef(segments);
   const isCheckingRef = useRef(false);
+  const initializedRef = useRef(false);
 
   const checkAuth = useCallback(async () => {
     if (isCheckingRef.current) return;
 
     try {
       isCheckingRef.current = true;
+      if (!initializedRef.current) {
+        if (Platform.OS === 'web') await lockSession();
+        initializedRef.current = true;
+      }
 
       const pinExists = await hasPin();
       const onboardingDone = await isOnboardingCompleted();
@@ -70,6 +78,11 @@ function AuthGate() {
         isAuthRoute && currentRoute === 'backup-mnemonic';
       const isRestoreWalletRoute =
         isAuthRoute && currentRoute === 'restore-wallet';
+
+      if (pinExists && isBackupMnemonicRoute) {
+        router.replace(sessionUnlocked ? '/settings/recovery-phrase' : '/auth/unlock');
+        return;
+      }
 
       if (
         !onboardingDone &&
@@ -132,6 +145,7 @@ function AuthGate() {
         router.replace('/(tabs)');
       }
     } catch (error) {
+      setAuthError(true);
       safeLogger.error('Auth gate check failed', {
         error: error instanceof Error ? error.message : 'unknown',
       });
@@ -191,10 +205,12 @@ function AuthGate() {
     };
   }, [handleAppStateChange]);
 
-  if (checking) {
+  if (checking || authError) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2563EB" />
+        {authError ? (
+          <Text>Wallet tidak dapat dibuka. Izinkan penyimpanan browser dan muat ulang halaman.</Text>
+        ) : <ActivityIndicator size="large" color="#2563EB" />}
       </View>
     );
   }

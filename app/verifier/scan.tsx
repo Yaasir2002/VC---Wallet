@@ -121,18 +121,18 @@ export default function ScanPresentationScreen() {
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const [rawQr, setRawQr] = useState('');
+  const [, setRawQr] = useState('');
   const [verified, setVerified] = useState<boolean | null>(null);
   const [holderDid, setHolderDid] = useState('');
-  const [didDocument, setDidDocument] = useState<any | null>(null);
-  const [publicKeyInfo, setPublicKeyInfo] = useState<any | null>(null);
+  const [, setDidDocument] = useState<any | null>(null);
+  const [, setPublicKeyInfo] = useState<any | null>(null);
   const [presentedCredentials, setPresentedCredentials] = useState<
     VerifiedCredentialView[]
   >([]);
-  const [decodedPayload, setDecodedPayload] = useState<any | null>(null);
+  const [, setDecodedPayload] = useState<any | null>(null);
   const [verificationResult, setVerificationResult] =
     useState<UniversalVerificationResult | null>(null);
-  const [debugInfo, setDebugInfo] = useState({
+  const [, setDebugInfo] = useState({
     length: 0,
     jwtParts: 0,
     payloadKind: 'unknown',

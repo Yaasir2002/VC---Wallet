@@ -14,7 +14,7 @@ export default function CreateCredentialScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.hero}
       >
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Kembali" style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back-outline" size={22} color="#FFFFFF" />
         </Pressable>
 
@@ -36,6 +36,13 @@ export default function CreateCredentialScreen() {
           description="Credential identitas kependudukan seperti nama, NIK, tanggal lahir, dan alamat."
           badge="KTP"
           onPress={() => router.push('/credential/create-ktp')}
+        />
+        <CredentialOptionCard
+          icon="download-outline"
+          title="Import JSON Credential"
+          description="Impor credential JSON dan periksa signature JWT issuer sebelum menyimpan."
+          badge="JSON"
+          onPress={() => router.push('/credential/import')}
         />
       </View>
 

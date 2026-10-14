@@ -33,7 +33,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/Logo NF Identity ID.png"
     },
     "plugins": [

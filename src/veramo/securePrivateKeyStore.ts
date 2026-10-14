@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../Storage/platformSecureStore';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 import { isBiometricEnabled } from '../Storage/authStorage';

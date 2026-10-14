@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useState } from 'react';
 import {
   View,
@@ -7,9 +8,8 @@ import {
   TextInput,
   Pressable,
   Platform,
-  Alert,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker from '../../components/ui/DateInput';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 

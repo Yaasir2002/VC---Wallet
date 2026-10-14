@@ -144,7 +144,7 @@ async function verifyEs256JwtSignature(params: {
   try {
     const derSignature = rawJoseSignatureToDer(rawSignature);
 
-    if (p256.verify(derSignature, digest, publicKey)) {
+    if (p256.verify(derSignature, digest, publicKey, { lowS: false })) {
       return true;
     }
   } catch {
@@ -152,7 +152,7 @@ async function verifyEs256JwtSignature(params: {
   }
 
   try {
-    return p256.verify(rawSignature, digest, publicKey);
+    return p256.verify(rawSignature, digest, publicKey, { lowS: false });
   } catch {
     return false;
   }

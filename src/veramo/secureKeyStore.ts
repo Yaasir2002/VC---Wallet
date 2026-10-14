@@ -12,7 +12,7 @@
  * which already persists private keys in expo-secure-store.
  */
 
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../Storage/platformSecureStore';
 import { safeLogger } from '../utils/safeLogger';
 
 const KEY_INDEX_KEY = 'VERAMO_KEY_STORE_INDEX_V1';

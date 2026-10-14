@@ -16,17 +16,15 @@ import { base64UrlToJson } from '../utils/base64url';
 import { isRecord } from '../utils/safeJson';
 import { resolveDidWebPublicKey } from './didWebResolver';
 import { verifyJwtSignature } from './jwtSignatureVerifier';
+import { TRUSTED_ISSUERS as ISSUER_CONFIG } from '../config/trustedIssuers';
+import { validateCredentialExpiration } from './credentialExpirationService';
 
 export type VerifiedJwtVcClaim = {
   claimedCredential: ClaimedJwtCredential;
   preview: CredentialPreviewClaim;
 };
 
-const TRUSTED_ISSUERS = [
-  'did:web:identitylab.id',
-  'did:web:demo.identitylab.id',
-  'did:web:vc-issuer.yaasir.dev',
-];
+const TRUSTED_ISSUERS = ISSUER_CONFIG.filter((issuer) => issuer.status === 'active').map((issuer) => issuer.id);
 
 function assertQrPayloadSize(value: string): void {
   if (!value || value.trim().length === 0) {
@@ -240,6 +238,8 @@ export async function verifyJwtVcClaimFromQr(
 
   assertJwtHeader(decoded.header);
   assertVcV2Payload(decoded.payload);
+  const validity = validateCredentialExpiration(decoded.payload);
+  if (!validity.isValidTime) throw new Error(validity.reason || 'Credential tidak berlaku.');
 
   const trustedIssuerDid = assertTrustedIssuerConsistency({
     header: decoded.header,

@@ -1,3 +1,4 @@
+import { Alert } from '../../src/utils/platformAlert';
 import { useState } from 'react';
 import {
   View,
@@ -5,8 +6,8 @@ import {
   StyleSheet,
   Pressable,
   Dimensions,
+  Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -88,6 +89,13 @@ export default function OnboardingScreen() {
           recovery phrase 12 kata. Setelah itu, kamu akan diminta menyimpan
           recovery phrase dan membuat PIN wallet.
         </Text>
+        {Platform.OS === 'web' ? (
+          <Text style={styles.infoText}>
+            Versi web untuk uji coba: data terenkripsi disimpan di browser ini.
+            Gunakan identitas uji; keamanan browser berbeda dari aplikasi Android.
+            Menghapus data browser menghapus wallet dan credential lokal.
+          </Text>
+        ) : null}
 
         <Pressable
           style={[styles.primaryButton, loading && styles.disabledButton]}
