@@ -29,11 +29,21 @@ if (!global.Buffer) {
 }
 
 export default function RootLayout() {
-  return (
+  const content = (
     <>
       <AuthGate />
       <Slot />
     </>
+  );
+
+  if (Platform.OS !== 'web') return content;
+
+  return (
+    <View style={styles.webBackground}>
+      <View style={styles.mobileFrame} testID="mobile-app">
+        {content}
+      </View>
+    </View>
   );
 }
 
@@ -219,6 +229,17 @@ function AuthGate() {
 }
 
 const styles = StyleSheet.create({
+  webBackground: {
+    flex: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  mobileFrame: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 430,
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
   loadingContainer: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#F3F4F6',
